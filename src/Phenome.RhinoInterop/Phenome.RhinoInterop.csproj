@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The kernel on one side, RhinoCommon on the other, and nothing else. This used to live inside the
+    Grasshopper components plugin, which meant anything wanting to convert a mesh had to reference a
+    plugin - and through it a catalogue, a node model and a palette it had no use for. A plugin is the end
+    of a dependency chain, not a link in one.
+
+    No Grasshopper reference, because none is needed: not one line of this touches GH_ or Grasshopper.*.
+    It is Rhino geometry to kernel geometry and back.
+  -->
+  <PropertyGroup>
+    <!-- Cleared first: Directory.Build.props sets the singular default for every project here. -->
+    <TargetFramework></TargetFramework>
+    <TargetFrameworks>net7.0</TargetFrameworks>
+    <RootNamespace>Phenome.RhinoInterop</RootNamespace>
+    <AssemblyName>Phenome.RhinoInterop</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!-- Rhino 8 hosts .NET 7, which the SDK reports as out of support and warnings are errors here. -->
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <NoWarn>NU1701</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>Phenome.RhinoInterop</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Authors>Object</Authors>
+    <Company>Object</Company>
+    <Description>Conversions between RhinoCommon geometry and the Phenome kernel: points, vectors, planes, curves, polylines, meshes and transforms, each way.</Description>
+    <PackageTags>rhino;rhinocommon;geometry;interop;phenome</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/theObjectCo/Phenome</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/theObjectCo/Phenome</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      ExcludeAssets on RhinoCommon because Rhino is the host and supplies it: a copy travelling beside a
+      plugin is a second assembly claiming one identity, which is the fault this repository has already
+      been debugged for.
+    -->
+    <PackageReference Include="RhinoCommon" Version="8.21.25188.17001" ExcludeAssets="runtime" />
+
+    <!--
+      A project reference, because the kernel is in this repository: packages are for crossing between
+      repositories, not for talking to the folder next door. Pack turns this into a package dependency by
+      itself, so what ships declares Phenome.Geometry either way.
+    -->
+    <ProjectReference Include="..\Phenome.Geometry\Phenome.Geometry.csproj" />
+  </ItemGroup>
+
+</Project>
