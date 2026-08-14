@@ -1,12 +1,19 @@
-# Phenome
+# Phenome Link
 
-Public home for Phenome's open components. Two of them are here now — the pair that puts an agent and a
-human on the same Grasshopper canvas. More will follow, the geometry kernel among them.
+Your Grasshopper canvas over loopback HTTP, so an agent can work on it beside you. Two halves of one
+mechanism, and they only work as a pair.
 
 | | |
 |---|---|
-| [`src/Phenome.Apps.GrasshopperLink`](src/Phenome.Apps.GrasshopperLink) | The canvas end: a Grasshopper plugin that exposes the live document over loopback HTTP. |
-| [`src/Phenome.Apps.VSCodeLink`](src/Phenome.Apps.VSCodeLink) | The editor end: a VS Code extension and an MCP server, so an agent speaks the protocol as tools rather than raw HTTP. |
+| [`src/Phenome.Apps.GrasshopperLink`](src/Phenome.Apps.GrasshopperLink) | The canvas end: a Grasshopper plugin that exposes the live document, and verbs to edit it. |
+| [`src/Phenome.Apps.VSCodeLink`](src/Phenome.Apps.VSCodeLink) | The editor end: a VS Code extension carrying an MCP server, so an agent speaks the protocol as named tools rather than raw HTTP. |
+
+**No Phenome dependency, deliberately.** Not one line of this references the geometry kernel or anything else
+of ours, which is what lets it ship as a single self-contained `.gha`: the protocol is worth the same to any
+Grasshopper user with any agent, and it gives nothing away. The kernel briefly shared this repository and has
+its own now — [theObjectCo/PhenomeKernel](https://github.com/theObjectCo/PhenomeKernel) — because the two share
+no reference in either direction and a `.gha` with a `.vsix` is not the artefact a `.nupkg` is. The components
+plugin built on the kernel enriches what this one reports, by reflection, when both happen to be loaded.
 
 ## What the link is for
 
