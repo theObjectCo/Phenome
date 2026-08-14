@@ -1,0 +1,98 @@
+# Builds both halves of the link and, from a tag, attaches them to a release.
+#
+# This is the replacement for `yak push`: a tagged release carrying the .gha and the .vsix, which anybody can
+# download without a package source, a token or an account. Yak packing stays a local script because it needs
+# Yak.exe, which ships inside Rhino and is not on a runner.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # Windows, because the plugin targets net7.0 against the Grasshopper reference assemblies and that is where
+    # the .gha is normally produced. Nothing here needs Rhino installed - the NuGet package supplies the
+    # references - but keeping the build on the platform it ships to costs nothing and removes a question.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            7.0.x
+            10.0.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # The plugin references no Phenome library on purpose, so this builds from a clean clone with no feed
+      # and no secret. That property is worth a comment because it is the reason this repository is public.
+      - name: Build the plugin
+        run: dotnet build src/Phenome.Apps.GrasshopperLink/Phenome.Apps.GrasshopperLink.csproj -c Release
+
+      - name: Package the extension
+        working-directory: src/Phenome.Apps.VSCodeLink
+        run: npx --yes @vscode/vsce package --allow-missing-repository --skip-license
+
+      - name: Collect
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item (Get-ChildItem -Recurse src/Phenome.Apps.GrasshopperLink/bin/Release -Filter *.gha)[0].FullName dist
+          Copy-Item src/Phenome.Apps.GrasshopperLink/manifest.yml dist
+          Copy-Item (Get-ChildItem src/Phenome.Apps.VSCodeLink -Filter 'phenome-link-*.vsix')[0].FullName dist
+          Get-ChildItem dist | ForEach-Object { "  $($_.Name)  $([int]($_.Length/1KB)) KB" }
+
+      # The manifest and the assembly must agree on the version: Yak cross-checks them, and the friction log
+      # stamps its reports with the assembly version so a report names a build.
+      - name: Check the version in the manifest matches the project
+        shell: pwsh
+        run: |
+          $manifest = (Get-Content src/Phenome.Apps.GrasshopperLink/manifest.yml |
+            Select-String '^version:\s*(.+)$').Matches.Groups[1].Value.Trim()
+          $project = (Select-Xml -Path src/Phenome.Apps.GrasshopperLink/Phenome.Apps.GrasshopperLink.csproj `
+            -XPath '//Version').Node.InnerText.Trim()
+          "manifest $manifest, project $project"
+          if ($manifest -ne $project) { throw "manifest.yml says $manifest and the project says $project" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phenome-link
+          path: dist/*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: phenome-link
+          path: dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body: |
+            Both halves, and they only work as a pair.
+
+            **The .gha** goes in `%APPDATA%\Grasshopper\Libraries\`. Then right-click it, Properties,
+            **Unblock** — Windows marks files that arrived from elsewhere and Grasshopper refuses a blocked
+            assembly *silently*. This is the step everybody misses.
+
+            **The .vsix**: `code --install-extension phenome-link-<version>.vsix`, or let the canvas's
+            *Pair with VS Code* button do it on the first pairing.
+
+            Then restart Rhino. `GET /` on the port in `%TEMP%\phenome-link-<pid>.port` describes the whole
+            protocol.
