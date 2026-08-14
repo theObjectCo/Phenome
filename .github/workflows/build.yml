@@ -68,9 +68,59 @@ jobs:
           name: phenome-link
           path: dist/*
 
-  release:
+  # The Yak package, which needs Yak.exe - it ships inside Rhino and no hosted runner has one. A self-hosted
+  # runner on a machine with Rhino does, so this is the step that turns having one into something.
+  #
+  # Gated on a repository variable rather than on a label, because a job asking for a runner that does not
+  # exist queues for six hours and then fails. Set PHENOME_SELF_HOSTED to 'true' once a Windows runner with
+  # Rhino is registered; until then this skips and the release carries the .gha and the .vsix, which is enough
+  # to install by hand.
+  yak:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: vars.PHENOME_SELF_HOSTED == 'true'
+    runs-on: [self-hosted, windows]
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: phenome-link
+          path: dist
+
+      - name: Build the Yak package
+        shell: pwsh
+        run: |
+          $yak = 'C:\Program Files\Rhino 8\System\Yak.exe'
+          if (-not (Test-Path $yak)) { throw "Yak is not at $yak - is Rhino installed on this runner?" }
+
+          # Yak builds from a folder holding the .gha, its manifest and anything travelling with it. The vsix
+          # rides along so one install is the whole install: the canvas's pair button hands it to VS Code.
+          $staging = Join-Path $env:RUNNER_TEMP 'yak'
+          if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
+          New-Item -ItemType Directory -Force $staging | Out-Null
+          Copy-Item dist/* $staging
+
+          Push-Location $staging
+          try {
+            & $yak build
+            if ($LASTEXITCODE -ne 0) { throw 'yak build failed' }
+          }
+          finally { Pop-Location }
+
+          $package = Get-ChildItem $staging -Filter '*.yak' | Select-Object -First 1
+          if (-not $package) { throw 'yak produced no package' }
+          Copy-Item $package.FullName dist
+          "  $($package.Name)  $([int]($package.Length/1KB)) KB"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phenome-link-yak
+          path: dist/*.yak
+
+  release:
+    # The yak job is skipped when no self-hosted runner is configured, and a skipped dependency would take the
+    # release with it. always() keeps the release going and the download below tolerates the missing artifact.
+    needs: [build, yak]
+    if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -79,6 +129,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: phenome-link
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: phenome-link-yak
           path: dist
 
       - uses: softprops/action-gh-release@v2
