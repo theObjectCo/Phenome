@@ -1,0 +1,23 @@
+# Build output. Nothing built belongs in here: the obj/ folder alone carries the absolute path of the
+# machine that built it and the URL of whatever repository it was built from.
+bin/
+obj/
+dist/
+
+# The packaged extension is a release asset, not a source file - tools/build.ps1 makes one.
+*.vsix
+
+# Yak packages, likewise built rather than kept.
+*.yak
+
+node_modules/
+
+# Editors
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Rhino and Grasshopper leftovers
+*.3dmbak
+*.ghx.bak

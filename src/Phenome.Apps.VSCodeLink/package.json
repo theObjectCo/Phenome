@@ -1,0 +1,51 @@
+{
+  "name": "phenome-link",
+  "displayName": "Phenome Link",
+  "description": "The VS Code end of a Grasshopper canvas: session status, the live journal, canvas recipes and script editing over loopback HTTP.",
+  "version": "0.17.0",
+  "publisher": "phenome",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onUri",
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "phenomeLink.insertRecipe",
+        "title": "Phenome Link: Insert Grasshopper Canvas Recipe"
+      },
+      {
+        "command": "phenomeLink.editScript",
+        "title": "Phenome Link: Edit Grasshopper Script…"
+      },
+      {
+        "command": "phenomeLink.teachAgents",
+        "title": "Phenome Link: Teach Agents in This Workspace"
+      },
+      {
+        "command": "phenomeLink.reportProblem",
+        "title": "Phenome Link: Report a Problem…"
+      }
+    ],
+    "configuration": {
+      "title": "Phenome Link",
+      "properties": {
+        "phenomeLink.reportTo": {
+          "type": "string",
+          "default": "",
+          "description": "Where 'Report a Problem' addresses its mail draft. Empty uses the plugin's own intake address. Nothing is ever sent automatically - the draft opens in your mail client for you to read and send."
+        },
+        "phenomeLink.agentCommand": {
+          "type": "string",
+          "default": "claude",
+          "description": "The command that starts an agent session when pairing with Grasshopper; the handshake prompt is appended as one quoted argument. Left as 'claude', the command is resolved automatically: PATH first, then the CLI bundled inside the Claude Code extension. Set a full path or a different agent CLI to override."
+        }
+      }
+    }
+  }
+}

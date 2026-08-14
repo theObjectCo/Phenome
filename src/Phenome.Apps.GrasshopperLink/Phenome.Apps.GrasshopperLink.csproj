@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The bridge between a canvas and an agent, and nothing else. Deliberately references no Phenome library:
+    the protocol it exposes is useful to any Grasshopper user with any agent, and a single self-contained
+    .gha is what makes it publishable on its own - the kernel plugin enriches what this one reports, by
+    reflection, when both happen to be loaded.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <RootNamespace>Phenome.Apps.GrasshopperLink</RootNamespace>
+    <AssemblyName>Phenome.Apps.GrasshopperLink</AssemblyName>
+
+    <!-- Kept in step with manifest.yml: Yak cross-checks the two and complains when they disagree, and
+         the friction log stamps its reports with this, so a report names a build. -->
+    <Version>0.1.0</Version>
+
+    <!-- Without this the SDK appends the commit hash to the informational version, which is what Yak and
+         the plugin both read as "the version" - a build number, not a commit, is what belongs there. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <IsPackable>false</IsPackable>
+
+    <TargetExt>.gha</TargetExt>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <NoWarn>NU1701</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grasshopper" Version="8.21.25188.17001" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,9 @@
+# One line ending in the repository, whatever the checkout looks like locally. Without this, a Windows
+# clone commits CRLF and every file a Linux contributor touches shows up as wholly rewritten.
+* text=auto eol=lf
+
+*.png binary
+*.gha binary
+*.vsix binary
+*.3dm binary
+*.gh binary

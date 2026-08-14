@@ -1,0 +1,25 @@
+# The Yak package manifest. Packing is: publish the project, copy this file, the .gha AND the
+# phenome-link-*.vsix (from src/Phenome.Apps.VSCodeLink) into one folder, run
+# "C:\Program Files\Rhino 8\System\Yak.exe" build there, then yak push to whichever source is chosen
+# (the public McNeel server, or a private folder source). The .gha is self-contained - no Phenome
+# dependencies - and the vsix rides in the package so one install is the whole install: the pair
+# button hands it to VS Code (code --install-extension) before the first pairing.
+#
+# Yak also compares this name against the plugin's own GH_AssemblyInfo.Name and warns that "Phenome Link"
+# is not "phenome-link". The warning stands: a package id is lowercase and dashed, while the name a human
+# reads in Grasshopper's library list should be neither.
+name: phenome-link
+version: 0.1.0
+authors:
+  - Phenome
+description: >
+  A loopback HTTP interface to the Grasshopper canvas, for agents and scripts: the document as JSON, an
+  authored journal of everything that happens on it, and verbs to edit - add, wire, set, select, delete,
+  bake, solver, scripts. Any client that can make an HTTP request is a peer. Discovery via
+  %TEMP%\phenome-link-<pid>.port; GET / describes the whole protocol.
+url: https://www.phenome.dev
+keywords:
+  - agent
+  - automation
+  - http
+  - link
