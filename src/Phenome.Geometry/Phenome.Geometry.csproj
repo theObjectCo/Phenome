@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Two targets, and the second one is not a preference. Rhino 8 hosts .NET 7, so a Grasshopper plugin
+    running in its modern plugin model targets net7.0 — and a net7.0 assembly cannot reference a net10.0
+    one. Building for both is what lets the same kernel serve the browser and the authoring tool.
+
+    Nothing in the source is conditional on the target: the .NET 8 argument-check helpers are the only
+    thing that was, and Guard replaces them.
+  -->
+  <PropertyGroup>
+    <!--
+      Cleared first: Directory.Build.props sets the singular TargetFramework as the default for every
+      project here, and a non-empty singular value wins over the plural one, so the second target would be
+      silently skipped rather than reported.
+    -->
+    <TargetFramework></TargetFramework>
+    <TargetFrameworks>net10.0;net7.0</TargetFrameworks>
+    <RootNamespace>Phenome.Geometry</RootNamespace>
+    <AssemblyName>Phenome.Geometry</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!-- net7.0 is out of support, which the SDK reports as a warning and warnings are errors here. -->
+  <PropertyGroup>
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+  </PropertyGroup>
+
+  <!--
+    The kernel is consumed as a package now rather than by a path across repositories, so the package is
+    part of the source. Both target frameworks go in one package: a net7.0 consumer gets the net7.0
+    assembly and Rhino keeps working, which is the whole reason the second target exists.
+
+    The version is a floating prerelease on purpose while the API still moves - the sketch template already
+    asks for 0.1.0-*, and everything else that consumes this asks the same way, so a fresh pack is picked up
+    without editing anything. That stops the moment there is a consumer outside this organisation.
+  -->
+  <PropertyGroup>
+    <PackageId>Phenome.Geometry</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Authors>Object</Authors>
+    <Company>Object</Company>
+    <Description>A geometry kernel: types as plain data, every operation a static function. Meshes, polylines, transforms, triangulation and the numeric conventions around them.</Description>
+    <PackageTags>geometry;mesh;polyline;cad;kernel</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/theObjectCo/Phenome</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/theObjectCo/Phenome</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!--
+    The library is consumed from a browser (Blazor WebAssembly), so payload size and trimmability
+    matter. IsAotCompatible switches on the trim, AOT and single-file analysers, which fail the build
+    on anything that would not survive publishing trimmed. Turning it on now keeps the constraint
+    cheap; discovering it after twenty types is not.
+
+    Only on the target that ships to the browser: the analysers arrived in the .NET 8 SDK, and the
+    Rhino-facing build does not publish trimmed anyway.
+  -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
