@@ -44,10 +44,20 @@ internal static class Attention
     private static readonly Color Glow = Color.FromArgb(0x4A, 0xB3, 0xA2);
 
     /// <summary>How far the glow reaches inwards, in pixels.</summary>
-    private const int Reach = 24;
+    private const int Reach = 40;
 
-    /// <summary>How solid the border is at the very edge, out of 255.</summary>
-    private const int Strength = 220;
+    /// <summary>
+    /// How strong the glow is at the very edge, out of 255.
+    /// </summary>
+    /// <remarks>
+    /// High, and higher than looks right in isolation. This is drawn over whatever the viewport happens
+    /// to show, and a viewport with a white background washes out a colour that reads clearly against
+    /// grey - so the value has to satisfy the worst background, not the usual one.
+    /// </remarks>
+    private const int Strength = 235;
+
+    /// <summary>Corner radius of the lit frame, in pixels.</summary>
+    private const int Radius = 26;
 
     private static Conduit? conduit;
     private static System.Timers.Timer? clock;
@@ -106,17 +116,24 @@ internal static class Attention
     /// Nested rectangles of falling opacity, from the edge inwards - a glow without a bitmap or a shader.
     /// </summary>
     /// <remarks>
-    /// The falloff is squared rather than straight. A linear ramp spreads the colour so evenly that it
-    /// reads as a faint wash and is easy to miss entirely; squaring keeps the outermost pixels close to
-    /// solid, so there is a definite edge, and lets the rest fade quickly enough to still be a glow.
-    /// The first two rings are drawn at full strength so the border has a line, not only a haze.
+    /// No solid ring at the edge. An inner glow is light coming from the border inwards, and the moment
+    /// the outermost pixels are opaque it stops being that and becomes a stroke with a blur behind it -
+    /// which is what the first attempt was, and it looked like a selection highlight rather than a
+    /// presence.
+    /// <para>
+    /// So the strongest ring is already below solid, and the falloff is smoothstep: no flat plateau at
+    /// the edge and no abrupt end inland, both of which the eye finds and reads as a line.
+    /// </para>
     /// </remarks>
     private static int AlphaAt(int step)
     {
-        if (step < 2) return Strength;
+        double t = (double)step / Reach;
+        if (t >= 1.0) return 0;
 
-        double falling = 1.0 - (double)step / Reach;
-        return Math.Max(0, (int)(Strength * falling * falling));
+        double falling = 1.0 - t;
+        double smooth = falling * falling * (3.0 - 2.0 * falling);
+
+        return Math.Max(0, (int)(Strength * smooth));
     }
 
     private static void PaintCanvas(GH_Canvas canvas)
@@ -129,21 +146,55 @@ internal static class Attention
         Rectangle frame = canvas.ClientRectangle;
         if (frame.Width <= Reach * 2 || frame.Height <= Reach * 2) return;
 
+        // The overlay stage still carries the canvas's own transform - it is where objects are drawn, in
+        // document coordinates. A border belongs to the window, not to the document: left as it was, it
+        // scrolled and scaled with the definition, which is the one thing a frame must never do.
+        GraphicsState state = graphics.Save();
+        graphics.ResetTransform();
+
         SmoothingMode was = graphics.SmoothingMode;
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
         for (int step = 0; step < Reach; step++)
         {
-            using Pen pen = new(Color.FromArgb(AlphaAt(step), Glow));
-            graphics.DrawRectangle(
-                pen,
-                frame.Left + step,
-                frame.Top + step,
-                frame.Width - 1 - step * 2,
-                frame.Height - 1 - step * 2);
+            int alpha = AlphaAt(step);
+            if (alpha <= 0) continue;
+
+            using Pen pen = new(Color.FromArgb(alpha, Glow));
+            using GraphicsPath ring = Rounded(
+                new Rectangle(
+                    frame.Left + step,
+                    frame.Top + step,
+                    frame.Width - 1 - step * 2,
+                    frame.Height - 1 - step * 2),
+                Math.Max(2, Radius - step));
+
+            graphics.DrawPath(pen, ring);
         }
 
         graphics.SmoothingMode = was;
+        graphics.Restore(state);
+    }
+
+    /// <summary>A rectangle with its corners taken off - the shape the glow follows.</summary>
+    private static GraphicsPath Rounded(Rectangle bounds, int radius)
+    {
+        GraphicsPath path = new();
+
+        int diameter = Math.Min(radius * 2, Math.Min(bounds.Width, bounds.Height));
+        if (diameter <= 0)
+        {
+            path.AddRectangle(bounds);
+            return path;
+        }
+
+        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+
+        return path;
     }
 
     /// <summary>The same border in every Rhino viewport, drawn over the scene rather than in it.</summary>
@@ -156,15 +207,21 @@ internal static class Attention
             var bounds = e.Viewport.Bounds;
             if (bounds.Width <= Reach * 2 || bounds.Height <= Reach * 2) return;
 
+            // Square corners here, unlike the canvas: the viewport pipeline draws rectangles, not paths,
+            // and a rounded frame would have to be assembled from line segments for a difference nobody
+            // would notice at this opacity.
             for (int step = 0; step < Reach; step++)
             {
+                int alpha = AlphaAt(step);
+                if (alpha <= 0) continue;
+
                 Rectangle frame = new(
                     step,
                     step,
                     bounds.Width - 1 - step * 2,
                     bounds.Height - 1 - step * 2);
 
-                e.Display.Draw2dRectangle(frame, Color.FromArgb(AlphaAt(step), Glow), 1, Color.Transparent);
+                e.Display.Draw2dRectangle(frame, Color.FromArgb(alpha, Glow), 1, Color.Transparent);
             }
         }
     }
