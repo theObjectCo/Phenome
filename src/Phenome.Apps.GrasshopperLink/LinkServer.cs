@@ -69,7 +69,7 @@ internal static class LinkServer
             "GET /components?q=text": "search the installed component catalogue by name/description; top matches carry their inputs and outputs",
             "GET /canvas-image?width=1200&fit=true": "the Grasshopper canvas itself as PNG (base64), fitted to the whole document for the capture and the view put back after - for judging whether a layout reads",
             "GET /screenshot?width=640&zoomExtents=true": "the active Rhino viewport as PNG (base64) - low-res by default; framed on the geometry for the capture and the camera put back where the human left it (zoomExtents=false skips the framing)",
-            "GET /peek?id=guid&side=input|output&param=nameOrIndex": "the full data on one parameter, branch by branch with tree paths",
+            "GET /peek?id=guid&side=input|output&param=nameOrIndex": "the full data on one parameter, branch by branch with tree paths. Give a group's id instead and it answers that group's signature as it stands: every inlet and outlet with its type, branch and item counts, and a few values off each outlet",
             "GET /rhino": "the Rhino document: name, layers, object count",
             "POST /place": "{author, group?, objects:[{id?, name|guid, nickname?, pivot?, slider?, text?, value?, inputs?:[{param?, sources:[{id, output?}]}]}]} - a whole recipe in one call; local ids wire to each other and to existing canvas guids, 'group' puts everything placed into that group; answers the id map",
             "POST /save": "{author, path?} - save the document (autosave also runs once before an agent's first edit)",
@@ -1543,6 +1543,15 @@ internal static class LinkServer
             IGH_DocumentObject thing = document.FindObject(id, topLevelOnly: true)
                 ?? throw new KeyNotFoundException($"No object {id} on the canvas.");
 
+            // A group is a function, so peeking at one answers with its type as it stands: every port, and
+            // the shape of the data on each. The alternative was a verb of its own, but every tool costs
+            // its description in every session whether or not anybody calls it - and this is the same
+            // question, "what data is here", asked of a bigger thing.
+            if (thing is Grasshopper.Kernel.Special.GH_Group group)
+            {
+                return PeekGroup(group, document);
+            }
+
             IGH_Param parameter = LocateBy(thing, side, param);
 
             System.Text.StringBuilder json = new("{\"ok\":true,\"count\":");
@@ -1600,6 +1609,96 @@ internal static class LinkServer
 
             return json.Append('}').ToString();
         });
+    }
+
+    /// <summary>
+    /// A group's current signature, measured: every inlet and outlet, with the branch and item counts that
+    /// are the specification, and a few values off each outlet so a result can be recognised.
+    /// </summary>
+    /// <remarks>
+    /// Counts rather than full data on purpose. Peeking at a group with six outlets of a thousand branches
+    /// each would flood the very context this verb exists to protect - and the counts are what an assertion
+    /// is written against anyway. Whoever needs the values takes the port's own id and peeks at that.
+    /// </remarks>
+    private static string PeekGroup(Grasshopper.Kernel.Special.GH_Group group, GH_Document document)
+    {
+        (List<IGH_Param> inlets, List<IGH_Param> outlets) = Signature.Ports(document, group);
+
+        System.Text.StringBuilder json = new("{\"ok\":true,\"group\":");
+
+        json.Append(Json.Quote(string.IsNullOrWhiteSpace(group.NickName) ? "(unnamed)" : group.NickName));
+
+        void Side(string name, List<IGH_Param> ports, bool withSample)
+        {
+            json.Append(",\"").Append(name).Append("\":[");
+
+            for (int at = 0; at < ports.Count; at++)
+            {
+                IGH_Param port = ports[at];
+
+                if (at > 0)
+                {
+                    json.Append(',');
+                }
+
+                json.Append("{\"name\":").Append(Json.Quote(
+                    string.IsNullOrWhiteSpace(port.NickName) ? port.Name : port.NickName));
+                json.Append(",\"id\":").Append(Json.Quote(port.InstanceGuid.ToString()));
+                json.Append(",\"type\":").Append(Json.Quote(port.TypeName));
+                json.Append(",\"count\":").Append(Json.Number(port.VolatileDataCount));
+                json.Append(",\"branches\":").Append(Json.Number(port.VolatileData.PathCount));
+
+                if (withSample)
+                {
+                    json.Append(",\"sample\":[");
+
+                    int taken = 0;
+
+                    foreach (Grasshopper.Kernel.Data.GH_Path path in port.VolatileData.Paths)
+                    {
+                        foreach (object? item in port.VolatileData.get_Branch(path))
+                        {
+                            if (taken >= 3)
+                            {
+                                break;
+                            }
+
+                            if (taken > 0)
+                            {
+                                json.Append(',');
+                            }
+
+                            taken++;
+                            json.Append(Json.Quote(
+                                (item as Grasshopper.Kernel.Types.IGH_Goo)?.ToString() ?? item?.ToString() ?? "null"));
+                        }
+
+                        if (taken >= 3)
+                        {
+                            break;
+                        }
+                    }
+
+                    json.Append(']');
+                }
+
+                json.Append('}');
+            }
+
+            json.Append(']');
+        }
+
+        Side("inlets", inlets, withSample: false);
+        Side("outlets", outlets, withSample: true);
+
+        // Said out loud rather than left to be inferred from two empty arrays: a group with no ports has
+        // either not been signed yet or is not a function, and both are worth knowing before reading on.
+        if (inlets.Count == 0 && outlets.Count == 0)
+        {
+            json.Append(",\"note\":\"no ports - this group has no signature yet; call signature first\"");
+        }
+
+        return json.Append('}').ToString();
     }
 
     private static string Place(JsonDocument request)

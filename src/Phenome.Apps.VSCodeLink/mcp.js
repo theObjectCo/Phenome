@@ -447,7 +447,7 @@ const TOOLS = [
     },
     {
         name: 'peek',
-        description: "The full data on one parameter, branch by branch with tree paths - the numbers to verify a definition by, beyond the five-value sample in canvas.",
+        description: "The full data on one parameter, branch by branch with tree paths - the numbers to verify a definition by, beyond the five-value sample in canvas. Pass a GROUP's id instead and it answers that group's signature as it stands: every inlet and outlet with its type, branch and item counts, and a few values off each outlet - a function's current type, in one call, without knowing its ports' ids first.",
         inputSchema: object({
             id: str('Object id.'),
             side: { type: 'string', enum: ['input', 'output'] },

@@ -387,6 +387,42 @@ internal static class Signature
         return string.IsNullOrWhiteSpace(sink.Name) ? "Value" : sink.Name;
     }
 
+    /// <summary>
+    /// A group's ports as they stand right now: what comes in, what goes out, and the shape of the data on
+    /// each. The group's current type, in other words, read rather than declared.
+    /// </summary>
+    /// <remarks>
+    /// This lives here because this file owns what a port <em>is</em>. Two kinds count: one this verb
+    /// planted, which carries the mark, and one an author planted themselves, which is recognised the same
+    /// way <see cref="StandsAtEdge"/> recognises it while signing - otherwise a hand-built group would look
+    /// like it had no signature at all.
+    ///
+    /// The direction is not stored anywhere and does not need to be: a port fed from outside the group is
+    /// an inlet, one read from outside is an outlet. That is the same rule the planting uses, so the two
+    /// cannot disagree.
+    /// </remarks>
+    internal static (List<IGH_Param> Inlets, List<IGH_Param> Outlets) Ports(GH_Document document, GH_Group group)
+    {
+        HashSet<Guid> inside = Members(document, group);
+
+        List<IGH_Param> ports = [.. inside
+            .Select(id => document.FindObject(id, topLevelOnly: true))
+            .OfType<IGH_Param>()
+            .Where(parameter => IsPort(parameter) || StandsAtEdge(parameter, inside))];
+
+        bool Outside(IGH_Param end) =>
+            !inside.Contains((end.Attributes?.GetTopLevel?.DocObject ?? end).InstanceGuid);
+
+        List<IGH_Param> inlets = [.. ports.Where(port => port.Sources.Any(Outside))];
+        List<IGH_Param> outlets = [.. ports.Where(port => port.Recipients.Any(Outside))];
+
+        // A port wired both ways is an inlet: it takes from outside first, and calling it both would count
+        // one object twice in a signature that is meant to read as a function's type.
+        outlets.RemoveAll(inlets.Contains);
+
+        return (inlets, outlets);
+    }
+
     private static string Name(IGH_DocumentObject thing) =>
         string.IsNullOrWhiteSpace(thing.NickName) ? thing.Name : thing.NickName;
 

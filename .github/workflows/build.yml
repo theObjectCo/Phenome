@@ -23,11 +23,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # One SDK, not two. The plugin targets net7.0 but is never *run* here - only built - and a modern SDK
+      # builds an old target by fetching its reference pack from NuGet, a few megabytes against the 288 MB
+      # of a second SDK and the minute it took to unpack.
+      #
+      # The kernel's workflow keeps both on purpose: it runs tests on net7.0, and running needs a runtime
+      # that no reference pack provides.
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            7.0.x
-            10.0.x
+          dotnet-version: 10.0.x
 
       - uses: actions/setup-node@v4
         with:
