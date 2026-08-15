@@ -53,26 +53,28 @@ internal static class Attention
     /// </remarks>
     private static readonly Color Glow = Color.FromArgb(0xFF, 0x98, 0x00);
 
-    /// <summary>How far the glow reaches inwards, in pixels.</summary>
-    private const int Reach = 40;
-
     /// <summary>
-    /// How strong the glow is at the very edge, out of 255.
+    /// Two pixels, solid.
     /// </summary>
     /// <remarks>
-    /// Half of what it took to make teal visible. The first number was chosen to fight a hue that was
-    /// losing against the background, and once the hue was right it stopped being a fight: at that
-    /// strength orange stopped reading as a glow and became a painted frame, which draws the eye and
-    /// then keeps it. This is meant to be noticed at a glance and then ignored.
+    /// A glow was the first idea and it kept failing at the only thing it had to do. Soft enough to look
+    /// good and it went unseen; strong enough to be seen and it was a painted frame with blurred edges,
+    /// which is a worse version of a line. Three rounds of tuning opacity were three rounds of asking a
+    /// gradient to behave like a border.
+    /// <para>
+    /// A border, then. Thin enough to take no room and to sit outside the drawing, definite enough that
+    /// there is nothing to squint at, and the same on a white viewport as on a grey one - which the
+    /// gradient never managed, because a gradient's visibility depends on what is under it.
+    /// </para>
     /// </remarks>
-    private const int Strength = 118;
-
-    /// <summary>Corner radius of the lit frame, in pixels.</summary>
-    private const int Radius = 26;
+    private const int Thickness = 2;
 
     private static Conduit? conduit;
     private static System.Timers.Timer? clock;
     private static bool lit;
+
+    /// <summary>The canvas already being painted, so a second subscription is not added to it.</summary>
+    private static GH_Canvas? painted;
 
     internal static void Start()
     {
@@ -80,10 +82,13 @@ internal static class Attention
         {
             conduit = new Conduit { Enabled = true };
 
-            if (Grasshopper.Instances.ActiveCanvas is GH_Canvas canvas)
-            {
-                canvas.CanvasPostPaintOverlay += PaintCanvas;
-            }
+            // Both, because neither alone is enough. This runs as the plugin loads, and at that moment
+            // there may be no canvas yet - Grasshopper builds it when its window first opens, which is
+            // usually after. Subscribing only to the event misses a canvas that already exists; only
+            // attaching now misses every canvas made later, which was the whole of it: the border worked
+            // in Rhino and never once appeared on the canvas, because the handler had been hung on null.
+            Attach(Grasshopper.Instances.ActiveCanvas);
+            Grasshopper.Instances.CanvasCreated += Attach;
 
             // Polled rather than driven by the requests themselves: the border has to go out when nothing
             // happens, and "nothing happens" raises no event. Twice a second is under the threshold at
@@ -92,6 +97,15 @@ internal static class Attention
             clock.Elapsed += (_, _) => Tick();
             clock.Start();
         });
+    }
+
+    /// <summary>Hangs the border on a canvas, once per canvas.</summary>
+    private static void Attach(GH_Canvas? canvas)
+    {
+        if (canvas is null || ReferenceEquals(canvas, painted)) return;
+
+        canvas.CanvasPostPaintOverlay += PaintCanvas;
+        painted = canvas;
     }
 
     internal static void Stop()
@@ -131,30 +145,6 @@ internal static class Attention
         });
     }
 
-    /// <summary>
-    /// Nested rectangles of falling opacity, from the edge inwards - a glow without a bitmap or a shader.
-    /// </summary>
-    /// <remarks>
-    /// No solid ring at the edge. An inner glow is light coming from the border inwards, and the moment
-    /// the outermost pixels are opaque it stops being that and becomes a stroke with a blur behind it -
-    /// which is what the first attempt was, and it looked like a selection highlight rather than a
-    /// presence.
-    /// <para>
-    /// So the strongest ring is already below solid, and the falloff is smoothstep: no flat plateau at
-    /// the edge and no abrupt end inland, both of which the eye finds and reads as a line.
-    /// </para>
-    /// </remarks>
-    private static int AlphaAt(int step)
-    {
-        double t = (double)step / Reach;
-        if (t >= 1.0) return 0;
-
-        double falling = 1.0 - t;
-        double smooth = falling * falling * (3.0 - 2.0 * falling);
-
-        return Math.Max(0, (int)(Strength * smooth));
-    }
-
     private static void PaintCanvas(GH_Canvas canvas)
     {
         if (!Busy) return;
@@ -163,7 +153,7 @@ internal static class Attention
         if (graphics is null) return;
 
         Rectangle frame = canvas.ClientRectangle;
-        if (frame.Width <= Reach * 2 || frame.Height <= Reach * 2) return;
+        if (frame.Width <= Thickness * 2 || frame.Height <= Thickness * 2) return;
 
         // The overlay stage still carries the canvas's own transform - it is where objects are drawn, in
         // document coordinates. A border belongs to the window, not to the document: left as it was, it
@@ -171,49 +161,17 @@ internal static class Attention
         GraphicsState state = graphics.Save();
         graphics.ResetTransform();
 
-        SmoothingMode was = graphics.SmoothingMode;
-        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        // Inset by half the pen, so the whole line lands inside the control instead of half of it being
+        // clipped away by the edge it is drawn on.
+        using Pen pen = new(Glow, Thickness);
+        graphics.DrawRectangle(
+            pen,
+            frame.Left + Thickness / 2,
+            frame.Top + Thickness / 2,
+            frame.Width - Thickness,
+            frame.Height - Thickness);
 
-        for (int step = 0; step < Reach; step++)
-        {
-            int alpha = AlphaAt(step);
-            if (alpha <= 0) continue;
-
-            using Pen pen = new(Color.FromArgb(alpha, Glow));
-            using GraphicsPath ring = Rounded(
-                new Rectangle(
-                    frame.Left + step,
-                    frame.Top + step,
-                    frame.Width - 1 - step * 2,
-                    frame.Height - 1 - step * 2),
-                Math.Max(2, Radius - step));
-
-            graphics.DrawPath(pen, ring);
-        }
-
-        graphics.SmoothingMode = was;
         graphics.Restore(state);
-    }
-
-    /// <summary>A rectangle with its corners taken off - the shape the glow follows.</summary>
-    private static GraphicsPath Rounded(Rectangle bounds, int radius)
-    {
-        GraphicsPath path = new();
-
-        int diameter = Math.Min(radius * 2, Math.Min(bounds.Width, bounds.Height));
-        if (diameter <= 0)
-        {
-            path.AddRectangle(bounds);
-            return path;
-        }
-
-        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
-        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
-        path.CloseFigure();
-
-        return path;
     }
 
     /// <summary>The same border in every Rhino viewport, drawn over the scene rather than in it.</summary>
@@ -224,24 +182,15 @@ internal static class Attention
             if (!Busy) return;
 
             var bounds = e.Viewport.Bounds;
-            if (bounds.Width <= Reach * 2 || bounds.Height <= Reach * 2) return;
+            if (bounds.Width <= Thickness * 2 || bounds.Height <= Thickness * 2) return;
 
-            // Square corners here, unlike the canvas: the viewport pipeline draws rectangles, not paths,
-            // and a rounded frame would have to be assembled from line segments for a difference nobody
-            // would notice at this opacity.
-            for (int step = 0; step < Reach; step++)
-            {
-                int alpha = AlphaAt(step);
-                if (alpha <= 0) continue;
+            Rectangle frame = new(
+                Thickness / 2,
+                Thickness / 2,
+                bounds.Width - Thickness,
+                bounds.Height - Thickness);
 
-                Rectangle frame = new(
-                    step,
-                    step,
-                    bounds.Width - 1 - step * 2,
-                    bounds.Height - 1 - step * 2);
-
-                e.Display.Draw2dRectangle(frame, Color.FromArgb(alpha, Glow), 1, Color.Transparent);
-            }
+            e.Display.Draw2dRectangle(frame, Glow, Thickness, Color.Transparent);
         }
     }
 }

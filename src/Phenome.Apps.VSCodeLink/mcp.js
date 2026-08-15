@@ -181,6 +181,7 @@ const TOOLS = [
         description: "Answer the dialog Rhino is waiting on: press a button by name, or close it when no name is given. pulse names the dialog and lists its buttons. Closing is declining, so it is the default; pressing a button is agreeing to something and has to be asked for. Pass 'expect' with the dialog's title and it refuses if a different one is up by then - dialogs are transient, and a blind press answers whatever happens to be there.",
         inputSchema: object({
             button: str("The button to press, exactly as pulse lists it. Omit to close the dialog instead."),
+            key: str("A key to type instead of clicking - needed when pulse says clickable:false, which means the dialog draws its own buttons and has nothing to click. Use the underlined letter of the answer you want."),
             expect: str("The dialog title you meant to answer; refuses if another one is open."),
         }),
         run: args => ask('/dismiss', args),

@@ -113,7 +113,12 @@ internal static class Pulse
                 json.Append(Json.Quote(labels[i]));
             }
 
-            json.Append("]}");
+            json.Append(']');
+
+            // Said outright, because an empty list of buttons is not the same as a dialog with none: it
+            // means this one draws its own and cannot be clicked at all, and the answer is a key.
+            json.Append(",\"clickable\":").Append(labels.Length > 0 ? "true" : "false");
+            json.Append('}');
         }
         else
         {
@@ -186,7 +191,19 @@ internal static class Pulse
     /// what the X does is decline; pressing a button is agreeing to something, and agreeing needs saying.
     /// </para>
     /// </remarks>
-    internal static string Dismiss(string? button, string? expect)
+    internal static string Dismiss(string? button, string? expect) => Dismiss(button, expect, null);
+
+    /// <summary>
+    /// As above, and with a key for dialogs that cannot be clicked.
+    /// </summary>
+    /// <remarks>
+    /// Not every dialog is Win32 all the way down. Rhino's newer ones are Eto: they draw their own
+    /// buttons, so the buttons are not windows, there is nothing to post a click to, and the button list
+    /// comes back empty - which is the signal that a key is the only way in. WM_CLOSE is not a
+    /// substitute, because on a "save changes?" prompt closing means cancel, and cancel means the thing
+    /// you were trying to do does not happen.
+    /// </remarks>
+    internal static string Dismiss(string? button, string? expect, string? key)
     {
         Dialog dialog = ModalDialog();
 
@@ -200,6 +217,18 @@ internal static class Pulse
         {
             throw new InvalidOperationException(
                 $"The open dialog is \"{dialog.Title}\", not \"{expect}\" - it changed while you were deciding, so nothing was pressed.");
+        }
+
+        if (!string.IsNullOrEmpty(key))
+        {
+            SetForegroundWindow(dialog.Handle);
+
+            foreach (char letter in key)
+            {
+                PostMessage(dialog.Handle, WmChar, (IntPtr)letter, IntPtr.Zero);
+            }
+
+            return $"{{\"ok\":true,\"dialog\":{Json.Quote(dialog.Title ?? "")},\"did\":\"typed\",\"key\":{Json.Quote(key)}}}";
         }
 
         if (string.IsNullOrEmpty(button))
@@ -222,7 +251,7 @@ internal static class Pulse
         string offered = string.Join(", ", buttons.Select(b => b.Text).Where(t => t.Length > 0));
         throw new InvalidOperationException(
             offered.Length == 0
-                ? $"The dialog \"{dialog.Title}\" has no button called \"{button}\", and none this can read."
+                ? $"The dialog \"{dialog.Title}\" has no buttons this can click - it draws its own, so there is nothing to post a click to. Send 'key' instead: the underlined letter of the answer you want, or \"{{ESC}}\"."
                 : $"The dialog \"{dialog.Title}\" has no button called \"{button}\". It offers: {offered}.");
     }
 
@@ -332,6 +361,8 @@ internal static class Pulse
 
     private const int WmClose = 0x0010;
 
+    private const int WmChar = 0x0102;
+
     private const int BmClick = 0x00F5;
 
     private delegate bool EnumWindowsProc(IntPtr handle, IntPtr parameter);
@@ -344,6 +375,9 @@ internal static class Pulse
 
     [DllImport("user32.dll")]
     private static extern bool PostMessage(IntPtr handle, int message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr handle);
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowEnabled(IntPtr handle);

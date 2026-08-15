@@ -31,7 +31,9 @@ internal static class RhinoServer
           "protocol": {
             "GET /": "this description",
             "GET /pulse": "whether Rhino is idle, busy or blocked. Answered off the UI thread, so it answers when nothing else does. 'busy' names the running command and how long it has run: wait. 'blocked' names the open dialog and lists its buttons: nothing will answer until it is clicked",
-            "POST /dismiss": "{button?, expect?} - answer the open dialog: press a button by name, or close it when no name is given. 'expect' names the dialog you meant to answer and refuses if another is up by then"
+            "POST /dismiss": "{button?, key?, expect?} - answer the open dialog: press a button by name, type a key, or close it when neither is given. When /pulse says clickable:false the dialog draws its own buttons and only a key reaches it",
+            "POST /command": "{script} - run a Rhino command script. Here rather than only on the canvas link, because Rhino is what runs commands and Grasshopper need not be open for it",
+            "GET /doc": "the Rhino document: name, layers, object count"
           },
           "why": "Grasshopper's link only exists once Grasshopper has been started, so it cannot report on anything that happens before that - including a dialog on startup, which is exactly when nothing else can answer.",
           "discovery": "%TEMP%/phenome-rhino-<rhino pid>.port holds this port"
