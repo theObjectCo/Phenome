@@ -44,7 +44,11 @@ $packages = @(
     @{
         Name    = 'phenome-link'
         Project = 'src/Phenome.Apps.GrasshopperLink'
-        Extras  = @('src/Phenome.Apps.VSCodeLink/phenome-link-*.vsix')
+        # The Rhino plugin travels in the same package as the canvas one: they version together, and the
+        # half that reports on a stuck Rhino is no use sitting on somebody's disk uninstalled.
+        Extras  = @(
+            'src/Phenome.Apps.RhinoLink/bin/Release/net7.0/Phenome.Apps.RhinoLink.rhp',
+            'src/Phenome.Apps.VSCodeLink/phenome-link-*.vsix')
         Readme  = @'
 # Phenome Link
 

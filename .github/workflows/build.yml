@@ -1,6 +1,6 @@
-# Builds both halves of the link and, from a tag, attaches them to a release.
+# Builds all three parts of the link and, from a tag, attaches them to a release.
 #
-# This is the replacement for `yak push`: a tagged release carrying the .gha and the .vsix, which anybody can
+# This is the replacement for `yak push`: a tagged release carrying the .gha, the .rhp and the .vsix, which anybody can
 # download without a package source, a token or an account. Yak packing stays a local script because it needs
 # Yak.exe, which ships inside Rhino and is not on a runner.
 name: build
@@ -42,6 +42,12 @@ jobs:
       - name: Build the plugin
         run: dotnet build src/Phenome.Apps.GrasshopperLink/Phenome.Apps.GrasshopperLink.csproj -c Release
 
+      # The Rhino half, which is the one a release forgets: everything works without it until Rhino stops
+      # on a dialog before Grasshopper has loaded, and then nothing is listening to say so. v0.21.0 shipped
+      # without it because this file builds what it names and it named only the plugin above.
+      - name: Build the Rhino plugin
+        run: dotnet build src/Phenome.Apps.RhinoLink/Phenome.Apps.RhinoLink.csproj -c Release
+
       # Pinned. `npx --yes @vscode/vsce` takes whatever is newest at the moment the build runs, and vsce
       # carries thirty direct dependencies - so an upstream release could change what lands in our .vsix
       # without any commit here, and nothing would record which version packed a given release.
@@ -58,14 +64,19 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item (Get-ChildItem -Recurse src/Phenome.Apps.GrasshopperLink/bin/Release -Filter *.gha)[0].FullName dist
+          Copy-Item (Get-ChildItem -Recurse src/Phenome.Apps.RhinoLink/bin/Release -Filter *.rhp)[0].FullName dist
           Copy-Item src/Phenome.Apps.GrasshopperLink/manifest.yml dist
           Copy-Item (Get-ChildItem src/Phenome.Apps.VSCodeLink -Filter 'phenome-link-*.vsix')[0].FullName dist
           Get-ChildItem dist | ForEach-Object { "  $($_.Name)  $([int]($_.Length/1KB)) KB" }
 
-      # All four version declarations must agree. Yak cross-checks the first two, the friction log stamps its
+      # All five version declarations must agree. Yak cross-checks the first two, the friction log stamps its
       # reports with the assembly version so a report names a build - and the extension is here because it was
-      # not: v0.1.0 shipped a 0.17.0 vsix, two histories in one release, and nothing complained. The halves
-      # only work as a pair, so they carry one number.
+      # not: v0.1.0 shipped a 0.17.0 vsix, two histories in one release, and nothing complained. The parts
+      # only work together, so they carry one number.
+      #
+      # The Rhino plugin joined this list the moment it existed. A check that names its subjects one by one
+      # has to be extended by hand every time there is a new one, and the failure is silent: an unnamed
+      # project simply is not checked, and ships with whatever number it happened to have.
       - name: Check every version declaration agrees
         shell: pwsh
         run: |
@@ -74,7 +85,11 @@ jobs:
               Select-String '^version:\s*(.+)$').Matches.Groups[1].Value.Trim()
             'csproj' = (Select-Xml -Path src/Phenome.Apps.GrasshopperLink/Phenome.Apps.GrasshopperLink.csproj `
               -XPath '//Version').Node.InnerText.Trim()
+            'rhino csproj' = (Select-Xml -Path src/Phenome.Apps.RhinoLink/Phenome.Apps.RhinoLink.csproj `
+              -XPath '//Version').Node.InnerText.Trim()
             'package.json' = (Get-Content src/Phenome.Apps.VSCodeLink/package.json -Raw | ConvertFrom-Json).version.Trim()
+            'mcp.js' = (Get-Content src/Phenome.Apps.VSCodeLink/mcp.js |
+              Select-String "name: 'grasshopper', version: '(.+?)'").Matches.Groups[1].Value.Trim()
           }
           $versions.GetEnumerator() | ForEach-Object { "  $($_.Key): $($_.Value)" }
 
@@ -102,7 +117,7 @@ jobs:
   #
   # Gated on a repository variable rather than on a label, because a job asking for a runner that does not
   # exist queues for six hours and then fails. Set PHENOME_SELF_HOSTED to 'true' once a Windows runner with
-  # Rhino is registered; until then this skips and the release carries the .gha and the .vsix, which is enough
+  # Rhino is registered; until then this skips and the release carries the loose files, which is enough
   # to install by hand.
   #
   # Tags only, and that is a security boundary rather than a convenience. This repository is public, so
@@ -135,14 +150,15 @@ jobs:
 
           $expected = ($env:GITHUB_REF -replace '^refs/tags/v', '')
 
-          # Yak builds from a folder holding the .gha, its manifest and anything travelling with it. The vsix
-          # rides along so one install is the whole install: the canvas's pair button hands it to VS Code.
+          # Yak builds from a folder holding the .gha, its manifest and anything travelling with it. The rhp
+          # and the vsix ride along so one install is the whole install: Rhino gets both plugins, and the
+          # canvas's pair button hands the extension to VS Code.
           # Named extensions rather than dist/*, so a stray .yak from anywhere cannot join the staging folder
           # and then be mistaken for the one just built.
           $staging = Join-Path $env:RUNNER_TEMP 'yak'
           if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
           New-Item -ItemType Directory -Force $staging | Out-Null
-          Copy-Item dist/*.gha, dist/*.vsix, dist/manifest.yml $staging
+          Copy-Item dist/*.gha, dist/*.rhp, dist/*.vsix, dist/manifest.yml $staging
 
           Push-Location $staging
           try {
@@ -293,16 +309,23 @@ jobs:
           files: |
             dist/*.yak
             dist/*.gha
+            dist/*.rhp
             dist/*.vsix
           body: |
-            Both halves, and they only work as a pair.
+            Three parts of one mechanism. The `.yak` carries all of them, so installing that is installing
+            everything; the loose files are for anyone who would rather place them by hand.
 
             **The .gha** goes in `%APPDATA%\Grasshopper\Libraries\`. Then right-click it, Properties,
             **Unblock** — Windows marks files that arrived from elsewhere and Grasshopper refuses a blocked
             assembly *silently*. This is the step everybody misses.
 
+            **The .rhp**: drag it onto an open Rhino, or point `PlugInManager` at it. Rhino remembers what
+            it has loaded between sessions — but it writes that list when it *closes normally*, so a Rhino
+            killed rather than closed forgets it was ever told.
+
             **The .vsix**: `code --install-extension phenome-link-<version>.vsix`, or let the canvas's
             *Pair with VS Code* button do it on the first pairing.
 
-            Then restart Rhino. `GET /` on the port in `%TEMP%\phenome-link-<pid>.port` describes the whole
-            protocol.
+            Then restart Rhino. `GET /` on the port in `%TEMP%\phenome-link-<pid>.port` describes the canvas
+            protocol, and `%TEMP%\phenome-rhino-<pid>.port` the one that still answers when the canvas
+            cannot — whether Rhino is free, what dialog is holding it, and how to answer that.

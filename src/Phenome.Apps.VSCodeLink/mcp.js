@@ -593,7 +593,7 @@ async function handle(line) {
             reply(id, {
                 protocolVersion: params?.protocolVersion ?? '2024-11-05',
                 capabilities: { tools: {} },
-                serverInfo: { name: 'grasshopper', version: '0.21.0' },
+                serverInfo: { name: 'grasshopper', version: '0.21.1' },
                 instructions: instructions(),
             });
             break;
