@@ -34,6 +34,17 @@ internal static class LinkServer
     /// <summary>When the last request came in - a quiet line means nobody is paired.</summary>
     internal static DateTime LastRequest { get; private set; } = DateTime.MinValue;
 
+    /// <summary>
+    /// When an agent last did something, as opposed to merely being connected.
+    /// </summary>
+    /// <remarks>
+    /// A paired client polls the journal every couple of seconds whether or not anything is happening,
+    /// so "a request arrived" is true for as long as anybody is attached and says nothing about whether
+    /// they are working. The heartbeat and the discovery probe are excluded here for the same reason
+    /// they are excluded from the command line echo: they are the connection breathing, not an act.
+    /// </remarks>
+    internal static DateTime LastAction { get; private set; } = DateTime.MinValue;
+
     private const string Description = """
         {
           "phenome": "grasshopper-link",
@@ -137,6 +148,11 @@ internal static class LinkServer
         // Read once, up front: the body stream is single-pass, and a refusal cannot say what was asked
         // for unless the asking was kept.
         string payload = method == "POST" ? ReadBody(context.Request) : "";
+
+        if (path != "/events" && path.Length != 0)
+        {
+            LastAction = DateTime.Now;
+        }
 
         System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
 

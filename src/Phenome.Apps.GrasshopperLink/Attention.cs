@@ -60,11 +60,12 @@ internal static class Attention
     /// How strong the glow is at the very edge, out of 255.
     /// </summary>
     /// <remarks>
-    /// High, and higher than looks right in isolation. This is drawn over whatever the viewport happens
-    /// to show, and a viewport with a white background washes out a colour that reads clearly against
-    /// grey - so the value has to satisfy the worst background, not the usual one.
+    /// Half of what it took to make teal visible. The first number was chosen to fight a hue that was
+    /// losing against the background, and once the hue was right it stopped being a fight: at that
+    /// strength orange stopped reading as a glow and became a painted frame, which draws the eye and
+    /// then keeps it. This is meant to be noticed at a glance and then ignored.
     /// </remarks>
-    private const int Strength = 235;
+    private const int Strength = 118;
 
     /// <summary>Corner radius of the lit frame, in pixels.</summary>
     private const int Radius = 26;
@@ -103,8 +104,16 @@ internal static class Attention
         conduit = null;
     }
 
-    /// <summary>Whether an agent has touched this Rhino recently enough to still be here.</summary>
-    private static bool Busy => DateTime.Now - LinkServer.LastRequest < Hold;
+    /// <summary>
+    /// Whether an agent is working, not merely attached.
+    /// </summary>
+    /// <remarks>
+    /// LastAction rather than LastRequest: a paired client polls the journal every couple of seconds
+    /// whether or not it is doing anything, so a border keyed to requests would be lit for as long as
+    /// anybody was connected - which is a light that means "somebody is in the building", and nobody
+    /// needs telling that twice a second for an afternoon.
+    /// </remarks>
+    private static bool Busy => DateTime.Now - LinkServer.LastAction < Hold;
 
     private static void Tick()
     {
