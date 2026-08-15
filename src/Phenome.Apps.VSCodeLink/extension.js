@@ -330,8 +330,12 @@ abstraction layer.
    \`[255,220,0]\` preview-only geometry, never baked; **grey** \`[150,150,150]\` a plain function. Flow
    left to right.
 6. **Sliders deserve real domains.** \`set\` takes \`minimum\`/\`maximum\`/\`decimals\`, or a string value
-   like \`"0<1400<2400"\` setting the whole domain at once - a bare 0..1 slider is almost always wrong. A
-   constant belongs in the socket that uses it: \`set\` with \`param\`, not a parameter and a wire.
+   like \`"0<1400<2400"\` setting the whole domain at once - a bare 0..1 slider is almost always wrong.
+   A constant goes in the socket that uses it - \`set\` with \`param\`, not a parameter and a wire - unless
+   a reader needs to see it. A value typed into a socket is invisible on the canvas, so anything somebody
+   would look for while reading the definition (a dimension, a tolerance, a name) belongs in a \`Panel\`
+   wired in, where it can be seen and changed without opening anything. One value per panel: a panel is
+   still a wire, not a place to pack several things as text.
 7. **Respect the data tree; do not flatten your way out of trouble.** Grasshopper data is a tree of
    branches with paths like \`{0;1}\`, and a component runs once per item in the *longest* input, reusing
    the last item of the shorter ones - so a stray extra item does not error, it silently multiplies the
