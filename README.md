@@ -8,8 +8,9 @@ mechanism, and they only work as a pair.
 | [`src/Phenome.Apps.GrasshopperLink`](src/Phenome.Apps.GrasshopperLink) | The canvas end: a Grasshopper plugin that exposes the live document, and verbs to edit it. |
 | [`src/Phenome.Apps.VSCodeLink`](src/Phenome.Apps.VSCodeLink) | The editor end: a VS Code extension carrying an MCP server, so an agent speaks the protocol as named tools rather than raw HTTP. |
 
-**It stands alone.** Rhino 8, Grasshopper, and nothing else — no account, no service, no library of ours.
-Everything stays on your machine: the server listens on loopback only, so nothing leaves it. The protocol is
+**It stands alone.** No account, no service, no library of ours — the canvas half needs Rhino 8 and nothing
+more, and everything stays on your machine, because the server listens on loopback only. Pairing with an
+editor and an agent asks for a little more; [Installing](#installing) says exactly what. The protocol is
 worth the same to any Grasshopper user with any agent, which is why it is MIT and why it is here rather than
 bundled into something larger.
 
@@ -140,10 +141,17 @@ cursor means entries were dropped, which is the signal to re-read `/canvas` inst
 
 ## Installing
 
-You need **Rhino 8** on Windows. Nothing else, and no account anywhere.
+What you need depends on how far you want to go:
 
-Everything below installs both halves. They only work as a pair, so install both even if you only mean to
-use one at first.
+| | |
+|---|---|
+| **The canvas over HTTP** | Rhino 8 on Windows. That is genuinely all — any HTTP client is then a peer, including `curl`. |
+| **The MCP door** | Node.js, to run `mcp.js`. Point any MCP-capable agent at it. |
+| **The paired workflow** | VS Code as well — or any editor that installs a `.vsix` and speaks MCP — plus an agent to sit in it. |
+
+No account anywhere, and nothing leaves the machine: the server listens on loopback only.
+
+The two halves are built to work as a pair, so install both unless you specifically want the bare HTTP API.
 
 ### From the release (recommended)
 
