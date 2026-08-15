@@ -104,6 +104,13 @@ jobs:
     runs-on: [self-hosted, windows]
 
     steps:
+      # A self-hosted runner does not get a clean workspace the way a hosted one does: whatever the last run
+      # left is still here. v0.18.0 shipped a .yak named 0.1.0 because the previous release's package was
+      # still sitting in dist and got copied along.
+      - name: Start from an empty dist
+        shell: pwsh
+        run: if (Test-Path dist) { Remove-Item -Recurse -Force dist }
+
       - uses: actions/download-artifact@v4
         with:
           name: phenome-link
@@ -115,12 +122,16 @@ jobs:
           $yak = 'C:\Program Files\Rhino 8\System\Yak.exe'
           if (-not (Test-Path $yak)) { throw "Yak is not at $yak - is Rhino installed on this runner?" }
 
+          $expected = ($env:GITHUB_REF -replace '^refs/tags/v', '')
+
           # Yak builds from a folder holding the .gha, its manifest and anything travelling with it. The vsix
           # rides along so one install is the whole install: the canvas's pair button hands it to VS Code.
+          # Named extensions rather than dist/*, so a stray .yak from anywhere cannot join the staging folder
+          # and then be mistaken for the one just built.
           $staging = Join-Path $env:RUNNER_TEMP 'yak'
           if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
           New-Item -ItemType Directory -Force $staging | Out-Null
-          Copy-Item dist/* $staging
+          Copy-Item dist/*.gha, dist/*.vsix, dist/manifest.yml $staging
 
           Push-Location $staging
           try {
@@ -129,8 +140,17 @@ jobs:
           }
           finally { Pop-Location }
 
-          $package = Get-ChildItem $staging -Filter '*.yak' | Select-Object -First 1
-          if (-not $package) { throw 'yak produced no package' }
+          $packages = @(Get-ChildItem $staging -Filter '*.yak')
+          if ($packages.Count -eq 0) { throw 'yak produced no package' }
+          if ($packages.Count -gt 1) { throw "more than one .yak in the staging folder: $($packages.Name -join ', ')" }
+
+          # Yak names the file from the manifest, so the name is the evidence that the right manifest was
+          # used. Checked rather than assumed, because the wrong one is not obvious until somebody installs it.
+          $package = $packages[0]
+          if ($package.Name -notlike "*-$expected-*") {
+            throw "yak built $($package.Name), which is not version $expected"
+          }
+
           Copy-Item $package.FullName dist
           "  $($package.Name)  $([int]($package.Length/1KB)) KB"
 
