@@ -241,19 +241,12 @@ const TEACH_END = '<!-- phenome-link:end -->';
 const TEACHING = `${TEACH_START}
 ## Pairing with Grasshopper (Phenome Link)
 
-**Prefer the MCP tools.** This workspace's \`.mcp.json\` registers a \`grasshopper\` server
-(\`.phenome/gh-mcp.js\`) with named tools - \`canvas\`, \`events\`, \`say\`, \`components\` (search the
-installed catalogue - use before \`add\` when unsure of a name), \`add\`, \`wire\`, \`set\`, \`select\`,
-\`delete\`, \`param\`, \`solver\`, \`bake\`, \`arrange\`, \`group\`, \`ungroup\`, \`scripts\`,
-\`script_read\`, \`script_write\`, \`new_document\`, \`open\`, \`launch\` (starts Rhino+Grasshopper when
-no session exists), \`place\` (a whole recipe in one call - prefer it over add/wire loops), \`peek\`
-(full data with tree paths, for verifying results numerically), \`screenshot\` (the Rhino viewport,
-low-res - the canvas needs no picture, its objects carry positions), \`save\`, \`zoom\`,
-\`rhino_command\` and \`rhino_doc\` (layers, blocks, the whole Rhino command language), \`signature\`
-(plants a group's inlets and outlets) and \`review\` (lints the composition). They handle discovery
-themselves and each needs permission only once. If a tool listed here is missing from your session, the
-session predates the current server: MCP servers load at session start, so restart the session rather
-than falling back to raw HTTP.
+**Prefer the MCP tools.** The \`grasshopper\` server registers one per verb and your session already
+lists them with their arguments, so they are not repeated here. Four habits that list cannot teach you:
+search \`components\` before \`add\` when unsure of a name; prefer \`place\` over add/wire loops; verify
+with \`peek\`, not \`screenshot\`, since the canvas carries positions and needs no picture; and use
+\`launch\` when there is no session rather than starting Rhino yourself. A tool missing from your session
+means the session predates the current server - restart it instead of falling back to raw HTTP.
 
 **The components you will reach for, with their exact input names** - so you need not search for them.
 Anything unusual: ask \`components\`, and \`describe\` tells you a placed object's real parameters.
@@ -385,14 +378,10 @@ abstraction layer.
    components, bare boundary crossings, ungrouped objects - so a definition converges instead of being
    hoped over. Leave notes in panels where a reader will need them.
 
-The raw protocol underneath, for when the tools are unavailable: Rhino running the Phenome Link plugin
-exposes the canvas over loopback HTTP. Discovery: \`%TEMP%\\phenome-link-<pid>.port\` holds the port, one
-file per Rhino - a stale file has a dead pid; no file, no session. \`GET /\` describes the whole protocol.
-\`GET /events?since=N\` is the journal - poll it while pairing; the response's \`latest\` is your next
-cursor. Every entry carries \`author\`: put your own name in every POST and skip your own echo. The human
-writes to you as \`kind:"message"\` entries; answer with \`POST /say {author, text, to?}\`. No session?
-\`Start-Process "C:\\Program Files\\Rhino 8\\System\\Rhino.exe" -ArgumentList '/nosplash','/runscript="_Grasshopper"'\`
-and poll %TEMP% for the port file (up to ~60s).
+If the tools are ever unavailable, the same protocol is plain HTTP: the port is in
+\`%TEMP%\\phenome-link-<pid>.port\` (one file per Rhino, a stale one has a dead pid) and \`GET /\`
+describes every verb. Put your own name in \`author\` on every POST and skip your own echo. The rest -
+the journal's cursor, its gaps, the rules the verbs share - is in the plugin's \`docs/protocol.md\`.
 ${TEACH_END}`;
 
 /// Writes the pairing knowledge into the workspace's agent files. AGENTS.md is created if absent;
