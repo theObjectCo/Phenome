@@ -197,6 +197,10 @@ jobs:
       - name: Upload to the Builds folder
         shell: pwsh
         env:
+          # These live in Settings → Secrets and variables → **Actions**. There is an Agents tab beside it
+          # holding a separate store with the same names and the same look, which workflows cannot read -
+          # v0.19.0 published nothing because that is where they had been created, and the step reported
+          # them missing because to a workflow they were.
           TENANT: ${{ vars.PHENOME_GRAPH_TENANT }}
           CLIENT_ID: ${{ vars.PHENOME_GRAPH_CLIENT_ID }}
           SECRET: ${{ secrets.PHENOME_GRAPH_SECRET }}
