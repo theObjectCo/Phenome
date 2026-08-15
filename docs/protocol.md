@@ -109,6 +109,25 @@ you nothing here; batching buys you everything.
 **Ids are Grasshopper instance GUIDs**, stable for the life of an object. `/canvas` gives them, `/describe?id=`
 tells you one object's real parameters, `/peek?id=` gives a parameter's full data with tree paths.
 
+**`/peek` on a group id answers that group's signature instead** — every inlet and outlet with its name,
+type, branch and item counts, and a few values off each outlet:
+
+```json
+{ "ok": true, "group": "Steps",
+  "inlets":  [ { "name": "Count",  "id": "…", "type": "Integer",      "count": 1, "branches": 1 } ],
+  "outlets": [ { "name": "Result", "id": "…", "type": "Generic Data", "count": 1, "branches": 1,
+                 "sample": ["55"] } ] }
+```
+
+A group is a function and this is its type as it stands, which is what you assert against after editing one.
+Counts rather than full data, deliberately: six outlets of a thousand branches would flood the context
+`/peek` exists to protect. Take a port's `id` and peek at that when you want the values.
+
+Direction is derived, not stored: a port fed from outside the group is an inlet, one read from outside is an
+outlet — the same rule the `/signature` verb uses when it plants them, so the two cannot disagree. Ports an
+author placed by hand count too. A group with neither answers empty arrays and a `note` saying it has no
+signature yet.
+
 **Flags are read loosely.** `true`, `"true"` and `1` all mean true, because MCP clients routinely serialise
 scalars as strings and a server that insisted otherwise would punish the wrong party.
 
