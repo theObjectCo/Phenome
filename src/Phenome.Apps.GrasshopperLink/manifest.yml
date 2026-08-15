@@ -1,15 +1,20 @@
-# The Yak package manifest. Packing is: publish the project, copy this file, the .gha AND the
+# The Yak package manifest. Packing is: publish the projects, copy this file, the .gha, the .rhp AND the
 # phenome-link-*.vsix (from src/Phenome.Apps.VSCodeLink) into one folder, run
 # "C:\Program Files\Rhino 8\System\Yak.exe" build there, then yak push to whichever source is chosen
-# (the public McNeel server, or a private folder source). The .gha is self-contained - no Phenome
-# dependencies - and the vsix rides in the package so one install is the whole install: the pair
-# button hands it to VS Code (code --install-extension) before the first pairing.
+# (the public McNeel server, or a private folder source). Neither assembly depends on any Phenome
+# library, and the vsix rides in the package so one install is the whole install: the pair button hands
+# it to VS Code (code --install-extension) before the first pairing.
+#
+# Three files rather than two since 0.21. The .rhp loads with Rhino itself and answers about the process
+# - whether the UI thread is free, what dialog is holding it, and how to answer that - which the .gha
+# cannot do, because a .gha does not exist until Grasshopper has been started. Shipping only the .gha
+# leaves out the half that works when the other half cannot load.
 #
 # Yak also compares this name against the plugin's own GH_AssemblyInfo.Name and warns that "Phenome Link"
 # is not "phenome-link". The warning stands: a package id is lowercase and dashed, while the name a human
 # reads in Grasshopper's library list should be neither.
 name: phenome-link
-version: 0.20.0
+version: 0.21.0
 authors:
   - Phenome
 description: >

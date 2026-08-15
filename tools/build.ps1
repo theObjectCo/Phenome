@@ -1,11 +1,17 @@
 <#
 .SYNOPSIS
-    Builds both halves of the link into dist/: the Grasshopper plugin and the VS Code extension.
+    Builds all three parts of the link into dist/: the Grasshopper plugin, the Rhino plugin and the VS
+    Code extension.
 
 .DESCRIPTION
-    The two are one mechanism and version together. The .gha is the canvas end; the .vsix is the editor
+    The three are one mechanism and version together. The .gha is the canvas end; the .vsix is the editor
     end, and the canvas's pair button hands it to VS Code on the first pairing - so a release that
-    carries only one of them is half a release.
+    carries only one of them is part of a release.
+
+    The .rhp is the Rhino end, and it is the one easiest to forget because everything works without it
+    until the moment it does not: a .gha only exists once Grasshopper has been started, so nothing else
+    can report on a dialog that appears while Rhino is still starting - which is exactly when nothing
+    else can answer.
 
     Nothing here talks to a package server. Publishing is a separate, deliberate act.
 
@@ -26,6 +32,7 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $dist = Join-Path $repo 'dist'
 $plugin = Join-Path $repo 'src/Phenome.Apps.GrasshopperLink'
+$rhinoPlugin = Join-Path $repo 'src/Phenome.Apps.RhinoLink'
 $extension = Join-Path $repo 'src/Phenome.Apps.VSCodeLink'
 
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
@@ -40,6 +47,15 @@ $gha = Get-ChildItem -Recurse (Join-Path $plugin "bin/$Configuration") -Filter '
 if (-not $gha) { throw 'The build produced no .gha.' }
 Copy-Item $gha.FullName $dist
 Copy-Item (Join-Path $plugin 'manifest.yml') $dist
+
+Write-Host "Building the Rhino plugin ($Configuration)..." -ForegroundColor Cyan
+dotnet build (Join-Path $rhinoPlugin 'Phenome.Apps.RhinoLink.csproj') -c $Configuration
+if ($LASTEXITCODE -ne 0) { throw 'The Rhino plugin did not build.' }
+
+$rhp = Get-ChildItem -Recurse (Join-Path $rhinoPlugin "bin/$Configuration") -Filter '*.rhp' |
+    Select-Object -First 1
+if (-not $rhp) { throw 'The build produced no .rhp.' }
+Copy-Item $rhp.FullName $dist
 
 Write-Host 'Packaging the VS Code extension...' -ForegroundColor Cyan
 Push-Location $extension

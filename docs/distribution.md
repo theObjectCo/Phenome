@@ -1,8 +1,15 @@
 # Distributing the link
 
-Two halves that version together: the Grasshopper plugin (`src/Phenome.Apps.GrasshopperLink`) and the VS
-Code extension (`src/Phenome.Apps.VSCodeLink`). The plugin references no Phenome library — a single
-self-contained `.gha` — which is what lets it ship on its own, to any Grasshopper user with any agent.
+Three parts that version together: the Grasshopper plugin (`src/Phenome.Apps.GrasshopperLink`), the Rhino
+plugin (`src/Phenome.Apps.RhinoLink`) and the VS Code extension (`src/Phenome.Apps.VSCodeLink`). Neither
+assembly references a Phenome library, which is what lets them ship on their own, to any Rhino user with
+any agent.
+
+The Rhino half is easy to leave out, because everything works without it right up until it does not. A
+`.gha` only exists once Grasshopper has been started, so nothing in it can report on what happens before
+that — including a dialog during Rhino's own startup, which holds the process with nothing listening to
+say so. The `.rhp` loads at startup and answers about the process: whether the UI thread is free, what is
+blocking it, and how to answer that.
 
 ## Building
 
@@ -10,8 +17,8 @@ self-contained `.gha` — which is what lets it ship on its own, to any Grasshop
 pwsh tools/build.ps1
 ```
 
-Release-builds the plugin, packages the extension, and leaves the `.gha`, the `.vsix` and `manifest.yml`
-in `dist/`. Release builds carry no symbols and no machine paths — `PathMap` and `DebugType=none` in
+Release-builds both plugins, packages the extension, and leaves the `.gha`, the `.rhp`, the `.vsix` and
+`manifest.yml` in `dist/`. Release builds carry no symbols and no machine paths — `PathMap` and `DebugType=none` in
 `Directory.Build.props` see to that, and it matters here because this repository is public.
 
 Keep `manifest.yml`'s version and the project's `<Version>` in step. Yak cross-checks them, and the
@@ -22,6 +29,10 @@ friction log stamps its reports with the assembly version, so a report names a b
 1. Copy the `.gha` into `%APPDATA%\Grasshopper\Libraries\`, then right-click it → Properties →
    **Unblock**. Windows marks files that arrived from elsewhere and Grasshopper refuses a blocked assembly
    **silently** — this is the step everybody misses.
+1. Drag the `.rhp` onto an open Rhino, or point `PlugInManager` at it. Rhino remembers what it has loaded
+   between sessions, so this is done once — but it writes that list when it **closes normally**, so a
+   Rhino killed rather than closed forgets it was ever told, and the plugin is simply absent next time
+   with nothing to explain why.
 2. `code --install-extension dist\phenome-link-<version>.vsix`, or let the canvas's *Pair with VS Code*
    button do it on the first pairing.
 3. Restart Rhino.

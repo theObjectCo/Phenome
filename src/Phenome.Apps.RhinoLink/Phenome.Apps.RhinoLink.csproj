@@ -16,7 +16,7 @@
     <RootNamespace>Phenome.Apps.RhinoLink</RootNamespace>
     <AssemblyName>Phenome.Apps.RhinoLink</AssemblyName>
 
-    <Version>0.20.0</Version>
+    <Version>0.21.0</Version>
 
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
