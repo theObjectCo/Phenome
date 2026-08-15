@@ -42,9 +42,16 @@ jobs:
       - name: Build the plugin
         run: dotnet build src/Phenome.Apps.GrasshopperLink/Phenome.Apps.GrasshopperLink.csproj -c Release
 
+      # Pinned. `npx --yes @vscode/vsce` takes whatever is newest at the moment the build runs, and vsce
+      # carries thirty direct dependencies - so an upstream release could change what lands in our .vsix
+      # without any commit here, and nothing would record which version packed a given release.
+      #
+      # The npm deprecation warnings in this step's log come from that tree, not from us: this extension has
+      # no dependencies at all, deliberately. They are left visible rather than silenced with --loglevel,
+      # because the flag that hides somebody else's noise hides ours too.
       - name: Package the extension
         working-directory: src/Phenome.Apps.VSCodeLink
-        run: npx --yes @vscode/vsce package --allow-missing-repository --skip-license
+        run: npx --yes @vscode/vsce@3.9.2 package --allow-missing-repository --skip-license
 
       - name: Collect
         shell: pwsh
