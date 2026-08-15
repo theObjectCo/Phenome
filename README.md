@@ -1,11 +1,12 @@
 # Phenome Link
 
-Your Grasshopper canvas over loopback HTTP, so an agent can work on it beside you. Two halves of one
-mechanism, and they only work as a pair.
+Your Grasshopper canvas over loopback HTTP, so an agent can work on it beside you. Three parts of one
+mechanism, versioned together.
 
 | | |
 |---|---|
 | [`src/Phenome.Apps.GrasshopperLink`](src/Phenome.Apps.GrasshopperLink) | The canvas end: a Grasshopper plugin that exposes the live document, and verbs to edit it. |
+| [`src/Phenome.Apps.RhinoLink`](src/Phenome.Apps.RhinoLink) | The Rhino end: a plugin that loads with Rhino itself and answers about the process — whether it is free, what is blocking it, and how to answer that. |
 | [`src/Phenome.Apps.VSCodeLink`](src/Phenome.Apps.VSCodeLink) | The editor end: a VS Code extension carrying an MCP server, so an agent speaks the protocol as named tools rather than raw HTTP. |
 
 **It stands alone.** No account, no service, no library of ours, and nothing leaves your machine — the server
@@ -28,6 +29,40 @@ end up peers — both are clients, neither owns the session.
 - **Run and keep** — the solver, bake, data mapping, new/open/save, a C# component's source with its
   compile errors back.
 - **Say** — messages both ways, and a friction log for when a verb fights you.
+- **Get unstuck** — whether Rhino is idle, busy or blocked; what dialog is holding it and how to answer
+  that; and the tail of Rhino's own command line, which is where commands and scripts reply.
+
+## When the canvas is not the problem
+
+Every verb above runs on Rhino's UI thread, so whenever that thread is not free they all fail the same
+way. Two situations hide behind that and they want opposite responses: a long command is worth waiting
+for, and a modal dialog will wait forever. An agent that cannot tell them apart either abandons work that
+was about to finish, or watches a process that will never move.
+
+So a second, smaller server answers about the process, from a thread of its own:
+
+- **`pulse`** — `idle`, `busy` or `blocked`. Busy names the running command and how long it has run.
+  Blocked names the dialog and lists its buttons — or says it has none that can be clicked, which is the
+  case for Rhino's newer dialogs: they draw their own, so there is nothing to post a click to.
+- **`dismiss`** — presses a button, types a key, or closes the dialog. Closing is the default because
+  closing is what the X does and what the X does is decline; agreeing to something has to be asked for.
+- **`console`** — the tail of the command line. It has been one-way until now: the link writes a line into
+  it on every request so the human can see an agent's hands move, and nothing came back. But that is where
+  Rhino answers.
+
+This half lives in the Rhino plugin rather than the Grasshopper one, because a `.gha` does not exist until
+Grasshopper has been started — so nothing in it can report on a dialog that appears while Rhino is still
+starting, which is exactly when nothing else can answer either.
+
+## You can see when it is not you
+
+While an agent is working, every Rhino viewport and the Grasshopper canvas carry a two-pixel border in
+Object Orange. It goes out a few seconds after the agent's last action, so an idle screen never wears it,
+and the heartbeat a paired client sends does not count as an action — otherwise the border would mean
+"somebody is connected", which is a light nobody looks at after the first hour.
+
+Drawn rather than announced. A dialog has to be dismissed and a line in the command history scrolls away;
+a border is seen without being read.
 
 Everything that happens is appended to a journal with an author on every entry, so a client polls for what
 changed and skips its own echo. `GET /` describes the whole protocol and is generated from the server
@@ -35,7 +70,7 @@ itself, which makes it the authority rather than this file.
 
 ## How it fits together
 
-Four parts, and the arrows are the whole design. Everything crosses process boundaries as HTTP on loopback
+Five parts, and the arrows are the whole design. Everything crosses process boundaries as HTTP on loopback
 or as MCP over stdio — there is no shared memory, no database, and nothing off the machine.
 
 ```mermaid
@@ -44,6 +79,7 @@ flowchart TD
     agent([Agent]):::person
 
     subgraph rhino["Rhino 8 — one process per session"]
+        rhp["<b>RhinoLink</b> (.rhp)<br/>loads at startup<br/>answers off the UI thread"]:::ours
         gh["Grasshopper<br/>the live document"]:::host
         plugin["<b>GrasshopperLink</b> (.gha)<br/>HTTP server on loopback"]:::ours
     end
@@ -54,6 +90,7 @@ flowchart TD
     end
 
     port[/"%TEMP%/phenome-link-&lt;pid&gt;.port"/]:::file
+    rport[/"%TEMP%/phenome-rhino-&lt;pid&gt;.port"/]:::file
 
     human -->|clicks, drags, types| gh
     gh <-->|in-process| plugin
@@ -61,10 +98,13 @@ flowchart TD
 
     mcp <-->|"HTTP verbs, and /events<br/>polled for what changed"| plugin
     ext <-->|the same verbs| plugin
+    mcp <-->|"pulse, dismiss —<br/>answered while the UI thread is held"| rhp
 
     plugin -.->|writes on startup| port
+    rhp -.->|writes on startup| rport
     ext -.->|reads it| port
-    mcp -.->|reads it| port
+    mcp -.->|reads both| port
+    mcp -.-> rport
 
     classDef ours fill:#2d6cdf,stroke:#1b3f85,color:#fff
     classDef host fill:#eee,stroke:#999,color:#000
@@ -83,7 +123,12 @@ the journal with an author on it.
 
 **A port file per Rhino is the whole of discovery.** No registry, no daemon, no fixed port. Several Rhinos
 can run at once and each agent can be pinned to one of them; a stale file has a dead pid, and no file means
-no session.
+no session. Two files per Rhino now, one per server, named by the same pid — so the two halves of one
+Rhino find each other without either knowing the other exists.
+
+**The Rhino end answers when the canvas end cannot.** It runs on its own thread and touches nothing that
+needs the UI, which is not an optimisation but the requirement: every verb it has must work while the UI
+thread is held, because a held thread is the whole reason it is there.
 
 ## A session, end to end
 

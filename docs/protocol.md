@@ -10,13 +10,21 @@ half-dozen things that will otherwise cost you an afternoon.
 
 ## Finding a session
 
-The plugin binds an **ephemeral loopback port** at startup and writes it to:
+Each plugin binds an **ephemeral loopback port** at startup and writes it to a file named by Rhino's
+process id:
 
 ```
-%TEMP%\phenome-link-<rhino pid>.port
+%TEMP%\phenome-link-<rhino pid>.port     the canvas: the document and the verbs that edit it
+%TEMP%\phenome-rhino-<rhino pid>.port    the process: whether it is free, and what is blocking it
 ```
 
-That file is the whole of discovery. There is no registry, no daemon and no fixed port.
+Those files are the whole of discovery. There is no registry, no daemon and no fixed port.
+
+**Two servers, on purpose.** They answer about different things and, more to the point, they are available
+at different times. The canvas server lives in a `.gha`, which does not exist until Grasshopper has been
+started; the process server lives in a `.rhp` that loads with Rhino. A client that wants to know why
+nothing is answering has to ask the one that still can - and matching the pid in the two filenames is how
+it finds the right pair.
 
 - **One file per Rhino.** Several can run at once, and each is a separate canvas with a separate journal.
   An agent that should stay on one canvas holds on to one port for the session.
@@ -24,7 +32,8 @@ That file is the whole of discovery. There is no registry, no daemon and no fixe
   clean up after a crash.
 - **No file means no session** — Rhino is not running, or Grasshopper was never opened, or the `.gha` did
   not load. On a fresh install the third is most likely, and the cause is almost always a blocked assembly
-  (see the README's install notes).
+  (see the README's install notes). A `phenome-rhino-*.port` without a `phenome-link-*.port` narrows it in
+  one step: Rhino is up and Grasshopper simply has not been opened.
 
 Everything is `http://127.0.0.1:<port>`. The listener never binds anything but loopback. `Access-Control-Allow-Origin`
 is `*`, which is safe for exactly that reason: the clients are local windows, and nothing off the machine
@@ -134,6 +143,44 @@ scalars as strings and a server that insisted otherwise would punish the wrong p
 **Verify numerically.** `/peek` returns branch and item counts with paths; that is the specification. A
 screenshot tells you a definition looks plausible, which is not the same claim. `/canvas-image` and
 `/screenshot` exist for the human's half of the pairing.
+
+**But not for anything painted onto a control.** `/canvas-image` re-renders the document to a bitmap rather
+than photographing the window, so overlays drawn during the canvas paint do not appear in it. Their only
+witness is the screen itself.
+
+## When nothing answers
+
+Every verb above needs the UI thread, so when that thread is held they all time out together. The process
+server exists to tell you which of two opposite situations you are in, and it never touches the UI thread
+itself.
+
+**`GET /pulse`** answers `idle`, `busy` or `blocked`. An idle handler stamps the time whenever the UI
+thread has nothing to do, so a stale stamp means it is not free; the command events say what is running,
+cached as they fire rather than asked for on demand; and Windows says whether a modal is up, because it
+disables the owner window while one is open.
+
+```json
+{ "ok": true, "state": "blocked", "uiFree": false,
+  "dialog": { "present": true, "title": "Explode Large Mesh",
+              "buttons": ["Yes", "No", "Cancel"], "clickable": true },
+  "advice": "The dialog \"Explode Large Mesh\" is open. Nothing will answer until somebody clicks it." }
+```
+
+Stale with a command running is *wait*. Stale with a dialog up is *stuck*, and the answer names it.
+
+**`POST /dismiss`** answers that dialog: `{button}` presses one by name, `{key}` types instead, and neither
+closes it. Closing is the default because closing is what the X does and what the X does is decline.
+`{expect}` names the dialog you meant to answer and refuses if another is up by then — dialogs are
+transient, and a blind press answers whatever happens to be there.
+
+**`clickable: false` is not an empty list of buttons.** It means the dialog draws its own — Rhino's Eto
+prompts do — so the buttons are not windows and there is nothing to post a click to. `WM_CLOSE` is no
+substitute either: on a *save changes?* prompt, closing means cancel, so the thing you were trying to do
+does not happen. Send a key.
+
+**`GET /console?tail=50`** is the tail of Rhino's own command line, which is where commands and scripts
+reply and which used to go only to the human. It is drained when the UI thread breathes, so a long
+script's output arrives in one piece when the script ends — `/pulse` is the verb for the meantime.
 
 ## What is deliberately not here
 
