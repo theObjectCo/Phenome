@@ -8,11 +8,9 @@ mechanism, and they only work as a pair.
 | [`src/Phenome.Apps.GrasshopperLink`](src/Phenome.Apps.GrasshopperLink) | The canvas end: a Grasshopper plugin that exposes the live document, and verbs to edit it. |
 | [`src/Phenome.Apps.VSCodeLink`](src/Phenome.Apps.VSCodeLink) | The editor end: a VS Code extension carrying an MCP server, so an agent speaks the protocol as named tools rather than raw HTTP. |
 
-**It stands alone.** No account, no service, no library of ours — the canvas half needs Rhino 8 and nothing
-more, and everything stays on your machine, because the server listens on loopback only. Pairing with an
-editor and an agent asks for a little more; [Installing](#installing) says exactly what. The protocol is
-worth the same to any Grasshopper user with any agent, which is why it is MIT and why it is here rather than
-bundled into something larger.
+**It stands alone.** No account, no service, no library of ours, and nothing leaves your machine — the server
+listens on loopback only. The protocol is worth the same to any Grasshopper user with any agent, which is why
+it is MIT and why it is here rather than bundled into something larger.
 
 ## What the link is for
 
@@ -141,17 +139,12 @@ cursor means entries were dropped, which is the signal to re-read `/canvas` inst
 
 ## Installing
 
-What you need depends on how far you want to go:
-
-| | |
-|---|---|
-| **The canvas over HTTP** | Rhino 8 on Windows. That is genuinely all — any HTTP client is then a peer, including `curl`. |
-| **The MCP door** | Node.js, to run `mcp.js`. Point any MCP-capable agent at it. |
-| **The paired workflow** | VS Code as well — or any editor that installs a `.vsix` and speaks MCP — plus an agent to sit in it. |
+You need **Rhino 8** on Windows, **VS Code**, **Node.js**, and an **agent that speaks MCP** — Claude Code,
+or whatever you already use.
 
 No account anywhere, and nothing leaves the machine: the server listens on loopback only.
 
-The two halves are built to work as a pair, so install both unless you specifically want the bare HTTP API.
+Install both halves. They are built to work as a pair.
 
 ### From the release (recommended)
 
@@ -208,6 +201,34 @@ From an agent, the MCP server is the better door: it wraps every verb as a named
 for permission once per verb instead of once per call. Point your client at `mcp.js` in the extension, or
 let the extension launch the agent for you — it pins the session to one canvas through an environment
 variable.
+
+**Writing your own client?** [docs/protocol.md](docs/protocol.md) covers what the generated description
+cannot: how sessions are discovered, how the journal's cursor and its gaps behave, and the handful of rules
+every verb shares.
+
+## When a verb fights you
+
+The plugin keeps a **friction log** — every refused request, with what was asked and what it said back, plus
+anything an agent chose to report. It lives at:
+
+```
+%LOCALAPPDATA%\Phenome\link-friction.jsonl
+```
+
+It is written locally and **nothing is ever sent from the plugin**. Reading it back is `GET /friction`, or
+`POST /feedback`, which assembles the session, the linter's findings and the recent friction into one
+readable file and hands you a `mailto` link with everything filled in. Sending stays your act, from your own
+mail client, after you have read what it says.
+
+**If you would like us to look at it, send that file to
+[hi+phenomelogs@object.pl](mailto:hi+phenomelogs@object.pl).**
+It is the most useful thing anybody can send us: a verb that refused a reasonable request is a design fault
+on our side, and the log says exactly which request, against which version, in which order — the part that
+never survives being retold.
+
+Read it before you send it. It records the requests made against your canvas, so it can name components and
+files from the definition you were working on. It contains no geometry and nothing about your machine beyond
+the plugin's own version.
 
 ## Licence
 
