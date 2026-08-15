@@ -51,17 +51,32 @@ jobs:
           Copy-Item (Get-ChildItem src/Phenome.Apps.VSCodeLink -Filter 'phenome-link-*.vsix')[0].FullName dist
           Get-ChildItem dist | ForEach-Object { "  $($_.Name)  $([int]($_.Length/1KB)) KB" }
 
-      # The manifest and the assembly must agree on the version: Yak cross-checks them, and the friction log
-      # stamps its reports with the assembly version so a report names a build.
-      - name: Check the version in the manifest matches the project
+      # All four version declarations must agree. Yak cross-checks the first two, the friction log stamps its
+      # reports with the assembly version so a report names a build - and the extension is here because it was
+      # not: v0.1.0 shipped a 0.17.0 vsix, two histories in one release, and nothing complained. The halves
+      # only work as a pair, so they carry one number.
+      - name: Check every version declaration agrees
         shell: pwsh
         run: |
-          $manifest = (Get-Content src/Phenome.Apps.GrasshopperLink/manifest.yml |
-            Select-String '^version:\s*(.+)$').Matches.Groups[1].Value.Trim()
-          $project = (Select-Xml -Path src/Phenome.Apps.GrasshopperLink/Phenome.Apps.GrasshopperLink.csproj `
-            -XPath '//Version').Node.InnerText.Trim()
-          "manifest $manifest, project $project"
-          if ($manifest -ne $project) { throw "manifest.yml says $manifest and the project says $project" }
+          $versions = [ordered]@{
+            'manifest.yml' = (Get-Content src/Phenome.Apps.GrasshopperLink/manifest.yml |
+              Select-String '^version:\s*(.+)$').Matches.Groups[1].Value.Trim()
+            'csproj' = (Select-Xml -Path src/Phenome.Apps.GrasshopperLink/Phenome.Apps.GrasshopperLink.csproj `
+              -XPath '//Version').Node.InnerText.Trim()
+            'package.json' = (Get-Content src/Phenome.Apps.VSCodeLink/package.json -Raw | ConvertFrom-Json).version.Trim()
+          }
+          $versions.GetEnumerator() | ForEach-Object { "  $($_.Key): $($_.Value)" }
+
+          $distinct = $versions.Values | Sort-Object -Unique
+          if ($distinct.Count -ne 1) { throw "the versions disagree: $($distinct -join ', ')" }
+
+          # On a tag, the tag is a fourth declaration and the loudest one - it is what the release is named
+          # after and what anybody quotes in a bug report.
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $tag = $env:GITHUB_REF -replace '^refs/tags/v', ''
+            "  tag: $tag"
+            if ($tag -ne $distinct[0]) { throw "the tag says $tag and the files say $($distinct[0])" }
+          }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -144,7 +159,12 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          # Named rather than dist/*, because that also published manifest.yml - a build input, and one more
+          # file to wonder about on a page where every entry should be something you install.
+          files: |
+            dist/*.yak
+            dist/*.gha
+            dist/*.vsix
           body: |
             Both halves, and they only work as a pair.
 
