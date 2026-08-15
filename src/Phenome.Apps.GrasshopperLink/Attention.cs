@@ -38,10 +38,20 @@ internal static class Attention
     private static readonly TimeSpan Hold = TimeSpan.FromSeconds(8);
 
     /// <summary>
-    /// The house teal, #4ab3a2 - a colour neither Rhino nor Grasshopper uses for anything of its own, so
-    /// nothing else on the screen can be mistaken for it or it for anything else.
+    /// Object Orange, #ff9800.
     /// </summary>
-    private static readonly Color Glow = Color.FromArgb(0x4A, 0xB3, 0xA2);
+    /// <remarks>
+    /// The house teal was the obvious choice and the wrong one twice over. It is the primary brand
+    /// colour, which makes it the colour of things being normal, and this is not that. And it is close
+    /// enough in value to Rhino's grey viewport background - and far too close on a white one - that it
+    /// washed out exactly where it most needed to be read.
+    /// <para>
+    /// The house palette files orange under critical calls to action and warnings, which is the right
+    /// register for "someone other than you is holding this machine", and it separates from both a grey
+    /// and a white background without being alarming.
+    /// </para>
+    /// </remarks>
+    private static readonly Color Glow = Color.FromArgb(0xFF, 0x98, 0x00);
 
     /// <summary>How far the glow reaches inwards, in pixels.</summary>
     private const int Reach = 40;
