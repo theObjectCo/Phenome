@@ -67,7 +67,10 @@ jobs:
           }
           $versions.GetEnumerator() | ForEach-Object { "  $($_.Key): $($_.Value)" }
 
-          $distinct = $versions.Values | Sort-Object -Unique
+          # @() around it on purpose: Sort-Object -Unique hands back a bare string when everything agrees,
+          # and indexing a string gives a character - so $distinct[0] was '0' rather than '0.18.0', and the
+          # check failed precisely when it should have passed.
+          $distinct = @($versions.Values | Sort-Object -Unique)
           if ($distinct.Count -ne 1) { throw "the versions disagree: $($distinct -join ', ')" }
 
           # On a tag, the tag is a fourth declaration and the loudest one - it is what the release is named
