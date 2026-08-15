@@ -28,8 +28,14 @@ namespace Phenome.Apps.GrasshopperLink;
 /// </remarks>
 internal static class Attention
 {
-    /// <summary>How long after a request the border stays lit - long enough to bridge the gaps between calls.</summary>
-    private static readonly TimeSpan Hold = TimeSpan.FromSeconds(4);
+    /// <summary>
+    /// How long after a request the border stays lit - long enough to bridge the gaps between calls.
+    /// </summary>
+    /// <remarks>
+    /// Agents work in bursts with thinking in between, and a border that goes out during the thinking
+    /// says the opposite of the truth: it says the machine is yours again, seconds before it is not.
+    /// </remarks>
+    private static readonly TimeSpan Hold = TimeSpan.FromSeconds(8);
 
     /// <summary>
     /// The house teal, #4ab3a2 - a colour neither Rhino nor Grasshopper uses for anything of its own, so
@@ -38,7 +44,10 @@ internal static class Attention
     private static readonly Color Glow = Color.FromArgb(0x4A, 0xB3, 0xA2);
 
     /// <summary>How far the glow reaches inwards, in pixels.</summary>
-    private const int Reach = 14;
+    private const int Reach = 24;
+
+    /// <summary>How solid the border is at the very edge, out of 255.</summary>
+    private const int Strength = 220;
 
     private static Conduit? conduit;
     private static System.Timers.Timer? clock;
@@ -96,7 +105,19 @@ internal static class Attention
     /// <summary>
     /// Nested rectangles of falling opacity, from the edge inwards - a glow without a bitmap or a shader.
     /// </summary>
-    private static int AlphaAt(int step) => Math.Max(0, (int)(90.0 * (1.0 - (double)step / Reach)));
+    /// <remarks>
+    /// The falloff is squared rather than straight. A linear ramp spreads the colour so evenly that it
+    /// reads as a faint wash and is easy to miss entirely; squaring keeps the outermost pixels close to
+    /// solid, so there is a definite edge, and lets the rest fade quickly enough to still be a glow.
+    /// The first two rings are drawn at full strength so the border has a line, not only a haze.
+    /// </remarks>
+    private static int AlphaAt(int step)
+    {
+        if (step < 2) return Strength;
+
+        double falling = 1.0 - (double)step / Reach;
+        return Math.Max(0, (int)(Strength * falling * falling));
+    }
 
     private static void PaintCanvas(GH_Canvas canvas)
     {
