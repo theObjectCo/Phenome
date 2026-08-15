@@ -17,10 +17,10 @@ Anything unusual: ask `components`, and `describe` tells you a placed object's r
 | divide a span | `Range` | Domain, Steps |
 | arithmetic | `Addition` `Subtraction` `Multiplication` `Division` | A, B |
 | a point | `Construct Point` | X coordinate, Y coordinate, Z coordinate |
-| take a point apart | `Deconstruct Point` | Point |
+| take a point apart | `Deconstruct` | Point → X component, Y component, Z component |
 | a line | `Line` | Start Point, End Point |
 | a line from a direction | `Line SDL` | Start, Direction, Length |
-| a box | `Box 2Pt` | Point A, Point B, Base |
+| a box | `Box 2Pt` | Point A, Point B, Plane |
 | a box about a centre | `Center Box` | Base, X, Y, Z |
 | gather lists into one | `Merge` | Data 1, Data 2, … (zoom adds more) |
 | move something | `Move` | Geometry, Motion |
