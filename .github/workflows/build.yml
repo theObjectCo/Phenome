@@ -75,9 +75,14 @@ jobs:
   # exist queues for six hours and then fails. Set PHENOME_SELF_HOSTED to 'true' once a Windows runner with
   # Rhino is registered; until then this skips and the release carries the .gha and the .vsix, which is enough
   # to install by hand.
+  #
+  # Tags only, and that is a security boundary rather than a convenience. This repository is public, so
+  # letting an organisation runner serve it means somebody else's pull request could run on our machine.
+  # A tag can only be pushed by somebody with write access; a fork's pull request never is one. Everything a
+  # stranger can trigger stays on GitHub's hosted runners, where it belongs.
   yak:
     needs: build
-    if: vars.PHENOME_SELF_HOSTED == 'true'
+    if: startsWith(github.ref, 'refs/tags/v') && vars.PHENOME_SELF_HOSTED == 'true'
     runs-on: [self-hosted, windows]
 
     steps:
