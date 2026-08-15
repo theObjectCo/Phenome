@@ -43,6 +43,9 @@ internal static class LinkServer
             "GET /canvas": "the whole document: every object, wires, values, selection, enabled, preview, mapping, solver state",
             "GET /canvas?as=mermaid": "the same document as a mermaid flowchart - groups as subgraphs, red components marked - with a map of short node ids to real guids. The shape of a definition at a fiftieth of the size; it carries no data, so branch and item counts still come from peek",
             "GET /events?since=N": "the journal after entry N; response carries 'latest' to ask from next time; a gap below your cursor means entries were dropped - re-read /canvas",
+            "POST /dismiss": "{author, button?, expect?} - answer the dialog Rhino is waiting on: press a button by name, or close it when no name is given. 'expect' names the dialog you meant to answer and refuses if another one is up by then. /pulse lists the buttons",
+            "GET /console?tail=50": "the tail of Rhino's own command line - what commands and scripts said, which until now went only to the human. Drained when the UI thread breathes, so a long command's output arrives when it ends; /pulse is the verb for the meantime",
+            "GET /pulse": "whether Rhino is idle, busy or blocked - answered without the UI thread, so it still answers when nothing else does. 'busy' names the running command and how long it has run: wait. 'blocked' names the open dialog: nothing will answer until somebody clicks it",
             "POST /say": "{author, text, to?} - a message into the journal, for whoever reads it",
             "POST /solver": "{author, enabled} - lock or unlock the solver",
             "POST /bake": "{author, ids:[guid]} - bake those objects into the Rhino document",
@@ -87,6 +90,11 @@ internal static class LinkServer
     internal static void Start()
     {
         Port = FreePort();
+
+        // Before the listener, so the first request can already be told what Rhino is doing and what it
+        // has been saying.
+        Pulse.Start();
+        CommandLine.Start();
 
         listener = new HttpListener();
         listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
@@ -137,6 +145,10 @@ internal static class LinkServer
                     OnUi(() => CanvasWriter.Mermaid(ActiveDocument())),
                 ("GET", "/canvas") => Json.Indented(OnUi(() => CanvasWriter.Write(ActiveDocument()))),
                 ("GET", "/events") => Journal.Since(Since(context.Request)),
+                ("GET", "/pulse") => Pulse.Report(),
+                ("POST", "/dismiss") => Dismissed(Read(payload)),
+                ("GET", "/console") => CommandLine.Tail(
+                    int.TryParse(context.Request.QueryString["tail"], out int back) ? Math.Clamp(back, 1, 500) : 50),
                 ("POST", "/say") => Say(Read(payload)),
                 ("POST", "/solver") => Solver(Read(payload)),
                 ("POST", "/bake") => Bake(Read(payload)),
@@ -231,6 +243,10 @@ internal static class LinkServer
             ok ? "ok" : "FAIL",
             elapsed,
             ok || string.IsNullOrEmpty(said) ? "" : "   " + OneLine(said));
+
+        // Claimed before it is written: the capture cannot tell this plugin's echo from Rhino's own
+        // output, and an agent reading /console should not be shown its own footsteps as news.
+        CommandLine.Ours(line);
 
         try
         {
@@ -1087,6 +1103,22 @@ internal static class LinkServer
         Journal.Append(author, "arrange", $",\"moved\":{Json.Number(moved)}");
 
         return $"{{\"ok\":true,\"moved\":{Json.Number(moved)}}}";
+    }
+
+    /// <summary>
+    /// Answers the dialog Rhino is waiting on. Journalled like any other hand on the machine.
+    /// </summary>
+    private static string Dismissed(JsonDocument request)
+    {
+        string author = Author(request);
+        string? button = Field(request, "button");
+        string? expect = Field(request, "expect");
+
+        string answer = Pulse.Dismiss(button, expect);
+
+        Journal.Append(author, "dismiss", $",\"button\":{Json.Quote(button ?? "close")}");
+
+        return answer;
     }
 
     private static string Reported(JsonDocument request)
@@ -2376,7 +2408,10 @@ internal static class LinkServer
 
         if (!done.Wait(TimeSpan.FromSeconds(15)))
         {
-            throw new TimeoutException("The Rhino UI thread did not answer in time.");
+            // Not "it did not answer" - that sentence is true of a long solve and of a modal alike, and
+            // those want opposite responses. Pulse can tell them apart without the thread this is waiting
+            // for, so the refusal says which one happened.
+            throw new TimeoutException(Pulse.Sentence());
         }
 
         return failure is null ? result : throw failure;

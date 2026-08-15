@@ -171,6 +171,27 @@ const TOOLS = [
         run: args => ask(`/events?since=${args.since}`),
     },
     {
+        name: 'pulse',
+        description: "Whether Rhino is idle, busy or blocked. Answered without the Rhino UI thread, so it still answers when nothing else does - which is the point. When another tool times out, this says which of two opposite situations you are in: 'busy' names the running command and how long it has run, and means wait; 'blocked' names the open dialog, and means nothing will answer until a human clicks it.",
+        inputSchema: object({}),
+        run: () => ask('/pulse'),
+    },
+    {
+        name: 'dismiss',
+        description: "Answer the dialog Rhino is waiting on: press a button by name, or close it when no name is given. pulse names the dialog and lists its buttons. Closing is declining, so it is the default; pressing a button is agreeing to something and has to be asked for. Pass 'expect' with the dialog's title and it refuses if a different one is up by then - dialogs are transient, and a blind press answers whatever happens to be there.",
+        inputSchema: object({
+            button: str("The button to press, exactly as pulse lists it. Omit to close the dialog instead."),
+            expect: str("The dialog title you meant to answer; refuses if another one is open."),
+        }),
+        run: args => ask('/dismiss', args),
+    },
+    {
+        name: 'console',
+        description: "The tail of Rhino's own command line: what commands and scripts actually said - selection counts, script prints, the reason a command did something surprising. Read it after anything whose result is not in the response. It is drained when the UI thread breathes, so a long command's output arrives when that command ends; use pulse for what is happening right now.",
+        inputSchema: object({ tail: { type: 'number', description: 'How many lines back, 1 to 500; default 50.' } }),
+        run: args => ask(`/console?tail=${args.tail ?? 50}`),
+    },
+    {
         name: 'say',
         description: 'A message into the journal, for the human or another agent.',
         inputSchema: object({ text: str('What to say.'), to: str('Optional addressee.') }, ['text']),
