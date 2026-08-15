@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The half of the link that belongs to Rhino rather than to the canvas.
+
+    A .gha only exists once Grasshopper has been started, and Grasshopper is started by opening it - so
+    everything that happens before that is out of reach of the other plugin. That includes the one thing
+    an agent most needs a way out of: a dialog on startup, which holds Rhino before any canvas exists and
+    leaves nothing listening to say so.
+
+    This one loads with Rhino itself and answers about the process: whether the UI thread is free, what is
+    blocking it, and how to answer that. It references no Phenome library and not Grasshopper either.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <RootNamespace>Phenome.Apps.RhinoLink</RootNamespace>
+    <AssemblyName>Phenome.Apps.RhinoLink</AssemblyName>
+
+    <Version>0.20.0</Version>
+
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <IsPackable>false</IsPackable>
+
+    <TargetExt>.rhp</TargetExt>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <NoWarn>NU1701</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RhinoCommon" Version="8.21.25188.17001" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>

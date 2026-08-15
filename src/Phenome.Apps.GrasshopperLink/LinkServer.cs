@@ -96,6 +96,10 @@ internal static class LinkServer
         Pulse.Start();
         CommandLine.Start();
 
+        // The border that says an agent is driving. Started here rather than on the first request, so the
+        // first request is already inside it.
+        Attention.Start();
+
         listener = new HttpListener();
         listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
         listener.Start();
