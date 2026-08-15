@@ -159,6 +159,97 @@ jobs:
           name: phenome-link-yak
           path: dist/*.yak
 
+  # The same three files into the company SharePoint library, so an internal machine can pick up a build
+  # without going to a public release page - and so there is a record of every version we cut.
+  #
+  # Hosted rather than self-hosted, deliberately. Graph is ordinary HTTPS and nothing here is local, so this
+  # needs no runner of ours: one fewer thing depending on one machine, and the publishing secret never lands
+  # on a machine that already holds another. Tag-only, so a fork's pull request never reaches the secret -
+  # GitHub withholds secrets from fork pull requests anyway, and the two together are the belt and braces.
+  sharepoint:
+    needs: [build, yak]
+    if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: phenome-link
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: phenome-link-yak
+          path: dist
+
+      - name: Upload to the Builds folder
+        shell: pwsh
+        env:
+          TENANT: ${{ vars.PHENOME_GRAPH_TENANT }}
+          CLIENT_ID: ${{ vars.PHENOME_GRAPH_CLIENT_ID }}
+          SECRET: ${{ secrets.PHENOME_GRAPH_SECRET }}
+          DRIVE: ${{ vars.PHENOME_PUBLISH_DRIVE }}
+          FOLDER: ${{ vars.PHENOME_LINK_FOLDER }}
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
+        run: |
+          $missing = @('TENANT','CLIENT_ID','SECRET','DRIVE','FOLDER') |
+            Where-Object { -not (Get-Item "env:$_" -ErrorAction SilentlyContinue).Value }
+          if ($missing) {
+            # Not a failure: the release itself is the product, and this is a convenience on top of it. But
+            # it says so, because a step that publishes nothing and prints nothing cannot be told from one
+            # that worked.
+            Write-Host "  $($missing -join ', ') not set - nothing sent to SharePoint."
+            exit 0
+          }
+
+          $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
+
+          # A folder per version, because the .gha carries no version in its filename and would otherwise
+          # overwrite its predecessor on every release - leaving a file nobody can date.
+          $target = "$env:FOLDER/$version"
+
+          $files = Get-ChildItem dist -Include *.gha, *.vsix, *.yak -Recurse
+          if (-not $files) { throw 'nothing to upload' }
+
+          $token = (Invoke-RestMethod -Method POST `
+            -Uri "https://login.microsoftonline.com/$env:TENANT/oauth2/v2.0/token" -Body @{
+              client_id = $env:CLIENT_ID; client_secret = $env:SECRET
+              scope = 'https://graph.microsoft.com/.default'; grant_type = 'client_credentials'
+            }).access_token
+          $headers = @{ Authorization = "Bearer $token" }
+
+          foreach ($f in $files) {
+            $uri = "https://graph.microsoft.com/v1.0/drives/$env:DRIVE/root:/$target/$($f.Name)`:/content"
+            $up = Invoke-RestMethod -Method PUT -Headers $headers -ContentType 'application/octet-stream' `
+              -InFile $f.FullName -Uri $uri
+            Write-Host "  $($up.name) -> $target, $([int]($up.size/1KB)) KB"
+          }
+
+          if (-not $env:TEAMS_WEBHOOK) { Write-Host '  TEAMS_WEBHOOK is not set - nobody notified'; exit 0 }
+
+          $body = @{
+            type = 'message'
+            attachments = @(@{
+              contentType = 'application/vnd.microsoft.card.adaptive'
+              content = @{
+                '$schema' = 'http://adaptivecards.io/schemas/adaptive-card.json'
+                type = 'AdaptiveCard'; version = '1.5'
+                body = @(@{
+                  type = 'TextBlock'; wrap = $true
+                  text = "**Phenome Link $version** published. $($files.Count) files in ``Builds/$target``, " +
+                         "and a [release]($env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/tag/v$version)."
+                })
+              }
+            })
+          } | ConvertTo-Json -Depth 10
+
+          try {
+            Invoke-RestMethod -Uri $env:TEAMS_WEBHOOK -Method Post -ContentType 'application/json' -Body $body | Out-Null
+            Write-Host '  notified Teams'
+          }
+          catch { Write-Host "  Teams refused the message: $($_.Exception.Message)" }
+
   release:
     # The yak job is skipped when no self-hosted runner is configured, and a skipped dependency would take the
     # release with it. always() keeps the release going and the download below tolerates the missing artifact.
