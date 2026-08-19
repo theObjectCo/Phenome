@@ -14,12 +14,16 @@ Each plugin binds an **ephemeral loopback port** at startup and writes it to a f
 process id:
 
 ```
-%TEMP%\phenome-link-<rhino pid>.port     the canvas: the document and the verbs that edit it
-%TEMP%\phenome-rhino-<rhino pid>.port    the process: whether it is free, what blocks it, and the
-                                         verbs that need Rhino but not a canvas
+%TEMP%\phenome-link-<rhino pid>.port         the canvas: the document and the verbs that edit it
+%TEMP%\phenome-rhino-<rhino pid>.port        the process: whether it is free, what blocks it, and the
+                                             verbs that need Rhino but not a canvas
+%TEMP%\phenome-rhinoinside-<pid>.port        a Rhino nobody opened: a headless core in a process of its
+                                             own, reading and converting files on disk
 ```
 
-Those files are the whole of discovery. There is no registry, no daemon and no fixed port.
+Those files are the whole of discovery. There is no registry, no daemon and no fixed port. The names differ
+so that finding one tells you what you found; the first two share a pid because they are two servers in one
+Rhino, and the third is its own process.
 
 **Two servers, on purpose.** They answer about different things and, more to the point, they are available
 at different times. The canvas server lives in a `.gha`, which does not exist until Grasshopper has been
@@ -236,6 +240,31 @@ The canvas server answers these two as well, at `GET` and `POST /rhino`, and wil
 that finds a `phenome-rhino-*.port` should prefer it: those verbs are there whether or not Grasshopper was
 ever opened. A `404` from an older `.rhp` is the signal to fall back to the canvas server, not to give up —
 one half of a pairing is often updated before the other.
+
+### A Rhino nobody opened
+
+The third server is a program rather than a plugin: it starts a Rhino core in its own process with
+`WindowStyle.NoWindow` and answers about files on disk, since there is no document anybody is looking at. Same
+conventions — loopback, one JSON out, an ephemeral port in `%TEMP%\phenome-rhinoinside-<pid>.port` — so the
+same client code reaches it.
+
+**`GET /doc?path=`** describes a `.3dm`: units, tolerance, layers, and a count of each kind of object rather
+than a line per object. **`POST /convert`** takes `{from, to, version?}` and writes the format the target's
+extension asks for — `.3dm` through the archive writer, anything else through Rhino's exporter for it.
+**`GET /pulse`** says whether the core is free and which verb it is on, answered without the work queue so it
+answers while the queue is busy. **`POST /quit`** ends the process.
+
+**Rhino commands do not run there, and that is measured rather than assumed.** `RunScript` answers `false` and
+changes nothing — through the serial-number overload against a headless document, and against one opened the
+ordinary way, which in a windowless process is headless anyway. So anything that is a command is out of reach:
+selection, export option dialogs, most of what a toolbar does. The process server inside a real Rhino is where
+that belongs. What does work is reading, writing, and Rhino's importers and exporters, which do load in a
+Rhino with no window — verified for `.stl`, `.obj`, `.dxf` and `.step`.
+
+**An application with no window can still put up a window.** Asking for file version 7 on a document holding
+Rhino 8 data raises a modal in a `NoWindow` core, with nobody there to press one of its three buttons; the
+write returns false and the thread waits. Every write from that server therefore sets `SuppressDialogBoxes`
+and `SuppressAllInput`. Worth knowing if you drive a headless Rhino yourself.
 
 ## What is deliberately not here
 

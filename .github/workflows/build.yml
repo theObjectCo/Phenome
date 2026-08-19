@@ -48,6 +48,13 @@ jobs:
       - name: Build the Rhino plugin
         run: dotnet build src/Phenome.Apps.RhinoLink/Phenome.Apps.RhinoLink.csproj -c Release
 
+      # Built but not released. The third half starts a Rhino core of its own with no window, which makes it
+      # useful on a machine nobody is sitting at - and it is not part of the pair anybody installs, so it does
+      # not go in dist. Compiled here anyway for the reason the comment above gives about the Rhino plugin:
+      # this file builds what it names, and anything unnamed rots without anybody finding out.
+      - name: Build the Rhino.Inside half
+        run: dotnet build src/Phenome.Apps.RhinoInsideLink/Phenome.Apps.RhinoInsideLink.csproj -c Release
+
       # Pinned. `npx --yes @vscode/vsce` takes whatever is newest at the moment the build runs, and vsce
       # carries thirty direct dependencies - so an upstream release could change what lands in our .vsix
       # without any commit here, and nothing would record which version packed a given release.

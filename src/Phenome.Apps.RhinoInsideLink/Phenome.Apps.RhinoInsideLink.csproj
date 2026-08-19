@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The half of the link that never opens Rhino.
+
+    The other two plugins live inside a running Rhino and answer for it. This one is the reverse: it starts
+    a Rhino core in its own process, headless and without a window, so an agent can work on documents with
+    nobody watching a splash screen. Rhino.Inside does the loading; what this assembly adds is the small
+    amount of ceremony that loading needs to survive - the native opennurbs directory, the resolver, and the
+    rule that no RhinoCommon type may be named in the method that starts it.
+
+    What it is meant to become: the same thing as Phenome.Apps.RhinoLink, for a Rhino that was never opened.
+    Plain HTTP on 127.0.0.1, one JSON out, an ephemeral port in a discovery file - the same conventions, so
+    the same clients work against it. That server is not written yet, which is why there is no OutputType
+    here: hosting the core is the half that exists, and a stub Main pretending otherwise would be worse than
+    its absence.
+
+    Document tooling that used to live here - explode, rename, normalize, silhouette, info - has been lifted
+    into _relocate/ on its way out of this repository. It was never part of the link: it is specific to one
+    pipeline, and this repository ships publicly to anyone with Rhino.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>Phenome.Apps.RhinoInsideLink</RootNamespace>
+    <AssemblyName>Phenome.Apps.RhinoInsideLink</AssemblyName>
+
+    <Version>0.1.0</Version>
+
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>false</IsPackable>
+    <!--
+      NU1701: the Rhino packages are still .NET Framework ones. NU1608: Rhino.Inside pins RhinoCommon to
+      the version it shipped against, and we reference a newer one deliberately - at run time neither is
+      loaded, because the resolver hands both over to the Rhino that is actually installed.
+    -->
+    <NoWarn>NU1701;NU1608</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RhinoCommon" Version="8.21.25188.17001" ExcludeAssets="runtime" />
+    <PackageReference Include="Rhino.Inside" Version="8.0.6-beta" />
+  </ItemGroup>
+
+  <!--
+    The same shared source the other two links compile in, less Pulse. Pulse decides everything from Rhino's
+    main window and its idle events, and a windowless core has neither: MainWindowHandle answers zero, so it
+    would report "no dialog" forever. Measured, and worth naming rather than quietly excluding - a dialog can
+    still appear here, it just cannot be found that way. Documents.cs suppresses the one that was observed.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Phenome.Apps.Shared\**\*.cs"
+             Exclude="..\Phenome.Apps.Shared\Pulse.cs"
+             LinkBase="Shared" />
+  </ItemGroup>
+
+</Project>

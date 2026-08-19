@@ -58,6 +58,24 @@ This half lives in the Rhino plugin rather than the Grasshopper one, because a `
 Grasshopper has been started — so nothing in it can report on a dialog that appears while Rhino is still
 starting, which is exactly when nothing else can answer either.
 
+## And a Rhino nobody opened
+
+There is a third one, a program rather than a plugin: it starts a Rhino core in its own process with no window
+and answers about files on disk, since there is no document anybody is looking at. Useful on a machine nobody
+is sitting at — describe a `.3dm`, or convert one to `.stl`, `.obj`, `.dxf` or `.step`. It is not part of the
+pair anybody installs, so it is built from source rather than shipped in a release.
+
+Rhino commands do not run there, and that is measured rather than assumed: `RunScript` answers false in a
+windowless core and changes nothing, whether the document was opened headless or the ordinary way. So the verbs
+are describing and converting, and anything that is a command belongs in a real Rhino through the plugin above.
+
+```powershell
+dotnet run --project src/Phenome.Apps.RhinoInsideLink
+```
+
+It prints the port it bound and writes it to `%TEMP%\phenome-rhinoinside-<pid>.port`. `GET /` describes the
+protocol and `POST /quit` ends it.
+
 ## You can see when it is not you
 
 While an agent is working, every Rhino viewport and the Grasshopper canvas carry a two-pixel border in
