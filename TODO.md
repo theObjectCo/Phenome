@@ -234,6 +234,30 @@ checked by construction. What *was* verified live afterwards is the one thing th
 the change `/console` still comes back empty, so the echo is still filtered and an agent is still not shown
 its own footsteps as Rhino's output.
 
+**Superseded the same day, by looking at a screenful of the result:**
+
+```
+[00:20:12] [127.0.0.1:53911] [78 ms] new
+[00:20:26] [127.0.0.1:53911] [14 ms] place  !!  'Addition' names 2 different components
+```
+
+Three bracketed facts and then the verb. Two of the notes above did not survive it, and both were wrong in
+the same way — reasoned from what a column *should* want rather than from what this log holds.
+
+The port became the whole address, because a line reading `127.0.0.1:53911` can be pasted into a request and
+one reading `:53911` has to be assembled first. It now comes from the same constant the listener binds, so
+the log cannot name an address nothing is listening on.
+
+And **the duration lost its padding**, which the note above spent a paragraph defending. Aligned digits are
+worth having in a column of four-digit numbers; almost every line here is two digits of milliseconds, and
+padding to five made a gutter. The brackets already do that work — an eye finds `[1.4 s]` among `[78 ms]`
+because the edges are drawn. The verb moved to the end for the same reason: it is the only field whose width
+varies and the only one being scanned *for*, so it is the one thing that should not have columns after it.
+
+`IsOurs` changed with it, and had to: it matches the echo by shape, and the shape now begins `[hh:mm:ss]`.
+Left alone, the plugin's own lines would have started appearing in `/console` as though Rhino had said them.
+Verified live after the change - `/console` still answers empty with the canvas busy.
+
 ### Graceful shutdown, which turned out to be two bugs in `Pulse`
 
 The open question was whether closing Rhino from outside is a kill or a graceful close. It is graceful —

@@ -29,6 +29,7 @@ internal static class InsideServer
     static readonly Stopwatch Uptime = Stopwatch.StartNew();
 
     static long served;
+    static long dropped;
     static string? running;
     static long runningSince;
 
@@ -122,25 +123,25 @@ internal static class InsideServer
                 _ => throw new KeyNotFoundException($"There is no {method} {path}. GET / describes what there is."),
             };
 
-            Respond(context.Response, 200, body);
+            Send(context.Response, 200, body);
         }
         catch (KeyNotFoundException missing)
         {
-            Respond(context.Response, 404, Refusal(missing));
+            Send(context.Response, 404, Refusal(missing));
         }
         catch (FileNotFoundException missing)
         {
-            Respond(context.Response, 404, Refusal(missing));
+            Send(context.Response, 404, Refusal(missing));
         }
         catch (Exception asked) when (asked is ArgumentException or JsonException)
         {
             // A field left out or a body that is not JSON is a bad request, not a server that fell over. The
             // distinction is what tells a client whether to fix its call or to try again later.
-            Respond(context.Response, 400, Refusal(asked));
+            Send(context.Response, 400, Refusal(asked));
         }
         catch (Exception failure)
         {
-            Respond(context.Response, 500, Refusal(failure));
+            Send(context.Response, 500, Refusal(failure));
         }
     }
 
@@ -199,6 +200,7 @@ internal static class InsideServer
         json.Append(",\"state\":").Append(Json.Quote(verb is null ? "idle" : "busy"));
         json.Append(",\"upForMs\":").Append(Json.Number(Uptime.ElapsedMilliseconds));
         json.Append(",\"served\":").Append(Json.Number(served));
+        json.Append(",\"dropped\":").Append(Json.Number(dropped));
         json.Append(",\"headless\":").Append(Rhino.RhinoApp.IsRunningHeadless ? "true" : "false");
 
         if (verb is not null)
@@ -231,6 +233,31 @@ internal static class InsideServer
 
     static string Refusal(Exception failure) =>
         $"{{\"ok\":false,\"error\":{Json.Quote(failure.Message)}}}";
+
+    /// <summary>
+    /// Writes the answer, and treats failing to write it as a different thing from failing to answer.
+    /// </summary>
+    /// <remarks>
+    /// A client that gave up waiting makes the write throw, and a catch that answers again is writing to a
+    /// closed stream - which throws in turn, with a message about the response already having been submitted,
+    /// and buries the real one. Writing is the last thing that happens: a failure here is counted and nothing
+    /// else, because the verb already ran and there is nobody left to tell.
+    /// <para>
+    /// The same shape as the canvas half's <c>Send</c>, and for the same reason. Written here on the day the
+    /// other one was fixed rather than left as a copy of the bug.
+    /// </para>
+    /// </remarks>
+    static void Send(HttpListenerResponse response, int status, string body)
+    {
+        try
+        {
+            Respond(response, status, body);
+        }
+        catch (Exception)
+        {
+            Interlocked.Increment(ref dropped);
+        }
+    }
 
     static string ReadBody(HttpListenerRequest request)
     {

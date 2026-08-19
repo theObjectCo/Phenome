@@ -92,7 +92,7 @@ itself, which makes it the authority rather than this file.
 
 ## How it fits together
 
-Five parts, and the arrows are the whole design. Everything crosses process boundaries as HTTP on loopback
+Six parts, and the arrows are the whole design. Everything crosses process boundaries as HTTP on loopback
 or as MCP over stdio — there is no shared memory, no database, and nothing off the machine.
 
 ```mermaid
@@ -111,8 +111,13 @@ flowchart TD
         mcp["<b>mcp.js</b><br/>MCP server, one tool per verb"]:::ours
     end
 
+    subgraph inside["A process of its own — no window, nobody watching"]
+        rin["<b>RhinoInsideLink</b> (.exe)<br/>a Rhino core it starts itself<br/>describes and converts files"]:::ours
+    end
+
     port[/"%TEMP%/phenome-link-&lt;pid&gt;.port"/]:::file
     rport[/"%TEMP%/phenome-rhino-&lt;pid&gt;.port"/]:::file
+    iport[/"%TEMP%/phenome-rhinoinside-&lt;pid&gt;.port"/]:::file
 
     human -->|clicks, drags, types| gh
     gh <-->|in-process| plugin
@@ -121,9 +126,11 @@ flowchart TD
     mcp <-->|"HTTP verbs, and /events<br/>polled for what changed"| plugin
     ext <-->|the same verbs| plugin
     mcp <-->|"pulse, dismiss —<br/>answered while the UI thread is held"| rhp
+    agent <-->|"plain HTTP — no MCP tools for it yet"| rin
 
     plugin -.->|writes on startup| port
     rhp -.->|writes on startup| rport
+    rin -.->|writes on startup| iport
     ext -.->|reads it| port
     mcp -.->|reads both| port
     mcp -.-> rport
@@ -134,6 +141,10 @@ flowchart TD
     classDef file fill:#fff,stroke:#999,color:#000,stroke-dasharray: 4 3
 ```
 
+The sixth part is the newest and the odd one out: it is not installed, it is not part of the pair, and the
+MCP layer has no tools for it — an agent reaches it over plain HTTP, the way anything reaches any of these.
+That gap is on the list rather than hidden.
+
 Three things follow from that shape, and they are the reasons it is shaped that way:
 
 **The canvas is the only source of truth.** The plugin holds no model of the document; every read walks the
@@ -143,10 +154,11 @@ real Grasshopper objects. So an agent and a human cannot drift apart — there i
 the same protocol. Neither can do something the other cannot see, because everything either does lands in
 the journal with an author on it.
 
-**A port file per Rhino is the whole of discovery.** No registry, no daemon, no fixed port. Several Rhinos
-can run at once and each agent can be pinned to one of them; a stale file has a dead pid, and no file means
-no session. Two files per Rhino now, one per server, named by the same pid — so the two halves of one
-Rhino find each other without either knowing the other exists.
+**A port file is the whole of discovery.** No registry, no daemon, no fixed port. Several Rhinos can run at
+once and each agent can be pinned to one of them; a stale file has a dead pid, and no file means no session.
+Two files per Rhino, one per server, named by the same pid — so the two halves of one Rhino find each other
+without either knowing the other exists — and a third name for a headless core, which is its own process and
+shares a pid with nothing. The names differ so that finding one tells you what you found.
 
 **The Rhino end answers when the canvas end cannot.** It runs on its own thread and touches nothing that
 needs the UI, which is not an optimisation but the requirement: every verb it has must work while the UI
@@ -203,6 +215,57 @@ sequenceDiagram
 Every entry in that journal carries an author, so a client skips its own echo and sees only what somebody
 else did. `GET /events?since=N` answers with a `latest` to use as the next cursor — and a gap below your
 cursor means entries were dropped, which is the signal to re-read `/canvas` instead of guessing.
+
+## How the code is laid out
+
+For anyone reading the source rather than using it. The dependencies run one way, and that is the whole of
+the arrangement:
+
+```mermaid
+flowchart BT
+    subgraph shared["Phenome.Apps.Shared — source, not an assembly"]
+        sh["<b>Json</b> · <b>Loopback</b> · <b>Pulse</b><br/>namespace Phenome.Apps"]:::sh
+    end
+
+    subgraph gha["Phenome.Apps.GrasshopperLink (.gha)"]
+        def["<b>Definition/</b><br/>CanvasWriter · Arrange · Catalogue<br/>Scripts · Signature · Review"]:::a
+        bridge["<b>Bridge/</b><br/>LinkServer · Journal · Friction<br/>CommandLine · DocumentWatcher"]:::a
+        verbs["<b>Bridge/Verbs/</b><br/>Plumbing · Documents · Objects<br/>Groups · Reading · View · Process"]:::a
+        surface["<b>the plugin as Grasshopper sees it</b><br/>LinkLibrary · PairWidget<br/>Attention · MessageComponents"]:::a
+    end
+
+    rhp["<b>RhinoLink</b> (.rhp)<br/>RhinoServer · Commands<br/>CommandLine"]:::b
+    rin["<b>RhinoInsideLink</b> (.exe)<br/>HeadlessRhino · InsideServer<br/>Documents"]:::c
+
+    def --> bridge
+    verbs --> bridge
+    bridge --> surface
+    def -.->|"used by the verbs"| verbs
+
+    sh -.->|compiled in| gha
+    sh -.->|compiled in| rhp
+    sh -.->|"compiled in, less Pulse"| rin
+
+    classDef sh fill:#6b4fbb,stroke:#3d2a70,color:#fff
+    classDef a fill:#2d6cdf,stroke:#1b3f85,color:#fff
+    classDef b fill:#2d6cdf,stroke:#1b3f85,color:#fff
+    classDef c fill:#4a8f4a,stroke:#2a5c2a,color:#fff
+```
+
+**`Definition/` depends on nothing.** It reads and shapes a Grasshopper document — transcribing it, laying it
+out, critiquing it — and knows nothing about HTTP. **`Bridge/`** is the server: routing, the journal, the
+friction log, the command-line capture. **`Bridge/Verbs/`** is one class per family of verbs, with `Plumbing`
+holding what every verb needs — reading a request, getting onto the UI thread, protecting the document before
+an edit. The server routes; the verbs act.
+
+Nesting does the rest of the work: anything in `Bridge` or `Bridge/Verbs` sees the plugin surface's types for
+free because it is their parent namespace, and the shared source sits in `Phenome.Apps`, the parent of all of
+them, so no call site qualifies anything.
+
+**`Pulse` is compiled into two of the three.** It decides whether Rhino is idle, busy or blocked from the main
+window and the idle events, and a windowless core has neither — so the headless half leaves it out rather than
+carry something that would answer "no dialog" forever. A dialog can still appear there; that is simply not how
+to find it.
 
 ## Installing
 
@@ -282,10 +345,31 @@ curl http://127.0.0.1:<port>/            # the protocol, in full
 curl http://127.0.0.1:<port>/canvas      # the document
 ```
 
-From an agent, the MCP server is the better door: it wraps every verb as a named tool, so a session asks
-for permission once per verb instead of once per call. Point your client at `mcp.js` in the extension, or
-let the extension launch the agent for you — it pins the session to one canvas through an environment
-variable.
+From an agent, the MCP server is the better door: it wraps all 46 verbs as named tools. Point your client at
+`mcp.js` in the extension, or let the extension launch the agent for you — it pins the session to one canvas
+through an environment variable.
+
+### Say yes once, not forty-six times
+
+Run **Phenome Link: Teach Agents in This Workspace** from the VS Code command palette, once per project. It
+writes the pairing notes into `AGENTS.md`, registers the MCP server in `.mcp.json`, and — the part this
+section is about — adds a single rule to `.claude/settings.local.json`:
+
+```json
+{
+  "enableAllProjectMcpServers": true,
+  "permissions": { "allow": ["mcp__grasshopper"] }
+}
+```
+
+**One rule names the whole server**, so every verb is trusted at once, including verbs added by a later
+version. Restart the agent session afterwards: MCP servers load at session start.
+
+Without it, a client that asks per tool will ask forty-six times, once for each verb the first time it is
+used — and the rules it accumulates are per verb, so each new one asks again. If that has already happened,
+the single `mcp__grasshopper` rule supersedes the lot; the per-verb entries left behind are harmless and can
+be deleted at leisure. Other agents keep their permissions elsewhere, but the shape is the same: trust the
+server, not the tools one by one.
 
 **Writing your own client?** [docs/protocol.md](docs/protocol.md) covers what the generated description
 cannot: how sessions are discovered, how the journal's cursor and its gaps behave, and the handful of rules

@@ -79,6 +79,24 @@ internal static class Reading
             json.Append(']');
         }
 
+        // A note has no ports, so describing it by its ports described nothing: the answer was
+        // {inputs:[],outputs:[]} and an agent had nothing to aim at. What a note has instead is its wording
+        // and where it sits, and both are what go wrong with notes - so both are said here.
+        if (thing is Grasshopper.Kernel.Special.GH_Scribble note)
+        {
+            json.Append(",\"annotation\":{\"kind\":\"scribble\",\"text\":").Append(Json.Quote(note.Text));
+            Placement(note, json);
+            json.Append('}');
+        }
+        else if (thing is Grasshopper.Kernel.Special.GH_Panel panel)
+        {
+            // A panel is both: a parameter with ports and a thing somebody reads. Its typed text is not
+            // reachable through the ports either, so it is said the same way.
+            json.Append(",\"annotation\":{\"kind\":\"panel\",\"text\":").Append(Json.Quote(panel.UserText));
+            Placement(panel, json);
+            json.Append('}');
+        }
+
         Ports("inputs", Arrange.InputsOf(thing), json);
         Ports("outputs", OutputsOf(thing), json);
 
@@ -117,6 +135,52 @@ internal static class Reading
             }
 
             into.Append(']');
+        }
+    }
+
+    /// <summary>
+    /// Where an annotation sits and what it covers, plus the group it belongs to if any.
+    /// </summary>
+    /// <remarks>
+    /// A pivot alone cannot answer "does this note overlap that group", and overlap is the thing that goes
+    /// wrong with notes: they sit outside the layout pass, so one lands on a group's sliders and nobody finds
+    /// out until a human looks at the screen. A box can be checked without a picture.
+    /// </remarks>
+    private static void Placement(IGH_DocumentObject note, StringBuilder json)
+    {
+        if (note.Attributes is not { } attributes)
+        {
+            return;
+        }
+
+        System.Drawing.RectangleF bounds = attributes.Bounds;
+
+        json.Append(",\"at\":[")
+            .Append(Json.Number((long)attributes.Pivot.X)).Append(',')
+            .Append(Json.Number((long)attributes.Pivot.Y)).Append(']');
+
+        json.Append(",\"box\":[")
+            .Append(Json.Number((long)bounds.X)).Append(',')
+            .Append(Json.Number((long)bounds.Y)).Append(',')
+            .Append(Json.Number((long)bounds.Width)).Append(',')
+            .Append(Json.Number((long)bounds.Height)).Append(']');
+
+        // The group it is in, when it is in one: a note explaining a function belongs to that function, and a
+        // reader holding the id can ask what else is in there.
+        if (note.OnPingDocument() is not { } document)
+        {
+            return;
+        }
+
+        foreach (Grasshopper.Kernel.Special.GH_Group group in
+            document.Objects.OfType<Grasshopper.Kernel.Special.GH_Group>())
+        {
+            if (group.ObjectIDs.Contains(note.InstanceGuid))
+            {
+                json.Append(",\"group\":").Append(Json.Quote(group.InstanceGuid.ToString()));
+                json.Append(",\"groupName\":").Append(Json.Quote(group.NickName ?? ""));
+                return;
+            }
         }
     }
 

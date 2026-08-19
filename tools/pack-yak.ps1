@@ -123,9 +123,13 @@ back).
 
 In VS Code, run **Phenome Link: Teach Agents in This Workspace** once per project. It writes the pairing
 notes into `AGENTS.md`, plants an MCP server in `.phenome/`, registers it in `.mcp.json` and trusts it in
-`.claude/settings.local.json` - after which the agent has named tools instead of shell commands, and asks
-permission once instead of every call. Restart the agent session afterwards: MCP servers load at session
-start.
+`.claude/settings.local.json` - after which the agent has named tools instead of shell commands. Restart the
+agent session afterwards: MCP servers load at session start.
+
+**That trust is one rule for the whole server**, which matters more than it sounds: there are 46 verbs, and a
+client left to ask per tool will ask 46 times, once for each the first time it is used. The rule it writes is
+`"allow": ["mcp__grasshopper"]` - every verb at once, including any a later version adds. If you have already
+been clicking allow one verb at a time, this supersedes those; the entries left behind do no harm.
 
 ## When something goes wrong
 

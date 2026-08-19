@@ -109,12 +109,42 @@ internal static class Plumbing
     internal static long Since(HttpListenerRequest request) =>
         long.TryParse(request.QueryString["since"], out long since) ? since : 0;
 
+    /// <summary>How long to wait for queued work to *start* before giving up on it and saying so.</summary>
+    static readonly TimeSpan ToStart = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// And how long to wait for work that has started. Longer, because it is going to finish either way and
+    /// the only question is whether anybody is still listening when it does.
+    /// </summary>
+    static readonly TimeSpan ToFinish = TimeSpan.FromMinutes(5);
+
     /// <summary>
     /// Runs work on the Rhino UI thread and waits for the answer - the document belongs to that thread,
     /// and the listener lives on none in particular.
     /// </summary>
+    /// <remarks>
+    /// The waiting is a three-state handshake rather than a timeout, and that is the whole point of it.
+    /// <para>
+    /// <c>InvokeOnUiThread</c> <em>queues</em> a delegate. Waiting fifteen seconds and then throwing does not
+    /// unqueue it: the work still runs, minutes later, while the caller has been told it failed. An agent that
+    /// retries a <c>wire</c> or a <c>set</c> on that answer applies it twice. Reported from the field in
+    /// exactly those words - "returned Rhino is busy while having in fact been applied" - and two agents on one
+    /// canvas make it routine rather than rare, because the thread they share is what runs out of time.
+    /// </para>
+    /// <para>
+    /// So the timeout does not abandon anything it cannot prove has not started. Pending to abandoned is one
+    /// atomic move; if the work won the race and is already running, the waiter cannot abandon it and waits for
+    /// it instead. The caller therefore learns one of three true things: it ran, or it never started, or it
+    /// started and is still going. Never "it failed" about work that happened.
+    /// </para>
+    /// </remarks>
     internal static T OnUi<T>(Func<T> work)
     {
+        const int Pending = 0;
+        const int Running = 1;
+        const int Abandoned = 2;
+
+        int state = Pending;
         T result = default!;
         Exception? failure = null;
 
@@ -122,6 +152,13 @@ internal static class Plumbing
 
         Rhino.RhinoApp.InvokeOnUiThread(() =>
         {
+            // Nobody is listening any more, and nothing has been touched yet: the honest thing is to do
+            // nothing at all, because the caller has already been told this did not happen.
+            if (Interlocked.CompareExchange(ref state, Running, Pending) != Pending)
+            {
+                return;
+            }
+
             try
             {
                 result = work();
@@ -136,12 +173,27 @@ internal static class Plumbing
             }
         });
 
-        if (!done.Wait(TimeSpan.FromSeconds(15)))
+        if (!done.Wait(ToStart))
         {
-            // Not "it did not answer" - that sentence is true of a long solve and of a modal alike, and
-            // those want opposite responses. Pulse can tell them apart without the thread this is waiting
-            // for, so the refusal says which one happened.
-            throw new TimeoutException(Pulse.Sentence());
+            // Only abandonable while still pending. Losing this race means it is running, and running work
+            // finishes - so the wait continues rather than the caller being lied to.
+            if (Interlocked.CompareExchange(ref state, Abandoned, Pending) == Pending)
+            {
+                // Not "it did not answer" - that sentence is true of a long solve and of a modal alike, and
+                // those want opposite responses. Pulse can tell them apart without the thread this is waiting
+                // for, so the refusal says which one happened.
+                throw new TimeoutException(Pulse.Sentence());
+            }
+
+            if (!done.Wait(ToFinish))
+            {
+                // The one case where the caller genuinely cannot be told whether it worked. Say that, rather
+                // than something that sounds like a refusal, and point at the record that does know.
+                throw new TimeoutException(
+                    $"This started and has not finished after {ToFinish.TotalMinutes:0} minutes. It was not " +
+                    "cancelled and may still be running - do not send it again. Read /events for an entry " +
+                    "under your own author name to see whether it landed, and /pulse for what Rhino is doing.");
+            }
         }
 
         return failure is null ? result : throw failure;

@@ -147,6 +147,30 @@ signature yet.
 **Flags are read loosely.** `true`, `"true"` and `1` all mean true, because MCP clients routinely serialise
 scalars as strings and a server that insisted otherwise would punish the wrong party.
 
+**A refusal means the verb did not happen; a transport failure means you do not know.** That distinction is
+the protocol's, not a convention, and the verbs are not idempotent — `wire` and `set` and `place` sent twice
+make two of everything. So:
+
+- A JSON body with `ok:false` is authoritative. Nothing was applied.
+- `"Rhino is busy: the UI thread is working"` means the work never started. Safe to send again; ask `/pulse`
+  first, since it answers while the thread is held and distinguishes a long solve from a modal.
+- `"This started and has not finished after 5 minutes"` means the opposite. It is running and will finish.
+  **Do not send it again.**
+- No answer at all — a timeout, a dropped socket — tells you nothing about whether it ran. **Do not retry.**
+  Read `/events` and look for an entry under your own `author`; every mutating verb journals one, so the
+  journal is the record of what landed. One extra call, always correct.
+
+Under the hood: work is queued onto Rhino's UI thread, and abandoning the wait cannot unqueue it. So the wait
+is a handshake — pending work can be abandoned, started work is waited for — which is what makes the three
+sentences above trustworthy rather than hopeful. Answers that cannot be delivered because the caller has gone
+are counted and otherwise ignored; the verb ran, and there is nobody left to tell.
+
+**Notes carry their text and their position.** A `Scribble` and a `Panel` both take `text` on `place` and can
+be reworded with `/set`; empty or whitespace text is refused rather than silently replaced with a placeholder.
+`/describe` answers `annotation: {kind, text, at, box, group, groupName}` and `/canvas` carries the same per
+note, so wording *and* placement are checkable without a screenshot. Notes are outside the `/arrange` pass, so
+their position is whatever put them there — compare boxes if overlap matters.
+
 **An edit marks the document modified, so closing Rhino will offer to save it.** Since 0.22.0. Before that
 the link changed a document and left `IsModified` false, so Rhino closed it without asking and the human
 lost an agent's work with no prompt at all — an edit is an edit whoever made it. `/canvas` reports

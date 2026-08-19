@@ -11,6 +11,59 @@ the code, do not tell somebody who installed the last version which six things t
 So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
 commit that made it, not here.
 
+## Unreleased
+
+### Fixed
+
+- **A verb reported as failed no longer turns out to have run.** `wire` and `set` batches could answer
+  "Rhino is busy: the UI thread is working" and be applied anyway: work is queued onto Rhino's thread, and
+  giving up waiting for it did not unqueue it. An agent that retried on that answer applied it twice. The wait
+  is now a handshake — work that has not started can be abandoned, work that has started is waited for — so
+  the answer is one of three true things: it ran, it never started, or it started and is still going. Never
+  "it failed" about something that happened.
+
+- **A client that disappears no longer looks like a broken verb.** When an answer could not be delivered
+  because the caller had gone, the write failure was treated as the verb failing: the friction log gained an
+  entry for a verb that had run, the command line echoed a failure that had not happened, and the error handler
+  tried to answer a second time on a closed connection — which is where "this operation cannot be performed
+  after the response has been submitted" came from. In one two-agent session, **947 of 1132 friction entries**
+  were this and nothing else. Delivery failures are now counted, not logged as refusals.
+
+- **One agent's long verb no longer locks the other out.** Requests were answered on the accept loop itself,
+  so a two-minute bake meant the next request was not queued behind it — it was not accepted at all, and the
+  second client's own timeout fired. Requests are now accepted while one is being answered. Document work is
+  as serialised as it always was; what runs in parallel is the part that never needed Rhino.
+
+- **A note's text is no longer silently dropped.** `place` read `text` for a `Panel` and ignored it for a
+  `Scribble`, answering `ok` while the canvas said "Doubleclick Me!". Reported by an agent who only found out
+  because a human sent it a screenshot. `Scribble` now takes `text` on create and can be reworded with `set`,
+  which is the repair path when the first wording was wrong; empty or whitespace text is refused on both
+  rather than becoming a placeholder.
+
+### Added
+
+- **Annotations can be read back.** `describe` on a note answers its `text`, where it sits (`at`), the
+  rectangle it covers (`box`) and the group it belongs to; `canvas` carries the same for every note. Until now
+  a note had no readable position at all, which made every fix to it unverifiable from an agent's side — it
+  could write one and had to believe. Placement is the half that goes wrong, because notes sit outside the
+  `arrange` pass, and a box can be checked against another box without anybody looking at a screen.
+
+### Changed
+
+- **The request echo in Rhino's command line is bracketed, and carries the whole address.**
+
+  ```
+  [00:20:12] [127.0.0.1:53911] [78 ms] new
+  [00:20:26] [127.0.0.1:53911] [14 ms] place  !!  'Addition' names 2 different components
+  ```
+
+  Three bracketed facts and then the verb: when, from where, how long, what. The verb goes last because it is
+  the only part whose width varies and the only part being scanned *for* — anything variable in the middle
+  pushes the columns after it out of line. The address is whole rather than just the port, so a line can be
+  pasted into a request instead of assembled first. The duration is not padded: aligned digits are worth
+  having in a column of four-digit numbers and read as a gutter in one where almost every line is two digits
+  of milliseconds, and the brackets already do that work.
+
 ## 0.22.0
 
 ### Changed

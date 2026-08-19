@@ -30,6 +30,30 @@ Anything unusual: ask `components`, and `describe` tells you a placed object's r
 | colour the preview | `Custom Preview` | Geometry, Material |
 | a colour | `Colour Swatch` | (set its value) |
 | a note on the canvas | `Panel` | (set its text) |
+| a heading on the canvas | `Scribble` | (set its text) |
+
+**Notes, and how to be sure you wrote what you meant.** Both take their wording in `text` on `place`, and
+both can be reworded afterwards with `set` - which is the repair path when the first wording was wrong, so
+you never have to delete and rebuild a note.
+
+```
+place {objects:[{id:"note", name:"Scribble", text:"Tower shell - loft of the floor profiles"}]}
+set   {id:"<that id>", value:"Tower shell - lofted from the floor profiles"}
+describe {id:"<that id>"}
+  -> {annotation:{kind:"scribble", text:"...", at:[x,y], box:[x,y,w,h], group:"...", groupName:"..."}}
+```
+
+**Read it back.** `describe` returns an annotation's text, where it sits, the rectangle it covers and the
+group it belongs to. Do that after writing one: it is the only way to know your wording landed, and until
+recently it was not possible - an agent had to wait for a human to look at the screen and say "that is
+wrong". Empty or whitespace text is refused rather than quietly turned into a placeholder, on create and on
+edit alike.
+
+**One thing notes do not get: automatic placement.** `arrange` lays out components and groups; a note is
+outside that pass, so it stays where it was put. So after placing one, compare its `box` with the `box` or
+`at` of what is nearby - a note that lands on top of a group's sliders is the common accident, and you can
+see it in the numbers without a picture. Putting the note in the group it describes, with `place`'s `group`,
+at least keeps the two together.
 
 **How to build.** Not by making a mess and tidying it - by declaring the shape first, the way code is
 written:
@@ -48,6 +72,36 @@ written:
 4. **`arrange`, then `review`, then fix, then `save`.** Nothing is positioned by hand at any point, and
    nothing is left unsaved: when you have finished editing, save the definition. An unsaved canvas is a
    session's work resting on a running process.
+
+**When a call fails on the transport, do not send it again.** This is the one rule here that protects
+somebody else's work rather than your own tidiness. A timeout, a dropped connection, "the specified network
+name is no longer available" - none of those tell you whether the verb ran. `wire` and `set` and `place` are
+not idempotent: sending one twice makes two of everything.
+
+What to do instead: read `/events` (the `events` tool) and look for an entry under **your own author name**.
+Every mutating verb journals one, so the journal is the record of what actually landed. Found it? It worked,
+carry on. Not there? Then send it again. That check costs one call and is always correct, where a blind retry
+is sometimes catastrophic.
+
+Two answers you can trust completely, and it is worth knowing which is which:
+
+- **"Rhino is busy: the UI thread is working"** now means the verb *never started*. It is safe to retry, and
+  waiting a moment first is better than retrying immediately. Ask `pulse` - it answers even while the thread
+  is held, and it says whether Rhino is working on something or stuck on a dialog, which want opposite
+  responses.
+- **"This started and has not finished after 5 minutes"** means the opposite: it is running and will finish.
+  Never send it again. Read `/events` to see when it lands.
+
+**Slow is not broken.** Every verb that touches the document runs on Rhino's single UI thread, one at a time.
+If a human is dragging a slider, or another agent is half way through a `place`, yours waits behind it. That
+is normal. `pulse` tells you what is happening; the answer to a queue is patience, not a second copy of your
+request.
+
+**Your edits mark the document modified**, the same as a human's, so the Grasshopper title carries an
+asterisk and closing Rhino offers to save. That is a safety net, not a substitute for step 4: leaving work
+for the human to notice at closing time means they get a prompt about a definition they did not write and
+have to guess what was in it. Save when you are done and the prompt never appears. `canvas` reports
+`modified` and `path`, so you can see the state rather than assume it.
 
 **Order matters more than you would think.** Settle all the grouping and naming *first* - to rename or
 recolour a group, call `group` again with its `id`, never ungroup-and-regroup - and only then call

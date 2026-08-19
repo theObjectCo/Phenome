@@ -7,6 +7,16 @@ namespace Phenome.Apps;
 internal static class Loopback
 {
     /// <summary>
+    /// The only address anything here binds or is reached on.
+    /// </summary>
+    /// <remarks>
+    /// A constant rather than a literal repeated wherever an address is needed, because it is written in two
+    /// kinds of place - the prefix a listener binds, and the lines a person reads - and those must agree or
+    /// the log tells somebody to try an address nothing is listening on.
+    /// </remarks>
+    internal const string Address = "127.0.0.1";
+
+    /// <summary>
     /// Binds a listener on an ephemeral loopback port, retrying until one sticks.
     /// </summary>
     /// <param name="port">The port it settled on - set only once a listener is actually running there.</param>
@@ -37,7 +47,7 @@ internal static class Loopback
         {
             int candidatePort = FreePort();
             HttpListener candidate = new();
-            candidate.Prefixes.Add($"http://127.0.0.1:{candidatePort}/");
+            candidate.Prefixes.Add($"http://{Address}:{candidatePort}/");
 
             try
             {

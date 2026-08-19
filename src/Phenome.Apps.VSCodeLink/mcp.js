@@ -426,7 +426,7 @@ const TOOLS = [
     },
     {
         name: 'set',
-        description: "Values into objects. PASS THEM ALL AT ONCE in 'values'; a single one at the root works for a one-off. A slider takes bounds and precision, or a string like '0<50<100' for all three. With 'param', the value replaces a component input's stored constant - no standalone parameter and wire for the number two - and a null value empties that socket, which is the only way back to nothing stored.",
+        description: "Values into objects. PASS THEM ALL AT ONCE in 'values'; a single one at the root works for a one-off. A slider takes bounds and precision, or a string like '0<50<100' for all three. With 'param', the value replaces a component input's stored constant - no standalone parameter and wire for the number two - and a null value empties that socket, which is the only way back to nothing stored. On a note - a Scribble or a Panel - the value is its wording, which makes this the way to reword a note you already placed rather than deleting and rebuilding it; empty or whitespace is refused, because a blank note looks exactly like one whose text went missing.",
         inputSchema: object({
             values: {
                 type: 'array',
@@ -505,7 +505,7 @@ const TOOLS = [
     },
     {
         name: 'describe',
-        description: "One placed object's parameters: names, nicknames, types, item-or-list access, how many wires and items each holds. Use this on something already on the canvas instead of searching the catalogue for its parameter names.",
+        description: "One placed object's parameters: names, nicknames, types, item-or-list access, how many wires and items each holds. Use this on something already on the canvas instead of searching the catalogue for its parameter names. On a note - a Scribble or a Panel - it also answers 'annotation' with the text as it actually reads, where it sits, the rectangle it covers and the group it is in: use that to check your own wording and placement landed, since a note is outside the arrange pass and can end up on top of something.",
         inputSchema: object({ id: str('Object id.') }, ['id']),
         run: args => ask(`/describe?id=${args.id}`),
     },
@@ -720,7 +720,7 @@ const TOOLS = [
     },
     {
         name: 'place',
-        description: "A whole group's body in one call: objects with local ids, wired to each other, to the group's inlet and outlet ids, and to anything already on the canvas. Each object: {id?, name|guid, nickname?, pivot?:[x,y], slider?:{value,minimum,maximum,decimals}, text?, value?, inputs?:[{param?, sources?:[{id, output?}], value?}]} - an input takes 'sources' for wires OR 'value' for a constant typed straight into that socket, and 'param' is a name or an index. Pass 'group' and everything placed joins that group. Answers the local-id to canvas-id map. Always prefer this over add/wire loops.",
+        description: "A whole group's body in one call: objects with local ids, wired to each other, to the group's inlet and outlet ids, and to anything already on the canvas. Each object: {id?, name|guid, nickname?, pivot?:[x,y], slider?:{value,minimum,maximum,decimals}, text?, value?, inputs?:[{param?, sources?:[{id, output?}], value?}]} - an input takes 'sources' for wires OR 'value' for a constant typed straight into that socket, and 'param' is a name or an index. Pass 'group' and everything placed joins that group. Answers the local-id to canvas-id map. Always prefer this over add/wire loops. 'text' is the wording of a note and works on both a Scribble and a Panel; it is refused when empty rather than becoming a placeholder, and 'describe' reads it back with the note's position so you can check what you wrote without asking anybody to look at the screen.",
         inputSchema: object({
             objects: { type: 'array', items: { type: 'object' }, description: 'The recipe, in dataflow order.' },
             group: str("The group this body belongs to - everything placed joins it."),

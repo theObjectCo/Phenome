@@ -235,6 +235,27 @@ internal static class Objects
                         : value.ToString();
                     break;
 
+                // Rewording a note that is already on the canvas, which is the repair path when the first
+                // wording was wrong - and there was none: this answered "Scribble holds no value to set", so a
+                // note could be created and never corrected. An empty string is refused for the same reason it
+                // is on create: a blank scribble is indistinguishable from a dropped one.
+                case Grasshopper.Kernel.Special.GH_Scribble scribble:
+                {
+                    string said = value.ValueKind == JsonValueKind.String
+                        ? value.GetString()!
+                        : value.ToString();
+
+                    if (string.IsNullOrWhiteSpace(said))
+                    {
+                        throw new ArgumentException(
+                            "A note needs something to say - the value was empty. Delete the note if it is " +
+                            "no longer wanted; an empty one only looks like a mistake.");
+                    }
+
+                    scribble.Text = said;
+                    break;
+                }
+
                 case Grasshopper.Kernel.Special.GH_BooleanToggle toggle:
                     toggle.Value = AsBool(value);
                     break;
@@ -687,6 +708,28 @@ internal static class Objects
             && spec.TryGetProperty("text", out JsonElement text))
         {
             panel.UserText = text.GetString() ?? "";
+            return;
+        }
+
+        // A scribble takes text too, and used not to: the field was read for a panel and ignored for a
+        // scribble, so `place` answered ok and the note on the canvas said "Doubleclick Me!". Reported from the
+        // field by an agent who found out only because a human sent it a screenshot - silent success on a
+        // dropped field is the worst of the available outcomes, worse than refusing.
+        if (thing is Grasshopper.Kernel.Special.GH_Scribble scribble
+            && spec.TryGetProperty("text", out JsonElement wording))
+        {
+            string said = wording.GetString() ?? "";
+
+            // Whitespace is refused rather than written, because an empty scribble is indistinguishable on
+            // the canvas from one that was never given its text - which is the confusion being fixed here.
+            if (string.IsNullOrWhiteSpace(said))
+            {
+                throw new ArgumentException(
+                    "A note needs something to say - 'text' was empty. An empty scribble looks exactly like " +
+                    "one whose text was dropped, which is the fault this refusal exists to prevent.");
+            }
+
+            scribble.Text = said;
             return;
         }
 

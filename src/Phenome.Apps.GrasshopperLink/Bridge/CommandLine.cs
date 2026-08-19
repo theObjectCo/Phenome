@@ -93,9 +93,15 @@ internal static class CommandLine
     /// <remarks>
     /// Three ways, because one is not enough. The exact line is claimed before it is written, which
     /// catches it when the capture hands it back whole. Anything this plugin announces about itself
-    /// starts with its own name. And the request echo has a fixed shape - two spaces, a clock, a verb -
-    /// which is worth matching directly, since an agent reading its own requests back as if Rhino had
-    /// said them is the one thing this must not do.
+    /// starts with its own name. And the request echo has a fixed shape - a bracketed clock, first thing
+    /// on the line - which is worth matching directly, since an agent reading its own requests back as if
+    /// Rhino had said them is the one thing this must not do.
+    /// <para>
+    /// This check and <see cref="LinkServer.Echo"/> are one decision written in two places, and the only
+    /// two places it can be written: the capture hands back a string with nothing attached to say who
+    /// wrote it. So a change to the echo's shape has to change this, and the way to find out is that
+    /// <c>/console</c> starts answering with the link's own lines in it.
+    /// </para>
     /// </remarks>
     private static bool IsOurs(string line)
     {
@@ -109,11 +115,13 @@ internal static class CommandLine
             return true;
         }
 
-        return line.Length > 12
-            && line[0] == ' '
-            && line[1] == ' '
-            && line[4] == ':'
-            && line[7] == ':'
+        // [hh:mm:ss] - the opening bracket, six digits and two colons in fixed places, then the close.
+        return line.Length > 10
+            && line[0] == '['
+            && line[3] == ':'
+            && line[6] == ':'
+            && line[9] == ']'
+            && char.IsDigit(line[1])
             && char.IsDigit(line[2]);
     }
 

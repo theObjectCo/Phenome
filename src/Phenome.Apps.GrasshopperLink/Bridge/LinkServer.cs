@@ -30,8 +30,22 @@ internal static class LinkServer
     /// <summary>The port this instance listens on, or 0 before <see cref="Start"/>.</summary>
     internal static int Port { get; private set; }
 
+    static long served;
+    static long dropped;
+    static long announced;
+
     /// <summary>How many requests have been answered - the "has anyone ever connected" the pair button reads.</summary>
-    internal static long Served { get; private set; }
+    internal static long Served => System.Threading.Interlocked.Read(ref served);
+
+    /// <summary>
+    /// How many answers were written to a client that had already gone.
+    /// </summary>
+    /// <remarks>
+    /// Counted rather than logged one by one. It is not a fault of the verb - the verb ran and did what it was
+    /// asked - and it is not a refusal, so it belongs in neither the friction log nor the command line. What it
+    /// is worth is a number somebody can ask for when a session felt unreliable.
+    /// </remarks>
+    internal static long Dropped => System.Threading.Interlocked.Read(ref dropped);
 
     /// <summary>When the last request came in - a quiet line means nobody is paired.</summary>
     internal static DateTime LastRequest { get; private set; } = DateTime.MinValue;
@@ -126,10 +140,22 @@ internal static class LinkServer
                 {
                     HttpListenerContext context = await listener.GetContextAsync();
 
-                    Served++;
+                    System.Threading.Interlocked.Increment(ref served);
                     LastRequest = DateTime.Now;
 
-                    Answer(context);
+                    // Answered on a thread of its own, so a long verb does not stop the next request being
+                    // accepted. It used to be called right here, which meant a two-minute bake held the accept
+                    // loop for two minutes: a second client was not queued behind the first, it was not let in
+                    // at all, and its own timeout fired. With two agents on one canvas that is the whole story
+                    // - 947 of 1132 friction entries in one session were "the specified network name is no
+                    // longer available", which is a client that gave up waiting to be accepted.
+                    //
+                    // Safe because the document is not touched here: every verb marshals onto the UI thread
+                    // through OnUi, so document work stays as serialised as it ever was, and one OnUi block
+                    // still runs to completion before another starts. What now runs in parallel is the part
+                    // that never needed Rhino - parsing, the journal and friction behind their locks, and
+                    // writing the answer.
+                    _ = Task.Run(() => Answer(context));
                 }
                 catch (Exception) when (!listener.IsListening)
                 {
@@ -225,21 +251,82 @@ internal static class LinkServer
             };
 
             Echo(method, path, ok: true, said: null, clock);
-            Respond(context.Response, 200, body);
+            Send(context.Response, 200, body);
         }
         catch (KeyNotFoundException missing)
         {
-            Friction.Refused($"{method} {path}", payload, missing.Message);
-            Echo(method, path, ok: false, said: missing.Message, clock);
-            Respond(context.Response, 404, $"{{\"ok\":false,\"error\":{Json.Quote(missing.Message)}}}");
+            Refuse(context, 404, method, path, payload, missing, clock);
         }
         catch (Exception failure)
         {
-            Friction.Refused($"{method} {path}", payload, failure.Message);
-            Echo(method, path, ok: false, said: failure.Message, clock);
-            Respond(context.Response, 500, $"{{\"ok\":false,\"error\":{Json.Quote(failure.Message)}}}");
+            Refuse(context, 500, method, path, payload, failure, clock);
         }
     }
+
+    /// <summary>Records a refusal, says it, and sends it.</summary>
+    private static void Refuse(
+        HttpListenerContext context,
+        int status,
+        string method,
+        string path,
+        string payload,
+        Exception failure,
+        System.Diagnostics.Stopwatch clock)
+    {
+        Friction.Refused($"{method} {path}", payload, failure.Message);
+        Echo(method, path, ok: false, said: failure.Message, clock);
+        Send(context.Response, status, $"{{\"ok\":false,\"error\":{Json.Quote(failure.Message)}}}");
+    }
+
+    /// <summary>
+    /// Writes the answer, and treats failing to write it as a different thing from failing to answer.
+    /// </summary>
+    /// <remarks>
+    /// One lost response used to produce three wrong consequences, because the write was inside the same try as
+    /// the verb. A client that had gone made <see cref="Respond"/> throw, the general catch treated that as the
+    /// verb having failed, and so: the friction log gained an entry for a verb that had in fact run - 947 of
+    /// 1132 entries in one two-agent session were exactly this - the command line echoed a failure that had not
+    /// happened, and the catch called <see cref="Respond"/> a second time on a closed stream, which is where
+    /// "this operation cannot be performed after the response has been submitted" came from.
+    /// <para>
+    /// Writing is the last thing that happens and nothing follows it, so a failure here is counted and
+    /// otherwise ignored. The verb already ran; there is nobody left to tell.
+    /// </para>
+    /// <para>
+    /// What this cannot fix is the caller's side of it: an agent that sees a transport error still cannot tell
+    /// whether the verb ran. It should not retry a mutating verb on that error - the journal is the answer, and
+    /// it carries the author, so reading <c>/events</c> back and looking for its own entry says whether the work
+    /// landed. Retrying blind is how a non-idempotent verb gets applied twice.
+    /// </para>
+    /// </remarks>
+    private static void Send(HttpListenerResponse response, int status, string body)
+    {
+        try
+        {
+            Respond(response, status, body);
+        }
+        catch (Exception failure)
+        {
+            long count = System.Threading.Interlocked.Increment(ref dropped);
+
+            // Said at one, ten, a hundred - so a session that loses one answer says so once, and a session
+            // losing them steadily says so a handful of times rather than a thousand.
+            long at = System.Threading.Interlocked.Read(ref announced);
+
+            if (count >= NextAnnouncement(at))
+            {
+                System.Threading.Interlocked.Increment(ref announced);
+
+                LinkLog.Say(
+                    $"Phenome Link: {count} answer(s) could not be delivered - the client had gone. " +
+                    $"The verbs themselves ran. Latest: {failure.Message}");
+            }
+        }
+    }
+
+    /// <summary>1, 10, 100, 1000 - the count at which the next complaint is due.</summary>
+    private static long NextAnnouncement(long already) =>
+        already switch { 0 => 1, 1 => 10, 2 => 100, _ => (long)Math.Pow(10, already) };
 
     /// <summary>
     /// One line per request in Rhino's own command line: the time, the verb, and whether it worked.
@@ -259,45 +346,47 @@ internal static class LinkServer
             return;
         }
 
-        // Fixed columns, because this is read down rather than across: the eye finds the one slow call or
-        // the one refusal by scanning a column, and ragged text hides both. The verb loses its slash and
-        // its HTTP method - GET or POST is the transport's business, not the watcher's.
+        // Three bracketed facts and then the verb: when, from where, how long, what. Read down rather than
+        // across, so every field is a fixed width - and the brackets are what makes that visible, since a
+        // column whose edges are drawn cannot drift by a character without somebody noticing.
         //
-        // Two things this format is careful about, learned from looking at a screenful of it:
+        // The duration is not padded, and that is a correction rather than an oversight. It was padded to a
+        // fixed width first, on the argument that aligned digits make a slow call findable by shape - which is
+        // true of a column of four-digit numbers and false of what this log actually holds, where almost every
+        // line is two digits of milliseconds and the padding reads as a gutter. The brackets already do the
+        // work the padding was for: an eye finds [1.4 s] among [78 ms] without help, because the edges are
+        // drawn. What it costs is that the verb no longer starts at a fixed column, and that is the cheaper
+        // loss - the verb is the thing being read, not something read past.
         //
-        // The amount and its unit are separate columns, so "182" and "1.4" line up on their digits and a
-        // slow call is found by the width of the number rather than by reading. Right-aligning the whole
-        // "182ms" / "1.4s" string instead floats the unit, and then nothing lines up with anything.
+        // Nothing says "ok". A column of identical words carries no information and would be the widest
+        // thing on the line; what the watcher is scanning for is the line that is *not* ok, so only that one
+        // is marked.
         //
-        // Nothing says "ok". A column of fourteen identical words carries no information and is the widest
-        // thing on the line; what the watcher is scanning for is the one line that is *not* ok, so only
-        // that one is marked, and marked in the column the eye is already travelling down.
+        // The address is on every line even though it never changes within a Rhino, because the place it
+        // used to be - the banner written once at load - has scrolled off the top by the fifteenth request,
+        // and it is the one fact somebody reading this needs in order to hand this session to an agent or to
+        // tell which of two Rhinos they are looking at. It also means any screenshot of this log names the
+        // session it came from.
         //
-        // The port is on every line even though it never changes within a Rhino, because the place it used
-        // to be - the banner written once at load - has scrolled off the top by the fifteenth request, and
-        // it is the one fact somebody reading this needs in order to hand this session to an agent or to
-        // check which of two Rhinos they are looking at. A constant column costs almost nothing to scan
-        // past, and it means any screenshot of the command line carries the port with it.
+        // The whole address rather than the port alone, because a line reading 127.0.0.1:53654 can be pasted
+        // into a request and one reading 53654 has to be assembled first. It comes from the same constant the
+        // listener binds, so the log cannot name an address nothing is listening on.
         //
-        // Written with its colon. Five bare digits beside a clock read as a number of unclear purpose; a
-        // leading colon says "port" to anybody who has ever seen a URL, and costs one character. Padded on
-        // the right rather than the left, unlike every other number here: the port does not vary within a
-        // session, so lining its digits up buys nothing, while keeping the colon in a fixed column means
-        // every line begins the same shape.
+        // And the verb goes last, after the bracketed fields rather than among them: it is the only part
+        // whose width varies and the only part a reader is scanning *for*. Anything variable in the middle
+        // pushes every column after it out of line, which is what the brackets exist to prevent.
         string verb = path.Length == 0 ? "/" : path.TrimStart('/');
         (string amount, string unit) = clock is null ? ("", "") : Duration(clock.ElapsedMilliseconds);
 
         string line = string.Format(
-            "  {0}  {1,-6} {2,-13}{3,6} {4,-2}{5}",
+            "[{0}] [{1,-15}] [{2} {3}] {4}{5}",
             DateTime.Now.ToString("HH:mm:ss"),
-            $":{Port}",
-            verb.Length > 13 ? verb.Substring(0, 13) : verb,
+            $"{Loopback.Address}:{Port}",
             amount,
             unit,
+            verb,
             ok || string.IsNullOrEmpty(said) ? "" : "  !!  " + OneLine(said));
 
-        // Trailing padding is only useful under something, and on a success line there is nothing after
-        // the unit.
         line = line.TrimEnd();
 
         // Claimed before it is written: the capture cannot tell this plugin's echo from Rhino's own

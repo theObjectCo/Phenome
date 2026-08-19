@@ -107,9 +107,17 @@ internal static class CanvasWriter
                     json.Append("]}");
                     break;
 
+                // A note carried its text and nothing else, which made it the one object on the canvas whose
+                // *placement* an agent could not read back - and placement is what goes wrong with notes,
+                // because they sit outside the layout pass and land on top of things. Reported from the field
+                // in those terms: "I only learned my note was wrong because a human sent me a screenshot."
+                // Position and box, then, on the same terms as everything else.
                 case Grasshopper.Kernel.Special.GH_Scribble scribble:
                     json.Append("{\"kind\":\"note\",\"id\":").Append(Json.Quote(scribble.InstanceGuid.ToString()));
-                    json.Append(",\"text\":").Append(Json.Quote(scribble.Text)).Append('}');
+                    json.Append(",\"text\":").Append(Json.Quote(scribble.Text));
+                    At(scribble, json);
+                    Box(scribble, json);
+                    json.Append('}');
                     break;
 
                 default:
@@ -358,6 +366,28 @@ internal static class CanvasWriter
             into.Append(",\"at\":[")
                 .Append(Json.Number((long)attributes.Pivot.X)).Append(',')
                 .Append(Json.Number((long)attributes.Pivot.Y)).Append(']');
+        }
+    }
+
+    /// <summary>
+    /// The rectangle the object covers, which for a note is the whole question.
+    /// </summary>
+    /// <remarks>
+    /// A pivot alone says where something starts and nothing about what it covers, and "does this note overlap
+    /// that group" cannot be answered from a point. Written as <c>[x, y, w, h]</c> so an agent can check for an
+    /// overlap itself rather than asking a human to look at the screen.
+    /// </remarks>
+    private static void Box(IGH_DocumentObject thing, StringBuilder into)
+    {
+        if (thing.Attributes is { } attributes)
+        {
+            System.Drawing.RectangleF bounds = attributes.Bounds;
+
+            into.Append(",\"box\":[")
+                .Append(Json.Number((long)bounds.X)).Append(',')
+                .Append(Json.Number((long)bounds.Y)).Append(',')
+                .Append(Json.Number((long)bounds.Width)).Append(',')
+                .Append(Json.Number((long)bounds.Height)).Append(']');
         }
     }
 
