@@ -16,6 +16,12 @@
     <RootNamespace>Phenome.Apps.RhinoLink</RootNamespace>
     <AssemblyName>Phenome.Apps.RhinoLink</AssemblyName>
 
+    <!-- What Rhino shows in PlugInManager. Without it the SDK defaults the assembly title to the assembly
+         name, so the human saw "Phenome.Apps.RhinoLink" - which is how Yak came to report the mismatch that
+         led here, since it reads the same name. This is the name the plugin already gives itself when it
+         speaks to a person: OnLoad says "Phenome Rhino Link did not start". -->
+    <Title>Phenome Rhino Link</Title>
+
     <Version>0.22.0</Version>
 
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>

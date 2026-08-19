@@ -3,10 +3,13 @@
 What changed for somebody using the link, one entry per release.
 
 **This is not a commit log, and completing it from `git log` would ruin it.** The commits are already a good
-account of the work and `git log v0.21.1..HEAD` already answers "what landed" — for whoever has the
-repository. This file is for whoever does not: it arrives through the Package Manager with a version number
-and nothing else, and it wants the six things out of forty-one commits that change what they will see.
-Implementation that nobody outside notices belongs in the commit that made it, not here.
+account of the work, and `git log v0.21.1..HEAD` already answers "what landed" better than a second copy
+would. The difference is not access — everybody reading this can read the commits — it is that a release
+note and a commit log answer different questions. Forty-one commit subjects, written for whoever is changing
+the code, do not tell somebody who installed the last version which six things they are about to notice.
+
+So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
+commit that made it, not here.
 
 ## 0.22.0
 

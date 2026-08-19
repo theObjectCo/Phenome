@@ -323,6 +323,25 @@ two `signature` calls in a row still add nothing.
 
 ## 4. Not a problem, checked
 
+- **Yak's `Content name doesn't match manifest: 'Phenome.Apps.RhinoLink' != 'phenome-link'` is structural.**
+  Checked by opening the built package: all four files are inside, `.rhp` included, so nothing is dropped.
+  Yak reads each content assembly's plugin name and compares it with the manifest's `name`. The `.gha`
+  matches — `LinkLibrary.Name` is "Phenome Link", which normalises to `phenome-link` — and a package carrying
+  two plugins can match at most one of them, so a warning is the only possible outcome short of splitting the
+  package. Which would defeat the point: they version together and the half that reports on a stuck Rhino is
+  no use sitting uninstalled.
+
+  It earned its keep by sending somebody to look, though, because a separate wart was sitting next to it:
+  Rhino's PlugInManager showed `Phenome.Apps.RhinoLink`. `PlugIn.PlugInNameFromAssembly` reads the assembly's
+  `Title` attribute and falls back to the assembly name — confirmed in RhinoCommon's IL, which calls
+  `GetCustomAttributes` then `get_Title` then `GetName` — and nothing set a title, so the fallback was what
+  the human saw. Now `Phenome Rhino Link`, the name the plugin already gives itself when it speaks to a
+  person: `OnLoad` says "Phenome Rhino Link did not start".
+
+  Worth being exact about what was *not* shown, since the first draft of this note got it wrong: Yak's warning
+  is unchanged by that, so Yak is reading the assembly or file name rather than the title. The two names come
+  from different places and only one of them is what a person reads.
+
 - **`CommandLine` stays in two copies, deliberately.** It looks like the same duplication as `Pulse`,
   and it is not: the Rhino half is the one drain of Rhino's capture buffer, because
   `CapturedCommandWindowStrings` clears as it reads and two readers halve each other's lines. The canvas

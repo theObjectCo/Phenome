@@ -200,17 +200,34 @@ Install both halves. They are built to work as a pair.
 Download the newest [release](https://github.com/theObjectCo/Phenome/releases). What changed since the one
 you have is in [CHANGELOG.md](CHANGELOG.md) — read it before upgrading a session you are in the middle of.
 
-**The `.yak`** is the Rhino package. In Rhino, run the `PackageManager` command, then *Install from file*
-and pick it — the `.vsix` rides inside, so the canvas's **Pair with VS Code** button can install the editor
-half for you on the first pairing.
-
-**Or place the files yourself**, which is the same thing done by hand:
+Place the three files:
 
 1. Copy `Phenome.Apps.GrasshopperLink.gha` into `%APPDATA%\Grasshopper\Libraries\`, then right-click it,
    Properties, and **Unblock**. Windows marks files that arrived from elsewhere and Grasshopper refuses a
    blocked assembly *silently* — this is the step everybody misses, and the symptom is simply that no
    Phenome components appear.
-2. `code --install-extension phenome-link-<version>.vsix`
+2. Drag `Phenome.Apps.RhinoLink.rhp` onto an open Rhino, or point `PlugInManager` at it. Rhino writes its
+   list of loaded plugins when it *closes normally*, so a Rhino killed rather than closed forgets it was ever
+   told.
+3. `code --install-extension phenome-link-<version>.vsix`
+
+### If you would rather install a package
+
+There is no Yak package published anywhere, and there is no plan to publish one — this is distributed as a
+repository and a release, and a package server would be a second thing to keep in step with it. But a `.yak`
+is a folder with a manifest in it, so building your own for yourself or your studio is one command:
+
+```powershell
+pwsh tools/pack-yak.ps1 -Destination <a folder you can read>
+```
+
+Add that folder as a package source in Rhino — **Tools > Options > Packages**, or `PackageManagerSettings` —
+and install from it. Whoever can read the folder can install; whoever cannot, cannot. That is the whole of
+the access control, and it is the reason this suits a studio rather than the world. The `.vsix` travels inside
+the package, so the canvas's **Pair with VS Code** button can install the editor half on the first pairing.
+
+A release *may* carry a `.yak` as well, when the machine that builds it had Rhino on it. Do not count on it
+being there; the three files always are.
 
 ### From source
 

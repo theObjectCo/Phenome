@@ -320,8 +320,10 @@ jobs:
             dist/*.rhp
             dist/*.vsix
           body: |
-            Three parts of one mechanism. The `.yak` carries all of them, so installing that is installing
-            everything; the loose files are for anyone who would rather place them by hand.
+            Three parts of one mechanism, and they install by hand. There is no package server behind this
+            and no plan for one; `tools/pack-yak.ps1` builds a `.yak` for your own folder source if you want
+            one. A `.yak` is attached below only when the machine that built this release had Rhino on it —
+            do not count on it, the three files are always here.
 
             **The .gha** goes in `%APPDATA%\Grasshopper\Libraries\`. Then right-click it, Properties,
             **Unblock** — Windows marks files that arrived from elsewhere and Grasshopper refuses a blocked
@@ -337,3 +339,6 @@ jobs:
             Then restart Rhino. `GET /` on the port in `%TEMP%\phenome-link-<pid>.port` describes the canvas
             protocol, and `%TEMP%\phenome-rhino-<pid>.port` the one that still answers when the canvas
             cannot — whether Rhino is free, what dialog is holding it, and how to answer that.
+
+            What changed since the version you have is in `CHANGELOG.md`, which is written for that question
+            rather than for the commit history.
