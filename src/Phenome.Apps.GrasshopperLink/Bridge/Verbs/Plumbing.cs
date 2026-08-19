@@ -230,6 +230,38 @@ internal static class Plumbing
         }
     }
 
+    /// <summary>
+    /// Says the document has changed, so Rhino offers to save it before closing.
+    /// </summary>
+    /// <remarks>
+    /// The other half of <see cref="EnsureAutosave"/>: that one runs before an edit, this one after. Without
+    /// it the link had a data-loss path of its own making - measured on 2026-08-19, a slider changed through
+    /// <c>/set</c> left <c>IsModified</c> false and no asterisk on the title, so Rhino would close the
+    /// document without offering to save and the human lost an agent's work with no prompt at all. An edit is
+    /// an edit whoever made it, and the flag is how Rhino is told.
+    /// <para>
+    /// Called from the verbs rather than from the router, and only where a change is known to have happened.
+    /// The router cannot do it: several verbs answer <c>200</c> with <c>ok:false</c> in the body - a
+    /// <c>delete</c> that would sever live wires is the common one - so from outside there is no way to tell a
+    /// refusal from a change, and marking on arrival would prompt for a save after a verb that did nothing.
+    /// </para>
+    /// <para>
+    /// Deliberately not called by <c>select</c> or <c>zoom</c>, which are ways of looking rather than changes;
+    /// by <c>new</c> or <c>open</c>, where there is nothing yet to lose; by <c>save</c>, which clears the flag
+    /// by definition; by <c>bake</c>, <c>rhino</c> and <c>camera</c>, which change the Rhino document and not
+    /// this one; or by <c>solver</c>, which looks like a document setting and is not - it assigns the static
+    /// <c>GH_Document.EnableSolutions</c>, which belongs to the application, is never written into a file, and
+    /// is gone at the next restart.
+    /// </para>
+    /// <para>
+    /// Three verbs mark conditionally, because for them doing nothing is a normal outcome rather than a
+    /// failure: <c>arrange</c> when something moved, <c>signature</c> when a port was actually planted, and
+    /// <c>preview</c> when a flag actually flipped. All three are finishing moves people run more than once,
+    /// and a save prompt for having run one twice would teach callers to distrust the prompt.
+    /// </para>
+    /// </remarks>
+    internal static void Changed(GH_Document document) => document.Modified();
+
     /// <summary>Serialised via the archive, which unlike a Save never touches the document's own path.</summary>
     internal static void WriteDocument(GH_Document document, string path)
     {

@@ -99,6 +99,25 @@ internal static class Documents
             WriteDocument(document, target);
             document.FilePath = target;
 
+            // The flag has to be cleared here, because this does not go through Grasshopper's own Save - it
+            // writes the archive itself, deliberately, so that saving a copy somewhere does not silently
+            // repoint the document. Nothing noticed while the flag was never set in the first place; now that
+            // the mutating verbs set it, a save that left it standing would mean Rhino still offers to save a
+            // document you just saved, which is how people learn to dismiss that prompt without reading it.
+            document.IsModified = false;
+
+            // And this is why the Grasshopper window kept saying "unnamed" after saving a new document.
+            // GH_DocumentEditor caches its caption and rebuilds it from five places only: its own Save and
+            // Save As menu handlers, a canvas document swap, opening through script access, and the canvas's
+            // handler for the modified flag changing. Saving through here is none of the first four, and the
+            // fifth never fired because nothing here used to touch the flag - so DisplayName was correct all
+            // along and the title bar simply never asked it again.
+            //
+            // Said unconditionally rather than leaning on the assignment above, which only raises the
+            // notification when the value actually changes: saving a document that had no edits would
+            // otherwise leave the stale title exactly as it was. OnModifiedChanged is public API for this.
+            document.OnModifiedChanged();
+
             return target;
         });
 
@@ -141,6 +160,7 @@ internal static class Documents
             }
 
             document.NewSolution(false);
+            Changed(document);
 
             global::Grasshopper.Instances.ActiveCanvas?.Refresh();
 
@@ -170,6 +190,10 @@ internal static class Documents
 
         OnUi(() =>
         {
+            // Not marked as a document change, and worth saying why, because it looks like one: this is
+            // GH_Document.EnableSolutions, a static on the type rather than a property of any document. It
+            // belongs to the application, is not written into a .gh file, and is gone when Rhino restarts -
+            // so there is nothing here that closing the document could lose.
             GH_Document.EnableSolutions = enabled;
 
             if (enabled)
@@ -297,7 +321,11 @@ internal static class Documents
 
             EnsureAutosave(document);
 
-            return Scripts.Write(document, id, source);
+            string written = Scripts.Write(document, id, source);
+
+            Changed(document);
+
+            return written;
         });
 
         Journal.Append(author, "script", $",\"id\":{Json.Quote(id.ToString())}");

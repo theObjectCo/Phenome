@@ -283,6 +283,12 @@ internal static class View
             System.Text.StringBuilder json = new("{\"ok\":true,\"groups\":[");
             bool first = true;
 
+            // Across all groups, so the document is marked changed only if some flag actually moved. A preview
+            // flag is saved in the .gh file, so flipping one is a real change - but this verb is run over an
+            // already-quiet document often enough that marking unconditionally would produce a save prompt for
+            // having looked.
+            int flipped = 0;
+
             foreach (Grasshopper.Kernel.Special.GH_Group group in groups)
             {
                 (_, List<IGH_Param> outlets) = Signature.Ports(document, group);
@@ -343,6 +349,13 @@ internal static class View
                 json.Append(",\"hidden\":").Append(Json.Number(quieted));
                 json.Append(",\"drawing\":").Append(Json.Number(showing));
                 json.Append(",\"changed\":").Append(Json.Number(changed)).Append('}');
+
+                flipped += changed;
+            }
+
+            if (flipped > 0)
+            {
+                Changed(document);
             }
 
             document.ExpirePreview(true);

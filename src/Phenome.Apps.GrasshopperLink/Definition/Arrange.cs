@@ -337,14 +337,27 @@ internal static class Arrange
             RectangleF bounds = node.Attributes!.Bounds;
             PointF pivot = node.Attributes.Pivot;
 
-            document.UndoUtil.RecordGenericObjectEvent("Phenome Link: arrange", node);
-
             // The pivot sits at its own offset inside the bounds; keeping that offset lands the object's
             // top-left exactly where the layout said.
-            node.Attributes.Pivot = new PointF(
+            PointF want = new(
                 x + (pivot.X - bounds.X),
                 y + (pivot.Y - bounds.Y));
 
+            // An object already where the layout wants it is not moved, and saying otherwise costs twice:
+            // the answer's count stops meaning anything on a settled document, and every rerun pushes an
+            // undo step per object that undoes nothing. Arranging twice is a normal thing to do - it is the
+            // finishing move - so the second run should report nothing and record nothing.
+            //
+            // Half a pixel, not equality: the layout is deterministic from the same inputs, but bounds come
+            // from text measurement, and half a pixel is below anything a canvas can show anyway.
+            if (Math.Abs(pivot.X - want.X) < 0.5f && Math.Abs(pivot.Y - want.Y) < 0.5f)
+            {
+                return 0;
+            }
+
+            document.UndoUtil.RecordGenericObjectEvent("Phenome Link: arrange", node);
+
+            node.Attributes.Pivot = want;
             node.Attributes.ExpireLayout();
 
             return 1;

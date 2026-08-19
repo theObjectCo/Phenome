@@ -31,17 +31,63 @@ without its *why* gets re-litigated or quietly dropped.
       answering, or say in the answer that a solve is pending. Every other mutating verb already leaves the
       document solved, so this one is the odd one out rather than the rule.
 
-- [ ] **Decision needed: should an agent's edit mark the document modified?** Measured on 2026-08-19:
-      after `/set` changes a slider, neither `GH_Document.IsModified` nor the asterisk on
-      `DisplayName` becomes true. So the link mutates a document and Rhino will later close it
-      **without offering to save** — the human loses an agent's work with no prompt, which is a
-      data-loss path that exists today. Calling `GH_Document.Modified()` from the mutating verbs would
-      fix it and would be honest, since an edit is an edit. It also changes what users experience
-      (every agent edit starts producing a save prompt on close), which is why this is written down
-      rather than done. `/canvas` now reports `modified` and `path` explicitly so the state is at
-      least visible.
+- [x] **An agent's edit marks the document modified.** Decided 2026-08-19: an edit is an edit. Before this,
+      the link mutated a document and Rhino closed it **without offering to save** — the human lost an
+      agent's work with no prompt at all. The cost, accepted deliberately, is that every agent edit now
+      produces a save prompt on close.
+
+      Fourteen call sites, in the verbs rather than in the router. The router cannot do it: several verbs
+      answer `200` with `ok:false` in the body — a `delete` that would sever live wires is the common one —
+      so from outside there is no way to tell a refusal from a change.
+
+      Not marked, each for a reason: `select` and `zoom` are ways of looking; `new` and `open` have nothing
+      yet to lose; `save` clears the flag by definition; `bake`, `rhino` and `camera` change the Rhino
+      document and not this one; and **`solver` looks like a document setting and is not** — it assigns the
+      static `GH_Document.EnableSolutions`, which belongs to the application, is never written into a file
+      and is gone at the next restart. Worth checking rather than assuming, which is how that one was caught.
+
+      Three mark conditionally, because for them doing nothing is a normal outcome: `arrange` when something
+      moved, `signature` when a port was actually planted, `preview` when a flag actually flipped. All three
+      are finishing moves people run more than once, and a save prompt for having run one twice teaches
+      callers to distrust the prompt.
 
 ## 3. Done
+
+### Two bugs the modified flag exposed, and one it did not
+
+Setting the flag turned two dormant faults into visible ones, both in `save`, both because the verb writes
+the archive itself rather than going through Grasshopper's own Save — deliberately, so that saving a copy
+somewhere does not silently repoint the document.
+
+- **Saving did not clear the flag.** Invisible while nothing ever set it. With the flag live, you saved and
+  Rhino still offered to save — which is precisely how people learn to dismiss that prompt without reading
+  it. Now cleared on a successful write.
+- **The Grasshopper window kept saying "unnamed" after saving a new document.** Reported from the field, and
+  the cause is one layer past where it looks: `GH_DocumentEditor` caches its caption and rebuilds it from
+  five places only — its own Save and Save As menu handlers, a canvas document swap, opening through script
+  access, and the canvas's handler for the modified flag changing. Saving through the link is none of the
+  first four, and the fifth never fired because nothing here touched the flag. So `DisplayName` was correct
+  the whole time and the title bar simply never asked it again. Fixed by calling the public
+  `GH_Document.OnModifiedChanged()` after a save — unconditionally, not leaning on the assignment above,
+  which only notifies when the value actually changes: saving a document that had no edits would otherwise
+  leave the stale title exactly as it was. Measured: `Grasshopper - unnamed` → `Grasshopper - title-test`.
+
+  Checked first whether `GH_DocumentServer` was the right hook, since a document server is where a rename
+  would plausibly live. It is not: its whole public surface is the document list — add, remove, promote,
+  counts, names, and two events. No save, no rename, no caption.
+
+**`arrange` is idempotent now**, which it was not. `Arrange.Apply` returned 1 per object it *placed*, not
+per object it moved, and its own summary said "how many objects moved" — so a settled document still
+answered `moved: 7`, and every rerun pushed an undo step per object that undid nothing. Found while writing
+the conditional marking above: the guard read `if (count > 0)` with a comment claiming "only when something
+actually moved", which was simply false, and a wrong comment is worse than no guard. Fixed at the source —
+an object already within half a pixel of its slot is not moved, is not recorded, and is not counted.
+Measured: `moved: 1` for the one object out of place, then `moved: 0`.
+
+Verified end to end in a live Rhino: opened document `false`; `canvas`, `wires`, `components`, `select`,
+`zoom` leave it `false`; `place` makes it `true`; `save` clears it *and* fixes the title; `arrange` marks
+only the run that moved something; and after `/set` the Grasshopper title reads `title-test*` — the
+asterisk, in the window, from an agent's edit, which is the whole point.
 
 ### The structural refactor (2026-08-19)
 

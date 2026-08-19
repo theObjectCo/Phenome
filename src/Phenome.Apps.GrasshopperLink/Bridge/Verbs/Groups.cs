@@ -72,6 +72,7 @@ internal static class Groups
 
                 already.ExpireCaches();
                 global::Grasshopper.Instances.ActiveCanvas?.Refresh();
+                Changed(document);
 
                 return already.InstanceGuid;
             }
@@ -151,6 +152,7 @@ internal static class Groups
             document.ArrangeObject(group, GH_Arrange.MoveToBack);
 
             global::Grasshopper.Instances.ActiveCanvas?.Refresh();
+            Changed(document);
 
             return group.InstanceGuid;
         });
@@ -186,6 +188,7 @@ internal static class Groups
             document.UndoUtil.RecordRemoveObjectEvent("Phenome Link: ungroup", group);
             document.RemoveObject(group, update: false);
             global::Grasshopper.Instances.ActiveCanvas?.Refresh();
+            Changed(document);
 
             return true;
         });
@@ -245,6 +248,13 @@ internal static class Groups
 
             global::Grasshopper.Instances.ActiveCanvas?.Refresh();
 
+            // Only when something actually moved. An arrange on a settled layout is a normal thing to run and
+            // it changes nothing, so marking unconditionally would turn a no-op into a save prompt.
+            if (count > 0)
+            {
+                Changed(document);
+            }
+
             return count;
         });
 
@@ -265,9 +275,20 @@ internal static class Groups
 
             EnsureAutosave(document);
 
+            // Counted rather than read out of the answer: signature is meant to be safe to run twice, and on
+            // a document whose ports are already settled it plants nothing. Marking that as a change would
+            // mean the finishing move always produced a save prompt, whether or not it did anything. Ports are
+            // added as objects, so the object count is the honest measure and needs no new API.
+            int before = document.ObjectCount;
+
             string made = Signature.Apply(document, only);
 
             global::Grasshopper.Instances.ActiveCanvas?.Refresh();
+
+            if (document.ObjectCount != before)
+            {
+                Changed(document);
+            }
 
             return made;
         });
