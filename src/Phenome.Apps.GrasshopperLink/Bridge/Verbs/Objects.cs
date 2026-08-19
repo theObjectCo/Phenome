@@ -830,7 +830,31 @@ internal static class Objects
                 parameter.Reverse = AsBool(reverse);
             }
 
+            // Both the parameter and the object that owns it, because a data mapping needs two different
+            // things to happen and each side of a component needs a different one.
+            //
+            // Expiring only the parameter was what shipped, and it left an output mapping dead: clearing an
+            // output's data does not make its component look out of date, so the next solution finds nothing
+            // to do and the output stays empty for good. Measured - after a graft, peek answered count 0
+            // twice running, and only a later edit to the component's own input brought the grafted tree
+            // through.
+            //
+            // Expiring only the owner fixes that and breaks the other side. An input keeps the volatile data
+            // it already collected, so the mapping is stored and never applied: the component recomputes over
+            // the ungrafted tree it is still holding. Measured too - the input answered one branch of four
+            // items with graft set on it.
+            //
+            // So: the parameter, so it collects again and applies the mapping on the way in, and the owner, so
+            // it computes again over what arrived. A floating parameter is its own top-level object and the
+            // second call is skipped.
             parameter.ExpireSolution(false);
+
+            if ((parameter.Attributes?.GetTopLevel?.DocObject ?? parameter) is IGH_ActiveObject owner
+                && !ReferenceEquals(owner, parameter))
+            {
+                owner.ExpireSolution(false);
+            }
+
             document.NewSolution(false);
             Changed(document);
 

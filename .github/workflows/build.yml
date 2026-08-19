@@ -107,6 +107,14 @@ jobs:
             if ($tag -ne $distinct[0]) { throw "the tag says $tag and the files say $($distinct[0])" }
           }
 
+          # And the changelog, for the same reason the versions are checked here rather than trusted: it is
+          # the only account of a release written for somebody who does not have this repository, and a
+          # release that forgot to write one looks exactly like a release with nothing worth saying.
+          if (-not (Select-String -Path CHANGELOG.md -Pattern "^## $([regex]::Escape($distinct[0]))$" -Quiet)) {
+            throw "CHANGELOG.md has no '## $($distinct[0])' entry"
+          }
+          "  changelog: an entry for $($distinct[0])"
+
       - uses: actions/upload-artifact@v4
         with:
           name: phenome-link

@@ -23,13 +23,33 @@ without its *why* gets re-litigated or quietly dropped.
 
 ## 2. Correctness
 
-- [ ] **`param` leaves the downstream unsolved, and says nothing about it.** Measured 2026-08-19: grafting
-      an output answers `{ok:true}`, but the components below stay expired, so the very next `peek` reads
-      `count: 0` and `bake` reports "nothing to bake right now". Nudging any slider makes the real answer
-      appear. An agent reads that zero as failure and starts diagnosing a graft that worked perfectly —
-      which is the same shape of fault as the old `preview` delta, and the same fix: either recompute before
-      answering, or say in the answer that a solve is pending. Every other mutating verb already leaves the
-      document solved, so this one is the odd one out rather than the rule.
+- [x] **`param` stored a data mapping and never applied it.** Fixed 2026-08-19, and the diagnosis was worth
+      the two experiments it took, because the obvious reading was wrong.
+
+      The first guess was that the solution simply had not run yet — a graft answered `{ok:true}` and the next
+      `peek` read `count: 0`. It was not that: a second `peek` moments later still read zero, so nothing was
+      pending. The verb expired the parameter, which for an **output** clears its data and leaves the
+      component looking up to date, so the next solution finds nothing to do and the output stays empty for
+      good. Only a later edit to the component's own input brought the grafted tree through.
+
+      Expiring the owner instead fixed the output and broke the input, which is the second experiment:
+      `"mapping": "graft"` showed up in `/canvas`, the component recomputed, and the input still held one
+      branch of four items. An input keeps the volatile data it already collected, so the mapping was stored
+      and never applied on the way in.
+
+      So both, and for different reasons: the parameter, so it collects again and maps what arrives, and the
+      owner, so it computes again over what it got. Verified live in each direction — input graft gives four
+      branches of one item and a `Result` of four sums; output graft the same downstream; `none` puts both
+      back to one branch of 30.
+
+- [ ] **Three places now assemble a package, and they can disagree.** `tools/pack-yak.ps1` stages one for a
+      private folder source; the `yak` job in CI stages its own from `dist/`; `tools/build.ps1` decides what
+      lands in `dist/` in the first place. Found by shipping the consequence: pack-yak looked for the `.vsix`
+      by wildcard in the folder that produces it, `build.ps1` *moves* it out of there into `dist/`, and so the
+      two run in their natural order produced a package with no extension in it and no complaint — while the
+      README inside promised the pair button would install one. Public releases were never affected, because
+      CI does not use pack-yak; the private path was. Fixed there by naming the version and refusing to build
+      a package that is missing something it promises. The duplication itself is still open.
 
 - [x] **An agent's edit marks the document modified.** Decided 2026-08-19: an edit is an edit. Before this,
       the link mutated a document and Rhino closed it **without offering to save** — the human lost an

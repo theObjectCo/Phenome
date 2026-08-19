@@ -22,12 +22,13 @@ end up peers — both are clients, neither owns the session.
 
 - **Look** — the document as JSON or as a mermaid flowchart, one object's real parameters, every wire, a
   parameter's full data with tree paths, the installed component catalogue, a linter, the canvas as a
-  picture, the Rhino viewport.
+  picture, the Rhino viewport, where the camera stands, and what plugins are loaded.
 - **Build** — place a whole group body in one call, wire and set in batches, group, plant a group's
   signature as floating parameters, lay the graph out, delete (it refuses when that would cut live wires),
   select, zoom, undo and redo.
 - **Run and keep** — the solver, bake, data mapping, new/open/save, a C# component's source with its
-  compile errors back.
+  compile errors back. An agent's edit marks the document modified, like anybody else's, so closing Rhino
+  offers to save it rather than discarding the work in silence.
 - **Say** — messages both ways, and a friction log for when a verb fights you.
 - **Get unstuck** — whether Rhino is idle, busy or blocked; what dialog is holding it and how to answer
   that; and the tail of Rhino's own command line, which is where commands and scripts reply.
@@ -46,6 +47,9 @@ So a second, smaller server answers about the process, from a thread of its own:
   case for Rhino's newer dialogs: they draw their own, so there is nothing to post a click to.
 - **`dismiss`** — presses a button, types a key, or closes the dialog. Closing is the default because
   closing is what the X does and what the X does is decline; agreeing to something has to be asked for.
+- **`escape`** — the case `dismiss` cannot answer. A command waiting on a pick is not a dialog: nothing is
+  disabled and there is no window to click, yet the thread is held all the same. Scripting an interactive
+  command is the ordinary way to get there.
 - **`console`** — the tail of the command line. It has been one-way until now: the link writes a line into
   it on every request so the human can see an agent's hands move, and nothing came back. But that is where
   Rhino answers.
@@ -193,7 +197,8 @@ Install both halves. They are built to work as a pair.
 
 ### From the release (recommended)
 
-Download the newest [release](https://github.com/theObjectCo/Phenome/releases).
+Download the newest [release](https://github.com/theObjectCo/Phenome/releases). What changed since the one
+you have is in [CHANGELOG.md](CHANGELOG.md) — read it before upgrading a session you are in the middle of.
 
 **The `.yak`** is the Rhino package. In Rhino, run the `PackageManager` command, then *Install from file*
 and pick it — the `.vsix` rides inside, so the canvas's **Pair with VS Code** button can install the editor

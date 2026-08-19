@@ -46,9 +46,21 @@ $packages = @(
         Project = 'src/Phenome.Apps.GrasshopperLink'
         # The Rhino plugin travels in the same package as the canvas one: they version together, and the
         # half that reports on a stuck Rhino is no use sitting on somebody's disk uninstalled.
+        #
+        # {version} is filled in from the manifest below, and every entry here must match something or this
+        # script stops. Both of those are the same lesson, learnt by shipping it wrong: the extension was
+        # looked for by wildcard in the folder that packages it, and tools/build.ps1 *moves* it out of there
+        # into dist/ - so running the two in their natural order produced a package with no .vsix in it, no
+        # complaint, and a README inside promising the pair button would install one. A wildcard also picks by
+        # string order, where 0.9.0 sorts above 0.22.0, so a leftover from an older version would have been
+        # chosen over the current build. Naming the version and demanding a hit closes both.
         Extras  = @(
             'src/Phenome.Apps.RhinoLink/bin/Release/net7.0/Phenome.Apps.RhinoLink.rhp',
-            'src/Phenome.Apps.VSCodeLink/phenome-link-*.vsix')
+            'dist/phenome-link-{version}.vsix',
+            'src/Phenome.Apps.VSCodeLink/phenome-link-{version}.vsix')
+        # Where more than one of the patterns above may legitimately be the same file, say so: the extension
+        # is in dist/ after a full build and beside its own project after a bare vsce run, and either will do.
+        OneOf   = @('phenome-link-{version}.vsix')
         Readme  = @'
 # Phenome Link
 
@@ -66,6 +78,16 @@ see, edits what you edit, and every change either of you makes is journalled wit
 No button? Nothing is lost: the canvas answers on the port written in
 `%TEMP%\phenome-link-<pid>.port`, and `GET /` on it describes the whole protocol. Any agent that can make
 an HTTP request is a peer here - the pairing button is a shortcut, not a requirement.
+
+## Your document stays yours
+
+**New in 0.22.0: an agent's edit marks the document modified.** So when you close Rhino it offers to save,
+the same as it would for your own edits, and the Grasshopper title carries the usual asterisk while there is
+work outstanding. Before this the link changed a document and left the flag alone, which meant Rhino closed
+it without asking and an agent's work could disappear with no prompt at all.
+
+Reading never marks it, and neither does selecting or zooming. There is also an autosave into `%TEMP%` before
+an agent's first edit of any document — a net under the undo stack, not a substitute for saving.
 
 ## Talking to your agent from the canvas
 
@@ -115,11 +137,42 @@ foreach ($package in $packages) {
 
     Copy-Item (Join-Path $projectPath 'manifest.yml') $staging
 
+    # The version the manifest declares, which is the one the whole release agrees on - CI refuses a build
+    # where the five declarations disagree, so reading any one of them reads all of them.
+    $version = (Get-Content (Join-Path $projectPath 'manifest.yml') |
+        Select-String '^version:\s*(.+)$').Matches.Groups[1].Value.Trim()
+
+    if (-not $version) { throw "$($package.Name): manifest.yml declares no version." }
+
+    $satisfied = @()
+
     foreach ($pattern in $package.Extras) {
-        Get-ChildItem (Join-Path $root $pattern) -ErrorAction SilentlyContinue |
-            Sort-Object Name -Descending |
-            Select-Object -First 1 |
-            Copy-Item -Destination $staging
+        $filled = $pattern -replace '\{version\}', $version
+        $found = Get-ChildItem (Join-Path $root $filled) -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+        if ($found) {
+            Copy-Item $found.FullName -Destination $staging
+            $satisfied += Split-Path $filled -Leaf
+            continue
+        }
+
+        # Alternatives are allowed to miss; a plain entry is not. A package that quietly ships without
+        # something it promises is worse than one that refuses to be built.
+        $leaf = Split-Path $filled -Leaf
+        $alternative = $package.OneOf | ForEach-Object { $_ -replace '\{version\}', $version } | Where-Object { $_ -eq $leaf }
+
+        if (-not $alternative) {
+            throw "$($package.Name): nothing at $filled, and the package promises it."
+        }
+    }
+
+    foreach ($group in @($package.OneOf)) {
+        $leaf = $group -replace '\{version\}', $version
+        if ($satisfied -notcontains $leaf) {
+            throw "$($package.Name): $leaf was not found in any of the places it is looked for. " +
+                "Build it first - pwsh tools/build.ps1 leaves it in dist/."
+        }
     }
 
     # Travels inside the package and lands in the installed folder: the guide for after the install, as

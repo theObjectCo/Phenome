@@ -29,8 +29,10 @@ it finds the right pair.
 
 - **One file per Rhino.** Several can run at once, and each is a separate canvas with a separate journal.
   An agent that should stay on one canvas holds on to one port for the session.
-- **A stale file has a dead pid.** Check the process before trusting the port; the plugin cannot always
-  clean up after a crash.
+- **A stale file has a dead pid.** Check the process before trusting the port. A plugin deletes its own file
+  on the way out and sweeps other plugins' dead ones when it starts — start rather than exit, because exit
+  is precisely the moment that does not always happen — but a client that trusts a port without checking the
+  pid will still eventually talk to nothing.
 - **No file means no session** — Rhino is not running, or Grasshopper was never opened, or the `.gha` did
   not load. On a fresh install the third is most likely, and the cause is almost always a blocked assembly
   (see the README's install notes). A `phenome-rhino-*.port` without a `phenome-link-*.port` narrows it in
@@ -141,6 +143,16 @@ signature yet.
 **Flags are read loosely.** `true`, `"true"` and `1` all mean true, because MCP clients routinely serialise
 scalars as strings and a server that insisted otherwise would punish the wrong party.
 
+**An edit marks the document modified, so closing Rhino will offer to save it.** Since 0.22.0. Before that
+the link changed a document and left `IsModified` false, so Rhino closed it without asking and the human
+lost an agent's work with no prompt at all — an edit is an edit whoever made it. `/canvas` reports
+`modified` and `path`, so a client can see the state rather than infer it, and `/save` clears the flag.
+
+Reading never marks it, and neither does `/select` or `/zoom` — those are ways of looking. `/arrange`,
+`/signature` and `/preview` mark only when they actually changed something, because all three are finishing
+moves people run more than once and a save prompt for having run one twice teaches everybody to dismiss the
+prompt unread.
+
 **Verify numerically.** `/peek` returns branch and item counts with paths; that is the specification. A
 screenshot tells you a definition looks plausible, which is not the same claim. `/canvas-image` and
 `/screenshot` exist for the human's half of the pairing.
@@ -179,6 +191,20 @@ prompts do — so the buttons are not windows and there is nothing to post a cli
 substitute either: on a *save changes?* prompt, closing means cancel, so the thing you were trying to do
 does not happen. Send a key.
 
+**`POST /escape`** is the gap `/dismiss` leaves. A command waiting on a pick is not a dialog: nothing is
+disabled, there is no window to enumerate, and `/dismiss` correctly refuses — yet the UI thread is held all
+the same, so every other verb answers *busy* as though waiting would help. Scripting an interactive command
+is the ordinary way to arrive there. `{times}` cancels that many levels; one by default, capped at five,
+because a stream of Escapes into an idle Rhino clears a selection somebody wanted. The key is queued rather
+than delivered, so ask `/pulse` afterwards instead of trusting the answer.
+
+**A Rhino on its way out is the one case worth knowing about.** Closing a document with unsaved changes
+stops on Grasshopper's multi-save prompt, and by then Rhino has already destroyed its own frame — so a
+diagnosis that asks the operating system which window is the main one gets handed the prompt itself, sees an
+enabled window, and reports *busy, working on something unnamed*. Since 0.22.0 the frame is remembered from
+the first idle instead, a destroyed frame stays destroyed, and the prompt is named with its buttons listed.
+`/dismiss {button:"Close"}` then ends the process cleanly. Before that it took Win32 by hand.
+
 **`GET /console?tail=50`** is the tail of Rhino's own command line, which is where commands and scripts
 reply and which used to go only to the human. It is drained when the UI thread breathes, so a long
 script's output arrives in one piece when the script ends — `/pulse` is the verb for the meantime.
@@ -188,6 +214,11 @@ the buffer as it reads, so two drains do not double the lines — they halve the
 instalment it reached first. The `.rhp` loads before any canvas exists and starts the drain; the canvas
 server finds capture already on, does not start a second, and answers `/console` by reading the process
 server over loopback. Where only the `.gha` is installed, it drains for itself as it always did.
+
+**`?mine=true` answers the link's own lines instead.** The plugin's voice is filtered out of `/console` so an
+agent does not read its own requests back as though Rhino had said them — which is right, and which also made
+the bridge's own faults unreadable *through the bridge*, at exactly the moment they are wanted. They are kept
+in a ring of their own and served on request.
 
 ### Working in a Rhino with no canvas
 
