@@ -145,6 +145,11 @@ jobs:
     runs-on: [self-hosted, windows]
 
     steps:
+      # Checked out because this job runs a script from the repository now, and it did not used to: it staged a
+      # folder inline and needed nothing but the artefacts. First, because checkout cleans the workspace - so
+      # anything downloaded before it would be swept away.
+      - uses: actions/checkout@v4
+
       # A self-hosted runner does not get a clean workspace the way a hosted one does: whatever the last run
       # left is still here. v0.18.0 shipped a .yak named 0.1.0 because the previous release's package was
       # still sitting in dist and got copied along.
@@ -167,7 +172,7 @@ jobs:
         shell: pwsh
         run: |
           $expected = ($env:GITHUB_REF -replace '^refs/tags/v', '')
-          pwsh tools/pack-yak.ps1 -From dist -Destination dist -ExpectVersion $expected
+          & ./tools/pack-yak.ps1 -From dist -Destination dist -ExpectVersion $expected
           Get-ChildItem dist -Filter *.yak | ForEach-Object { "  $($_.Name)  $([int]($_.Length/1KB)) KB" }
 
       - uses: actions/upload-artifact@v4
