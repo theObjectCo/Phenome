@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace Phenome.Apps.GrasshopperLink;
+namespace Phenome.Apps.GrasshopperLink.Bridge;
 
 /// <summary>
 /// The record of what did not work: every refused request, and every note an agent leaves about the gap
@@ -22,6 +22,67 @@ internal static class Friction
     private const int PayloadKept = 600;
 
     private static readonly object Gate = new();
+
+    /// <summary>
+    /// Cross-process lock over the log file.
+    /// </summary>
+    /// <remarks>
+    /// One file, several Rhinos. The in-process lock alone leaves two of them appending to the same path and
+    /// running the same read-halve-rewrite over each other, and because a log that cannot be written is
+    /// deliberately silent, the entries simply go missing with nobody told. A named mutex is the smallest
+    /// thing that makes the file the shared resource it was already being treated as.
+    /// <para>
+    /// Local rather than Global: the log lives under the user's own application data, so the scope that
+    /// matters is the session, and Global would need privileges this has no business asking for.
+    /// </para>
+    /// </remarks>
+    private static readonly Mutex Across = new(initiallyOwned: false, "Local\\PhenomeLinkFriction");
+
+    /// <summary>
+    /// Runs <paramref name="work"/> with both locks held, or without the shared one if it cannot be had.
+    /// </summary>
+    /// <remarks>
+    /// Degrading rather than failing: a log entry is worth writing on a best-effort basis even when another
+    /// process is wedged holding the mutex, and the alternative - blocking a request on a log - is worse than
+    /// the interleaving it would prevent.
+    /// </remarks>
+    private static T Guarded<T>(Func<T> work)
+    {
+        lock (Gate)
+        {
+            bool held = false;
+
+            try
+            {
+                try
+                {
+                    held = Across.WaitOne(TimeSpan.FromSeconds(2));
+                }
+                catch (AbandonedMutexException)
+                {
+                    // The previous holder died with it. The mutex is ours now and the file may be half
+                    // rewritten, which the trim below tolerates: it only ever drops old lines.
+                    held = true;
+                }
+
+                return work();
+            }
+            finally
+            {
+                if (held)
+                {
+                    try
+                    {
+                        Across.ReleaseMutex();
+                    }
+                    catch (ApplicationException)
+                    {
+                        // Not ours to release; nothing to undo.
+                    }
+                }
+            }
+        }
+    }
 
     // Without the build metadata a git hash appends: a subject line wants a version, not a commit.
     private static readonly string Version = (typeof(Friction).Assembly
@@ -51,18 +112,44 @@ internal static class Friction
     /// <summary>The last few entries, for whoever is writing the report up.</summary>
     internal static string Tail(int lines)
     {
-        lock (Gate)
+        return Guarded(() =>
         {
             if (!File.Exists(Path))
             {
                 return "{\"path\":" + Json.Quote(Path) + ",\"entries\":[]}";
             }
 
-            string[] all = File.ReadAllLines(Path);
+            string[] all = ReadLines();
             IEnumerable<string> kept = all.Length > lines ? all[^lines..] : all;
 
             return "{\"path\":" + Json.Quote(Path) + ",\"entries\":[" + string.Join(",", kept) + "]}";
+        });
+    }
+
+    /// <summary>
+    /// The log's lines, tolerating another process holding the file open.
+    /// </summary>
+    /// <remarks>
+    /// <c>File.ReadAllLines</c> asks for exclusive read and throws when a second Rhino is mid-append, which
+    /// turned a shared log into an error on whichever instance asked second. Opening with the share flags
+    /// spelled out costs a few lines and removes the whole class.
+    /// </remarks>
+    private static string[] ReadLines()
+    {
+        using FileStream stream = new(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using StreamReader reader = new(stream);
+
+        List<string> lines = [];
+
+        while (reader.ReadLine() is { } line)
+        {
+            if (line.Length > 0)
+            {
+                lines.Add(line);
+            }
         }
+
+        return [.. lines];
     }
 
     /// <summary>
@@ -159,7 +246,7 @@ internal static class Friction
                 return "(nothing logged)";
             }
 
-            string[] all = File.ReadAllLines(Path);
+            string[] all = ReadLines();
 
             return string.Join(Environment.NewLine, all.Length > lines ? all[^lines..] : all);
         }
@@ -178,7 +265,7 @@ internal static class Friction
 
     private static void Append(string entry)
     {
-        lock (Gate)
+        Guarded<bool>(() =>
         {
             try
             {
@@ -188,7 +275,7 @@ internal static class Friction
                 // losing the lot on a threshold would throw away a session mid-report.
                 if (File.Exists(Path) && new FileInfo(Path).Length > TooBig)
                 {
-                    string[] all = File.ReadAllLines(Path);
+                    string[] all = ReadLines();
 
                     File.WriteAllLines(Path, all[(all.Length / 2)..]);
                 }
@@ -202,7 +289,9 @@ internal static class Friction
             {
                 // A log that cannot be written must not become the incident it was meant to describe.
             }
-        }
+
+            return true;
+        });
     }
 
     private static string Trim(string payload) =>

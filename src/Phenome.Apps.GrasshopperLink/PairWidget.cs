@@ -5,6 +5,8 @@ using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.GUI.Widgets;
 
+using Phenome.Apps.GrasshopperLink.Bridge;
+
 namespace Phenome.Apps.GrasshopperLink;
 
 /// <summary>

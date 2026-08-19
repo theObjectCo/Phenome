@@ -31,4 +31,13 @@
     <PackageReference Include="Grasshopper" Version="8.21.25188.17001" ExcludeAssets="runtime" />
   </ItemGroup>
 
+  <!--
+    Shared source rather than a shared assembly: a single self-contained .gha is the point, and a
+    ProjectReference would put a third file beside it that has to resolve at plugin-load time. Compiled in
+    instead - one copy of the source, two copies of the IL, nothing new to deploy. See the README there.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Phenome.Apps.Shared\**\*.cs" LinkBase="Shared" />
+  </ItemGroup>
+
 </Project>

@@ -2,7 +2,7 @@ using System.Text;
 
 using Grasshopper.Kernel;
 
-namespace Phenome.Apps.GrasshopperLink;
+namespace Phenome.Apps.GrasshopperLink.Definition;
 
 /// <summary>
 /// Search over every component this installation actually has.

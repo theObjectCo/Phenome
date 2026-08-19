@@ -105,6 +105,13 @@ abstraction layer.
    - **Flatten and graft belong on the canvas as components**, not as little icons on a parameter: a
      reader must see where the structure changed. Never reach for flatten to make a mismatch go away - it
      throws away exactly the information the paths were carrying.
+   - **Two wires into one socket meet only where their paths agree.** Grasshopper concatenates by path,
+     so sources sitting at different depths - one on `{0}`, one on `{0;0}` - never land in the same
+     branch: the component runs once per branch on half the data each time. Nothing turns red. A
+     `Boundary Surfaces` handed an outline on `{0}` and its offset on `{0;0}` returns two separate
+     surfaces instead of one with a hole in it, and looks right until somebody measures. `peek` the
+     *input* after wiring several sources into one socket, not the outputs that feed it; `review` calls
+     this "mismatched paths" and calls it blocking.
    - **Never use the simplify modifier. Ever.** It quietly drops path components depending on what the
      tree happens to look like at that moment, so the same definition behaves differently on different
      data - a bug that appears in someone else's file, months later. If a structure needs changing, change
@@ -140,6 +147,15 @@ abstraction layer.
    measured - overlapping frames, unnamed groups, names confessing two jobs, oversized groups, renamed
    components, bare boundary crossings, ungrouped objects - so a definition converges instead of being
    hoped over. Leave notes in panels where a reader will need them.
+12. **Then quiet the preview, and only then save.** A definition that is built and checked previews
+   everything it ever computed - the cutting boxes a difference already ate, the construction curves, the
+   profile that was extruded away - and the human is left picking the product out of the scaffolding, or
+   reads the scaffolding as the answer. The colours already said which geometry was ever meant to be seen,
+   so **`preview` with no id** sweeps the document on exactly that rule: only the outlets of the **red**
+   groups (baked as the product) and the **yellow** ones (there to be looked at) keep drawing, and
+   everything else goes dark - grey functions, blue knobs, every intermediate inside every group. Naming a
+   group quiets that one on its own terms whatever colour it wears, and `on:true` gives a group its whole
+   preview back when you need to look inside again.
 
 If the tools are ever unavailable, the same protocol is plain HTTP: the port is in
 `%TEMP%\phenome-link-<pid>.port` (one file per Rhino, a stale one has a dead pid) and `GET /`

@@ -5,6 +5,8 @@ using Grasshopper.GUI.Canvas;
 
 using Rhino.Display;
 
+using Phenome.Apps.GrasshopperLink.Bridge;
+
 namespace Phenome.Apps.GrasshopperLink;
 
 /// <summary>

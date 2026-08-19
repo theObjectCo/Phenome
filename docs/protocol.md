@@ -15,7 +15,8 @@ process id:
 
 ```
 %TEMP%\phenome-link-<rhino pid>.port     the canvas: the document and the verbs that edit it
-%TEMP%\phenome-rhino-<rhino pid>.port    the process: whether it is free, and what is blocking it
+%TEMP%\phenome-rhino-<rhino pid>.port    the process: whether it is free, what blocks it, and the
+                                         verbs that need Rhino but not a canvas
 ```
 
 Those files are the whole of discovery. There is no registry, no daemon and no fixed port.
@@ -181,6 +182,29 @@ does not happen. Send a key.
 **`GET /console?tail=50`** is the tail of Rhino's own command line, which is where commands and scripts
 reply and which used to go only to the human. It is drained when the UI thread breathes, so a long
 script's output arrives in one piece when the script ends — `/pulse` is the verb for the meantime.
+
+**There is one capture per Rhino, and the process server owns it.** `CapturedCommandWindowStrings` clears
+the buffer as it reads, so two drains do not double the lines — they halve them, each taking whatever
+instalment it reached first. The `.rhp` loads before any canvas exists and starts the drain; the canvas
+server finds capture already on, does not start a second, and answers `/console` by reading the process
+server over loopback. Where only the `.gha` is installed, it drains for itself as it always did.
+
+### Working in a Rhino with no canvas
+
+The process server also runs the two verbs that need no definition, so a Rhino started without Grasshopper
+is still a session an agent can work in — open a file, select, run a command, export, read what Rhino said.
+
+**`POST /command`** takes `{script}` and runs it as a Rhino command script; a leading `-` keeps the dialogs
+away. **`GET /doc`** answers the document: its name, whether it is modified, the layers with their
+visibility and locks, the object count, and where the camera is.
+
+Both need the UI thread — they are commands, and commands run there — so unlike `/pulse` they time out
+when it is held. The timeout says which situation you are in, borrowing pulse's sentence to say it.
+
+The canvas server answers these two as well, at `GET` and `POST /rhino`, and will go on doing so. A client
+that finds a `phenome-rhino-*.port` should prefer it: those verbs are there whether or not Grasshopper was
+ever opened. A `404` from an older `.rhp` is the signal to fall back to the canvas server, not to give up —
+one half of a pairing is often updated before the other.
 
 ## What is deliberately not here
 

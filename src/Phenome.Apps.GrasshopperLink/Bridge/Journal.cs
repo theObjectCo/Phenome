@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Phenome.Apps.GrasshopperLink;
+namespace Phenome.Apps.GrasshopperLink.Bridge;
 
 /// <summary>
 /// The append-only record of what happened on the canvas: the thing every client reads from its own place.

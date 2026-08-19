@@ -5,7 +5,7 @@ using Grasshopper.Kernel;
 using Grasshopper.Kernel.Special;
 using Grasshopper.Kernel.Types;
 
-namespace Phenome.Apps.GrasshopperLink;
+namespace Phenome.Apps.GrasshopperLink.Definition;
 
 /// <summary>
 /// Writes a document down as JSON: the recipe, plus the state a pair of eyes would have.
@@ -35,6 +35,17 @@ internal static class CanvasWriter
         StringBuilder json = new("{\"document\":{");
 
         json.Append("\"name\":").Append(Json.Quote(document.DisplayName ?? "unsaved"));
+
+        // Stated outright rather than left to be read off the end of the name. Grasshopper appends an
+        // asterisk to DisplayName for some edits and not others -- moving a slider through /set does
+        // not earn one -- so a caller pattern-matching the name gets a confident wrong answer. Anyone
+        // deciding whether it is safe to close Rhino needs the flag itself.
+        json.Append(",\"modified\":").Append(document.IsModified ? "true" : "false");
+
+        // The path, because "is it safe to close" is usually followed by "then save it", and a
+        // document that has never been saved has nowhere to go.
+        json.Append(",\"path\":").Append(Json.Quote(document.FilePath ?? ""));
+
         json.Append(",\"solverEnabled\":").Append(GH_Document.EnableSolutions ? "true" : "false");
         json.Append(",\"objectCount\":").Append(Json.Number(document.ObjectCount));
         json.Append("},\"objects\":[");

@@ -3,7 +3,7 @@ using System.Text;
 
 using Grasshopper.Kernel;
 
-namespace Phenome.Apps.GrasshopperLink;
+namespace Phenome.Apps.GrasshopperLink.Definition;
 
 /// <summary>
 /// Reads and writes the source of script components, both generations, without referencing either.

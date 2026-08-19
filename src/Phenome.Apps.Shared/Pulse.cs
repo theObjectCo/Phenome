@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Phenome.Apps.GrasshopperLink;
+namespace Phenome.Apps;
 
 /// <summary>
 /// Whether Rhino is idle, busy or stuck - answered without asking the UI thread anything.
@@ -24,12 +24,37 @@ namespace Phenome.Apps.GrasshopperLink;
 /// Stale stamp with a command running is "busy, wait". Stale stamp with a dialog up is "stuck, and here
 /// is what it is asking".
 /// </para>
+/// <para>
+/// One copy, compiled into both halves of the link. It was two, and they had drifted twice in the same
+/// direction: <c>key</c> on <see cref="Dismiss(string?, string?, string?)"/> and <c>clickable</c> in
+/// <see cref="Report"/> were each implemented on the canvas side and missing on the Rhino side, while both
+/// halves' protocol text advertised them. See the README beside this file.
+/// </para>
 /// </remarks>
 internal static class Pulse
 {
     private static DateTime lastIdle = DateTime.MinValue;
     private static string? runningCommand;
     private static DateTime commandStarted = DateTime.MinValue;
+
+    /// <summary>
+    /// Rhino's own frame, remembered from the first moment the process was healthy enough to have one.
+    /// </summary>
+    /// <remarks>
+    /// The diagnosis below turns on "which window is the owner a modal disabled", and asking the OS for it
+    /// at the moment of the question is wrong at the one moment it matters most. Closing Rhino destroys the
+    /// frame *before* Grasshopper's multi-save prompt is answered, and from then on
+    /// <see cref="Process.MainWindowHandle"/> answers with that prompt - a visible, enabled window, so the
+    /// check "is the main window disabled" says no and the whole thing reports "busy, working on something
+    /// unnamed" while a dialog with a Close button sits there holding the exit. Met three times in one
+    /// session, each time needing Win32 by hand to get out of.
+    /// <para>
+    /// Recorded once and never again, from the idle handler, because the first idle is the first proof that
+    /// Rhino is up and the frame exists. Never refreshed, so a destroyed frame stays destroyed as far as
+    /// this is concerned - which is the fact the shutdown case needs.
+    /// </para>
+    /// </remarks>
+    private static IntPtr frame;
 
     /// <summary>
     /// Below this, a stamp is fresh enough to call the UI thread free. Rhino idles many times a second
@@ -44,7 +69,16 @@ internal static class Pulse
         // expects its handler lists to be touched.
         Rhino.RhinoApp.InvokeOnUiThread(() =>
         {
-            Rhino.RhinoApp.Idle += (_, _) => lastIdle = DateTime.Now;
+            Rhino.RhinoApp.Idle += (_, _) =>
+            {
+                lastIdle = DateTime.Now;
+
+                if (frame == IntPtr.Zero)
+                {
+                    using Process self = Process.GetCurrentProcess();
+                    frame = self.MainWindowHandle;
+                }
+            };
 
             Rhino.Commands.Command.BeginCommand += (_, e) =>
             {
@@ -83,13 +117,13 @@ internal static class Pulse
 
         if (since != TimeSpan.MaxValue)
         {
-            json.Append(",\"idleAgoMs\":").Append((long)since.TotalMilliseconds);
+            json.Append(",\"idleAgoMs\":").Append(Json.Number((long)since.TotalMilliseconds));
         }
 
         if (command is not null)
         {
             json.Append(",\"command\":").Append(Json.Quote(command));
-            json.Append(",\"commandForMs\":").Append((long)(DateTime.Now - startedAt).TotalMilliseconds);
+            json.Append(",\"commandForMs\":").Append(Json.Number((long)(DateTime.Now - startedAt).TotalMilliseconds));
         }
 
         json.Append(",\"dialog\":");
@@ -255,7 +289,85 @@ internal static class Pulse
                 : $"The dialog \"{dialog.Title}\" has no button called \"{button}\". It offers: {offered}.");
     }
 
-    /// <summary>Every push button on a dialog, with the ampersand Windows uses for accelerators removed.</summary>
+    /// <summary>
+    /// Cancels whatever Rhino is waiting for, by posting Escape.
+    /// </summary>
+    /// <remarks>
+    /// The gap <see cref="Dismiss(string?, string?, string?)"/> leaves. A command waiting for a pick is not
+    /// a dialog: nothing is disabled, no window can be enumerated, and <c>dismiss</c> correctly refuses. But
+    /// the UI thread is held all the same, so every other verb fails with a message about Rhino being busy --
+    /// which reads as "wait" when the truth is "this will wait forever". Scripting an interactive command is
+    /// the ordinary way to arrive here: <c>-_Zoom</c> with a magnification it does not recognise sits asking
+    /// for a point that no script will ever supply.
+    /// <para>
+    /// Works for the same reason pressing a dialog's button works: the key is posted to the target window's
+    /// own message queue, and a queue can be written to while the thread reading it is busy. Nothing here
+    /// asks anything of the stuck thread.
+    /// </para>
+    /// <para>
+    /// Aimed at the focused window rather than the main one, because Rhino's getters take their input
+    /// wherever focus is -- a viewport, or the command line -- and a key posted to the frame is not always
+    /// routed on. The main window is the fallback for when focus cannot be read.
+    /// </para>
+    /// <para>
+    /// <paramref name="times"/> exists because one Escape cancels one level. A command with sub-options can
+    /// be several deep, and the caller knows what they started better than this does. Capped, because a
+    /// stream of Escapes into an idle Rhino is a way to clear a selection somebody wanted.
+    /// </para>
+    /// </remarks>
+    internal static string Escape(int times)
+    {
+        times = Math.Clamp(times, 1, 5);
+
+        using Process self = Process.GetCurrentProcess();
+        IntPtr main = self.MainWindowHandle;
+
+        if (main == IntPtr.Zero)
+        {
+            throw new InvalidOperationException("Rhino has no main window to post to.");
+        }
+
+        uint thread = GetWindowThreadProcessId(main, out _);
+        IntPtr focus = FocusedWindow(thread);
+        IntPtr target = focus != IntPtr.Zero ? focus : main;
+
+        for (int i = 0; i < times; i++)
+        {
+            PostMessage(target, WmKeyDown, (IntPtr)VkEscape, IntPtr.Zero);
+            PostMessage(target, WmKeyUp, (IntPtr)VkEscape, IntPtr.Zero);
+        }
+
+        // Deliberately not followed by a pulse: the key is queued, not delivered, so anything read here
+        // would describe the state before it was handled and invite the caller to conclude it did not work.
+        return "{\"ok\":true,\"posted\":" + Json.Number(times)
+            + ",\"to\":" + Json.Quote(focus != IntPtr.Zero ? "the focused window" : "the main window")
+            + ",\"next\":\"ask /pulse to see whether it took\"}";
+    }
+
+    /// <summary>The window holding keyboard focus on a given thread, or zero if it cannot be read.</summary>
+    private static IntPtr FocusedWindow(uint thread)
+    {
+        GuiThreadInfo info = new() { Size = Marshal.SizeOf<GuiThreadInfo>() };
+        return GetGUIThreadInfo(thread, ref info) ? info.Focus : IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Every push button on a dialog, with the ampersand Windows uses for accelerators removed.
+    /// </summary>
+    /// <remarks>
+    /// Matched on the class name <em>containing</em> "Button" rather than being it. A raw Win32 button's class
+    /// is exactly <c>Button</c>, but a framework that superclasses it registers its own name: WinForms buttons
+    /// come back as <c>WindowsForms10.Button.app.0.&lt;hash&gt;</c>, and an equality test misses every one of
+    /// them. That is not a corner case - Grasshopper's own dialogs are WinForms, so the multi-save prompt that
+    /// holds Rhino's exit reported <c>buttons: []</c> and <c>clickable: false</c> while carrying a perfectly
+    /// ordinary <c>Close</c> button, which left <c>dismiss</c> unable to answer the one dialog an agent most
+    /// needs to answer.
+    /// <para>
+    /// A checkbox or radio button on a dialog will match too, since those superclass the same Win32 class. That
+    /// is the right outcome rather than a false positive: they are labelled, clickable controls, and a caller
+    /// naming one means to press it.
+    /// </para>
+    /// </remarks>
     private static List<(IntPtr Handle, string Text)> ButtonsOf(IntPtr dialog)
     {
         List<(IntPtr, string)> found = new();
@@ -264,7 +376,9 @@ internal static class Pulse
             dialog,
             (handle, unused) =>
             {
-                if (ClassOf(handle) == "Button" && IsWindowVisible(handle) && IsWindowEnabled(handle))
+                bool isButton = ClassOf(handle).IndexOf("Button", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (isButton && IsWindowVisible(handle) && IsWindowEnabled(handle))
                 {
                     found.Add((handle, TitleOf(handle).Replace("&", "")));
                 }
@@ -284,15 +398,26 @@ internal static class Pulse
     /// is the signal - no polling of Rhino's own state, and nothing that needs the blocked thread. The
     /// dialog itself is then the visible, enabled, owned window belonging to this process; failing that,
     /// any visible window of the dialog class, which is what a message box is.
+    /// <para>
+    /// And when the frame is <em>gone</em> rather than disabled, every visible enabled window of this
+    /// process is a candidate, because there is no longer a frame for one of them to be. That is the
+    /// shutdown case: see <see cref="frame"/> for why it is the case that matters and why the handle is
+    /// remembered rather than asked for.
+    /// </para>
     /// </remarks>
     private static Dialog ModalDialog()
     {
         try
         {
             using Process self = Process.GetCurrentProcess();
-            IntPtr main = self.MainWindowHandle;
 
-            if (main == IntPtr.Zero || IsWindowEnabled(main))
+            // The remembered frame, or - before the first idle has had a chance to record one - whatever the
+            // OS calls this process's main window.
+            bool remembered = frame != IntPtr.Zero;
+            bool destroyed = remembered && !IsWindow(frame);
+            IntPtr main = remembered ? frame : self.MainWindowHandle;
+
+            if (!destroyed && (main == IntPtr.Zero || IsWindowEnabled(main)))
             {
                 return new Dialog(false, null);
             }
@@ -314,10 +439,15 @@ internal static class Pulse
                         return true;
                     }
 
-                    bool owned = GetWindow(handle, (IntPtr)GwOwner) == main;
-                    if (!owned && ClassOf(handle) != DialogClass)
+                    // With the frame destroyed there is nothing left to be owned by and nothing left that
+                    // could be the frame, so any window still standing is the one holding the process.
+                    if (!destroyed)
                     {
-                        return true;
+                        bool owned = GetWindow(handle, (IntPtr)GwOwner) == main;
+                        if (!owned && ClassOf(handle) != DialogClass)
+                        {
+                            return true;
+                        }
                     }
 
                     title = TitleOf(handle);
@@ -329,7 +459,11 @@ internal static class Pulse
                 },
                 IntPtr.Zero);
 
-            return new Dialog(true, title, dialog);
+            // With the frame gone and nothing visible left, there is no dialog to name - the process is on
+            // its way out and saying "blocked" would be worse than saying nothing.
+            return dialog == IntPtr.Zero && destroyed
+                ? new Dialog(false, null)
+                : new Dialog(true, title, dialog);
         }
         catch (Exception)
         {
@@ -365,6 +499,36 @@ internal static class Pulse
 
     private const int BmClick = 0x00F5;
 
+    private const int WmKeyDown = 0x0100;
+
+    private const int WmKeyUp = 0x0101;
+
+    private const int VkEscape = 0x1B;
+
+    /// <summary>
+    /// GUITHREADINFO, trimmed to the handles. The caret rectangle is four ints at the end that nothing here
+    /// reads, but they have to be present or the size check inside the API rejects the call.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GuiThreadInfo
+    {
+        public int Size;
+        public int Flags;
+        public IntPtr Active;
+        public IntPtr Focus;
+        public IntPtr Capture;
+        public IntPtr MenuOwner;
+        public IntPtr MoveSize;
+        public IntPtr Caret;
+        public int CaretLeft;
+        public int CaretTop;
+        public int CaretRight;
+        public int CaretBottom;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetGUIThreadInfo(uint thread, ref GuiThreadInfo info);
+
     private delegate bool EnumWindowsProc(IntPtr handle, IntPtr parameter);
 
     [DllImport("user32.dll")]
@@ -381,6 +545,10 @@ internal static class Pulse
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowEnabled(IntPtr handle);
+
+    /// <summary>Whether a handle still names a live window - false once it has been destroyed.</summary>
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr handle);
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr handle);

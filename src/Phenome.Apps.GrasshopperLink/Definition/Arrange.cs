@@ -3,7 +3,7 @@ using System.Drawing;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Special;
 
-namespace Phenome.Apps.GrasshopperLink;
+namespace Phenome.Apps.GrasshopperLink.Definition;
 
 /// <summary>
 /// Lays the document out the way a diagram renderer would - and lays out groups as whole blocks.

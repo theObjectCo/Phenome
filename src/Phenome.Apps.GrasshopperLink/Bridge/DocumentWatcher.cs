@@ -2,7 +2,7 @@ using System.Text;
 
 using Grasshopper.Kernel;
 
-namespace Phenome.Apps.GrasshopperLink;
+namespace Phenome.Apps.GrasshopperLink.Bridge;
 
 /// <summary>
 /// Turns what happens on the canvas into journal entries.

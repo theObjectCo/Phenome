@@ -32,4 +32,13 @@
     <PackageReference Include="RhinoCommon" Version="8.21.25188.17001" ExcludeAssets="runtime" />
   </ItemGroup>
 
+  <!--
+    The same shared source the canvas half compiles in, which is why nothing there may touch Grasshopper:
+    this plugin answers about a dialog that appears before Grasshopper has loaded, so it cannot be made to
+    depend on it. See the README there.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Phenome.Apps.Shared\**\*.cs" LinkBase="Shared" />
+  </ItemGroup>
+
 </Project>

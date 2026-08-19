@@ -1,5 +1,7 @@
 using Grasshopper.Kernel;
 
+using Phenome.Apps.GrasshopperLink.Bridge;
+
 namespace Phenome.Apps.GrasshopperLink;
 
 /// <summary>

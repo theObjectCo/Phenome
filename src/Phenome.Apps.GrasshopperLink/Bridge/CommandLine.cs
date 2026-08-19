@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 
-namespace Phenome.Apps.GrasshopperLink;
+namespace Phenome.Apps.GrasshopperLink.Bridge;
 
 /// <summary>
 /// The tail of Rhino's command line, kept so an agent can read what Rhino said.
@@ -30,6 +30,19 @@ internal static class CommandLine
     private const int Kept = 500;
 
     private static readonly Queue<string> lines = new();
+
+    /// <summary>
+    /// The link's own lines, kept separately rather than thrown away.
+    /// </summary>
+    /// <remarks>
+    /// Filtering the plugin's own voice out of the console is right: an agent reading its own requests back
+    /// as though Rhino had said them is the one thing this must not do. But discarding them made the link's
+    /// own faults unreadable *through the link*, which is exactly when they are wanted -- diagnosing why a
+    /// second Rhino complained at startup meant no way to see whether the complaint was even ours. Kept in
+    /// their own ring and served on request.
+    /// </remarks>
+    private static readonly Queue<string> mine = new();
+
     private static readonly object gate = new();
 
     /// <summary>Lines this plugin itself wrote, so the echo of a request is not read back as news.</summary>
@@ -37,10 +50,35 @@ internal static class CommandLine
 
     private static long dropped;
 
+    /// <summary>
+    /// One client for the whole process, rather than one per call.
+    /// </summary>
+    /// <remarks>
+    /// A fresh <see cref="HttpClient"/> per request leaves its socket in TIME_WAIT after disposal, so a verb
+    /// polled in a loop -- which reading the console is -- eventually runs the ephemeral port range down and
+    /// starts failing for a reason that has nothing to do with either end. One long-lived client is the
+    /// documented shape and there is nothing here that needs per-call configuration.
+    /// </remarks>
+    private static readonly HttpClient Loopback = new() { Timeout = TimeSpan.FromSeconds(3) };
+
+    /// <summary>
+    /// True when the Rhino-side plugin got here first and owns the capture, so this one reads from it.
+    /// </summary>
+    private static bool borrowed;
+
     internal static void Start()
     {
         Rhino.RhinoApp.InvokeOnUiThread(() =>
         {
+            // Capture already on means the Rhino plugin is loaded and draining. Starting a second drain
+            // would not double the lines - it would halve them, because the buffer clears as it is read
+            // and whichever idle handler ran first would take that instalment for itself.
+            if (Rhino.RhinoApp.CommandWindowCaptureEnabled)
+            {
+                borrowed = true;
+                return;
+            }
+
             Rhino.RhinoApp.CommandWindowCaptureEnabled = true;
             Rhino.RhinoApp.Idle += (_, _) => Drain();
         });
@@ -111,6 +149,17 @@ internal static class CommandLine
 
                 if (IsOurs(line))
                 {
+                    // The request echo is noise even to us; anything the plugin says about itself is not.
+                    if (line.StartsWith("Phenome Link:", StringComparison.Ordinal))
+                    {
+                        mine.Enqueue(line);
+
+                        while (mine.Count > Kept)
+                        {
+                            mine.Dequeue();
+                        }
+                    }
+
                     continue;
                 }
 
@@ -125,16 +174,30 @@ internal static class CommandLine
         }
     }
 
-    /// <summary>The last <paramref name="tail"/> lines, newest last.</summary>
-    internal static string Tail(int tail)
+    /// <summary>The last lines, newest last.</summary>
+    /// <param name="tail">How many lines back to return.</param>
+    /// <param name="ours">
+    /// True for the link's own lines instead of Rhino's - the plugin's account of itself, which is what to
+    /// read when the suspicion is that the bridge rather than Rhino is at fault.
+    /// </param>
+    internal static string Tail(int tail, bool ours = false)
     {
+        // Not borrowed for our own lines: the Rhino half keeps its own account, and this ring holds what this
+        // assembly said.
+        if (!ours && borrowed && FromRhinoLink(tail) is { } answer)
+        {
+            return answer;
+        }
+
         string[] recent;
         long lost;
 
         lock (gate)
         {
-            recent = lines.Skip(Math.Max(0, lines.Count - tail)).ToArray();
-            lost = dropped;
+            Queue<string> source = ours ? mine : lines;
+
+            recent = source.Skip(Math.Max(0, source.Count - tail)).ToArray();
+            lost = ours ? 0 : dropped;
         }
 
         StringBuilder json = new();
@@ -153,10 +216,46 @@ internal static class CommandLine
         json.Append(']');
         json.Append(",\"kept\":").Append(recent.Length);
         json.Append(",\"dropped\":").Append(lost);
-        json.Append(",\"note\":").Append(Json.Quote(
-            "Drained when the UI thread breathes, so a long command's output arrives when it ends. Ask /pulse for what is happening now."));
+        json.Append(",\"note\":").Append(Json.Quote(ours
+            ? "The link's own lines, which /console leaves out so an agent does not read its requests back as Rhino's answers."
+            : "Drained when the UI thread breathes, so a long command's output arrives when it ends. Ask /pulse for what is happening now."));
         json.Append('}');
 
         return json.ToString();
+    }
+
+    /// <summary>
+    /// The same tail, read from the Rhino-side link in this very process.
+    /// </summary>
+    /// <remarks>
+    /// Loopback rather than a method call, because the two plugins are separate assemblies that know
+    /// nothing of each other by design - the Rhino one must not need Grasshopper, and this is the seam
+    /// that keeps it that way. The port file is named by process id, and the process is this one, so
+    /// there is no discovery to get wrong. Null when it cannot be reached, and the caller falls back to
+    /// its own ring, which for a session that started this way is empty but honest.
+    /// </remarks>
+    private static string? FromRhinoLink(int tail)
+    {
+        try
+        {
+            string file = Path.Combine(
+                Path.GetTempPath(),
+                $"phenome-rhino-{Environment.ProcessId}.port");
+
+            if (!File.Exists(file))
+            {
+                return null;
+            }
+
+            string port = File.ReadAllText(file).Trim();
+
+            return Loopback.GetStringAsync($"http://127.0.0.1:{port}/console?tail={tail}")
+                .GetAwaiter()
+                .GetResult();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 }

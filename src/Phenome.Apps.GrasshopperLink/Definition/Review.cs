@@ -3,7 +3,7 @@ using System.Drawing;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Special;
 
-namespace Phenome.Apps.GrasshopperLink;
+namespace Phenome.Apps.GrasshopperLink.Definition;
 
 /// <summary>
 /// Reads the document against the composition rules and says where it falls short.
@@ -333,6 +333,49 @@ internal static class Review
             }
         }
 
+        // Two wires into one socket meet only where their paths agree. Grasshopper concatenates by path, so
+        // sources sitting at different depths - one on {0}, one on {0;0} - never land in the same branch:
+        // the component runs once per branch on half the data each time, and the result is quietly the wrong
+        // shape. Nothing turns red, and the broadcast check above cannot see it either, because every branch
+        // holds exactly one item. A Boundary Surfaces handed an outline on {0} and its offset on {0;0} makes
+        // two separate surfaces instead of one with a hole in it, and looks right until somebody measures.
+        foreach (IGH_DocumentObject thing in nodes)
+        {
+            foreach (IGH_Param input in Arrange.InputsOf(thing))
+            {
+                if (input.SourceCount < 2)
+                {
+                    continue;
+                }
+
+                List<int> depths = [];
+
+                foreach (IGH_Param source in input.Sources)
+                {
+                    foreach (Grasshopper.Kernel.Data.GH_Path path in source.VolatileData.Paths)
+                    {
+                        if (!depths.Contains(path.Length))
+                        {
+                            depths.Add(path.Length);
+                        }
+                    }
+                }
+
+                if (depths.Count > 1)
+                {
+                    depths.Sort();
+
+                    findings.Add(Finding(
+                        "mismatched paths",
+                        $"'{Named(thing)}' takes {input.SourceCount} sources on '{input.Name}' whose paths are "
+                        + $"{string.Join(" and ", depths)} deep - they never meet in one branch, so each is "
+                        + "processed on its own and the result is not the one list you wired for. Bring them "
+                        + "to one depth with a Flatten or Graft component, where a reader can see it.",
+                        thing.InstanceGuid));
+                }
+            }
+        }
+
         // Renamed components: the loudest readability offence there is, and perfectly measurable - a
         // component's nickname is how everyone recognises it, and names belong on parameters instead.
         foreach (IGH_DocumentObject thing in nodes.Where(thing => thing is IGH_Component))
@@ -508,6 +551,7 @@ internal static class Review
     private static readonly string[] Blocking =
     [
         "error", "multiplies", "shared object", "no signature", "simplify", "hidden mapping",
+        "mismatched paths",
     ];
 
     private static string Finding(string kind, string what, Guid? id)

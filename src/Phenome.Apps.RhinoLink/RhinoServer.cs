@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 
@@ -32,8 +31,10 @@ internal static class RhinoServer
             "GET /": "this description",
             "GET /pulse": "whether Rhino is idle, busy or blocked. Answered off the UI thread, so it answers when nothing else does. 'busy' names the running command and how long it has run: wait. 'blocked' names the open dialog and lists its buttons: nothing will answer until it is clicked",
             "POST /dismiss": "{button?, key?, expect?} - answer the open dialog: press a button by name, type a key, or close it when neither is given. When /pulse says clickable:false the dialog draws its own buttons and only a key reaches it",
+            "POST /escape": "{times?} - post Escape to Rhino, cancelling whatever it is waiting for. For the case /dismiss cannot answer: a command waiting on a pick is not a dialog, so nothing is disabled and there is no window to click, yet the UI thread is held and every other verb reports 'busy' as though waiting would help. Scripting an interactive command is the ordinary way to get here. 'times' cancels that many levels; one by default",
             "POST /command": "{script} - run a Rhino command script. Here rather than only on the canvas link, because Rhino is what runs commands and Grasshopper need not be open for it",
-            "GET /doc": "the Rhino document: name, layers, object count"
+            "GET /doc": "the Rhino document: name, layers, object count",
+            "GET /console": "?tail=50 - the tail of Rhino's command line, which is where Rhino answers. One capture per Rhino and this is it; the canvas link reads from here"
           },
           "why": "Grasshopper's link only exists once Grasshopper has been started, so it cannot report on anything that happens before that - including a dialog on startup, which is exactly when nothing else can answer.",
           "discovery": "%TEMP%/phenome-rhino-<rhino pid>.port holds this port"
@@ -43,12 +44,13 @@ internal static class RhinoServer
     internal static void Start()
     {
         Pulse.Start();
+        CommandLine.Start();
 
-        Port = FreePort();
-
-        listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
-        listener.Start();
+        // Bound before the port is named, and named only once bound: two Rhinos starting together used to be
+        // able to race for the same ephemeral port here, and the loser wrote a discovery file for a port
+        // nothing was listening on.
+        listener = Loopback.Listen(out int port);
+        Port = port;
 
         WritePortFile();
 
@@ -105,6 +107,11 @@ internal static class RhinoServer
                 ("GET", "") => Description,
                 ("GET", "/pulse") => Pulse.Report(),
                 ("POST", "/dismiss") => Dismissed(payload),
+                ("POST", "/escape") => Escaped(payload),
+                ("POST", "/command") => Commands.Run(payload),
+                ("GET", "/doc") => Commands.Document(),
+                ("GET", "/console") => CommandLine.Tail(
+                    int.TryParse(context.Request.QueryString["tail"], out int back) ? Math.Clamp(back, 1, 500) : 50),
                 _ => throw new KeyNotFoundException($"There is no {method} {path}. GET / describes what there is."),
             };
 
@@ -124,21 +131,34 @@ internal static class RhinoServer
     {
         string? button = null;
         string? expect = null;
+        string? key = null;
 
         if (!string.IsNullOrWhiteSpace(payload))
         {
             using JsonDocument request = JsonDocument.Parse(payload);
-            button = Text(request, "button");
-            expect = Text(request, "expect");
+            button = Json.Text(request, "button");
+            expect = Json.Text(request, "expect");
+
+            // Was missing here while the protocol text above and the MCP schema both promised it, so a
+            // caller's 'key' was read and thrown away. Rhino 8's own dialogs have no clickable buttons,
+            // which makes a key the only way into exactly the dialogs this half exists to answer.
+            key = Json.Text(request, "key");
         }
 
-        return Pulse.Dismiss(button, expect);
+        return Pulse.Dismiss(button, expect, key);
     }
 
-    private static string? Text(JsonDocument request, string name) =>
-        request.RootElement.TryGetProperty(name, out JsonElement field) && field.ValueKind == JsonValueKind.String
-            ? field.GetString()
-            : null;
+    private static string Escaped(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return Pulse.Escape(1);
+        }
+
+        using JsonDocument request = JsonDocument.Parse(payload);
+
+        return Pulse.Escape(Json.Int(request, "times", 1));
+    }
 
     private static string ReadBody(HttpListenerRequest request)
     {
@@ -185,14 +205,5 @@ internal static class RhinoServer
         {
             // A stale port file answers nothing and is replaced on the next start.
         }
-    }
-
-    private static int FreePort()
-    {
-        TcpListener probe = new(IPAddress.Loopback, 0);
-        probe.Start();
-        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        return port;
     }
 }

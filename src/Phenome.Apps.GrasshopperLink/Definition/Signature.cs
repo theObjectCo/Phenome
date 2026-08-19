@@ -1,7 +1,7 @@
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Special;
 
-namespace Phenome.Apps.GrasshopperLink;
+namespace Phenome.Apps.GrasshopperLink.Definition;
 
 /// <summary>
 /// Gives a group the signature of a virtual component: named parameters at its edges, and nothing crossing
@@ -32,6 +32,20 @@ internal static class Signature
     /// traces back to this one missing mark.
     /// </remarks>
     private const string Mark = "phenome-link:port";
+
+    /// <summary>
+    /// Marks a parameter as a group's edge, for whoever planted it.
+    /// </summary>
+    /// <remarks>
+    /// The <c>group</c> verb plants ports too, when it is given inlets and outlets to declare, and it was not
+    /// marking them - so a port a caller had *asked for by name* was indistinguishable from any parameter that
+    /// happened to be lying in the group. Two consequences, both met in practice: <c>signature</c> could plant
+    /// a second port in front of a declared one, which is the doubling the remark above is about; and a
+    /// declared outlet with nothing downstream was not recognised as an outlet at all, so the terminal group
+    /// of every definition reported an empty signature.
+    /// </remarks>
+    internal static void MarkAsPort(IGH_Param parameter, string planter) =>
+        parameter.Description = $"{Mark} - a group's edge, planted by {planter}.";
 
     private static bool IsPort(IGH_Param parameter) =>
         parameter.Description?.StartsWith(Mark, StringComparison.Ordinal) == true;
@@ -329,7 +343,7 @@ internal static class Signature
     }
 
     /// <summary>Every object the group holds, through one level of nesting or ten.</summary>
-    private static HashSet<Guid> Members(GH_Document document, GH_Group group)
+    internal static HashSet<Guid> Members(GH_Document document, GH_Group group)
     {
         HashSet<Guid> inside = [];
         Queue<GH_Group> pending = new([group]);
@@ -365,7 +379,7 @@ internal static class Signature
             ?? new Grasshopper.Kernel.Parameters.Param_GenericObject();
 
         made.NickName = name;
-        made.Description = $"{Mark} - a group's edge, planted by signature.";
+        MarkAsPort(made, "signature");
         made.Access = shape.Access;
         made.Optional = true;
 
@@ -413,8 +427,22 @@ internal static class Signature
         bool Outside(IGH_Param end) =>
             !inside.Contains((end.Attributes?.GetTopLevel?.DocObject ?? end).InstanceGuid);
 
+        // A port with nothing downstream is still an outlet, and it is the one that matters most: the group
+        // at the end of a definition is the product, and nothing consumes it because it is the answer. Asking
+        // for a recipient outside the group meant every terminal group reported no outlets at all - so peek
+        // hid the values worth reading, and the preview sweep, which keeps "the outlets of the red and yellow
+        // groups" drawing, darkened the very geometry it exists to leave on screen.
+        //
+        // Restricted to ports this or the group verb planted, on the mark in their description. An unmarked
+        // parameter fed from inside and read by nobody is just as likely to be a relay somebody left behind.
+        bool Terminal(IGH_Param port) =>
+            IsPort(port)
+                && port.Recipients.Count == 0
+                && port.SourceCount > 0
+                && port.Sources.All(source => !Outside(source));
+
         List<IGH_Param> inlets = [.. ports.Where(port => port.Sources.Any(Outside))];
-        List<IGH_Param> outlets = [.. ports.Where(port => port.Recipients.Any(Outside))];
+        List<IGH_Param> outlets = [.. ports.Where(port => port.Recipients.Any(Outside) || Terminal(port))];
 
         // A port wired both ways is an inlet: it takes from outside first, and calling it both would count
         // one object twice in a signature that is meant to read as a function's type.

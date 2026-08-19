@@ -10,6 +10,11 @@ dist/
 # Yak packages, likewise built rather than kept.
 *.yak
 
+# Where somebody's own machine keeps its private package source. tools/pack-yak.ps1 has always said this
+# was ignored and given the reason - a path with a person's name in it does not belong in a repository -
+# but the rule was never written, so the file was tracked and the path published with it.
+tools/yak-destination.txt
+
 node_modules/
 
 # Editors

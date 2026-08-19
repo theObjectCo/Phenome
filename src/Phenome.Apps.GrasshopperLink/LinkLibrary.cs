@@ -2,6 +2,8 @@ using System.Reflection;
 
 using Grasshopper.Kernel;
 
+using Phenome.Apps.GrasshopperLink.Bridge;
+
 namespace Phenome.Apps.GrasshopperLink;
 
 /// <summary>What Grasshopper shows about this library.</summary>
@@ -74,6 +76,8 @@ public class LinkRegistration : GH_AssemblyPriority
 
             File.WriteAllText(discovery, LinkServer.Port.ToString());
 
+            SweepStaleFiles();
+
             Rhino.RhinoApp.Closing += (_, _) =>
             {
                 try
@@ -100,5 +104,84 @@ public class LinkRegistration : GH_AssemblyPriority
         }
 
         return GH_LoadingInstruction.Proceed;
+    }
+
+    /// <summary>
+    /// Deletes discovery files and autosaves belonging to Rhinos that are gone.
+    /// </summary>
+    /// <remarks>
+    /// The Closing handler above removes this session's port file, and that covers the ordinary exit.
+    /// It does not cover a kill -- and anything driving Rhino from outside kills it sooner or later,
+    /// because installing a plugin means closing a Rhino that is holding the assembly. Left alone the
+    /// files accumulate: 28 of them had gathered here, 27 for processes that no longer existed, along
+    /// with fifty autosaves. The client side survives it by checking each pid, so nothing was broken;
+    /// it was simply litter that nobody had made anybody's job.
+    /// <para>
+    /// Sweeping on start rather than on exit is the whole point: exit is precisely the moment that does
+    /// not always happen. Every fault is swallowed -- a link that will not start because it could not
+    /// delete somebody else's leftover file would be a far worse trade.
+    /// </para>
+    /// </remarks>
+    private static void SweepStaleFiles()
+    {
+        try
+        {
+            string temp = Path.GetTempPath();
+
+            foreach (string file in Directory.EnumerateFiles(temp, "phenome-*-*.port"))
+            {
+                string tail = Path.GetFileNameWithoutExtension(file).Split('-').LastOrDefault() ?? "";
+
+                if (!int.TryParse(tail, out int owner) || owner == Environment.ProcessId)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    // Still running means still valid, whichever plugin wrote it.
+                    using (System.Diagnostics.Process.GetProcessById(owner))
+                    {
+                        continue;
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    // No such process: the file outlived its Rhino.
+                }
+
+                try
+                {
+                    File.Delete(file);
+                }
+                catch (Exception)
+                {
+                    // Another session may be sweeping the same file; whoever wins, it goes.
+                }
+            }
+
+            // Autosaves are named by document, not by process, so there is no pid to test. Age is the
+            // only honest signal, and a week is long enough that anything still wanted has been noticed.
+            DateTime cutoff = DateTime.Now.AddDays(-7);
+
+            foreach (string file in Directory.EnumerateFiles(temp, "phenome-autosave-*.gh"))
+            {
+                try
+                {
+                    if (File.GetLastWriteTime(file) < cutoff)
+                    {
+                        File.Delete(file);
+                    }
+                }
+                catch (Exception)
+                {
+                    // As above.
+                }
+            }
+        }
+        catch (Exception failure)
+        {
+            LinkLog.Say($"Phenome Link: could not sweep stale files ({failure.Message}); carrying on.");
+        }
     }
 }
