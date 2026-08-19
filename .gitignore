@@ -15,6 +15,11 @@ dist/
 # but the rule was never written, so the file was tracked and the path published with it.
 tools/yak-destination.txt
 
+# A staging area for code on its way to a repository of its own. Ignored rather than tracked because this
+# repository ships publicly, and what is waiting there is specific to one pipeline: an unfinished move is
+# not a reason to publish it. See _relocate/README.md.
+_relocate/
+
 node_modules/
 
 # Editors
