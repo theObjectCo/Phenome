@@ -15,9 +15,19 @@
     here: hosting the core is the half that exists, and a stub Main pretending otherwise would be worse than
     its absence.
 
-    Document tooling that used to live here - explode, rename, normalize, silhouette, info - has been lifted
-    into _relocate/ on its way out of this repository. It was never part of the link: it is specific to one
-    pipeline, and this repository ships publicly to anyone with Rhino.
+    Document tooling that used to live here - explode, rename, normalize, silhouette, info - has left for a
+    repository of its own. It was never part of the link: it is specific to one pipeline, and this repository
+    ships publicly to anyone with Rhino.
+
+    That tooling needs a headless core too, and takes it from here by ProjectReference rather than by carrying
+    a copy of HeadlessRhino - decided on 2026-08-19, on the grounds that the two always travel together
+    anyway. So HeadlessRhino is public surface with a consumer outside this repository: Start, Prepare,
+    SystemDirectory, Invoke, Serve, Stop. Renaming any of them, or making the type internal, breaks a build
+    that is not in this solution and will not tell you here.
+
+    Referencing an Exe project is deliberate and works: the SDK produces a .dll beside the .exe and a
+    reference picks that up. Making this a library instead would mean losing the server, which is the point
+    of it.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>

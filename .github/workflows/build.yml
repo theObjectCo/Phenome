@@ -157,44 +157,18 @@ jobs:
           name: phenome-link
           path: dist
 
+      # Through tools/pack-yak.ps1 rather than staging a folder here. This step used to do its own copying and
+      # its own checking, which made three places that knew what a package contains - this file, that script,
+      # and tools/build.ps1 deciding what lands in dist. Three descriptions of one thing disagree eventually,
+      # and these did: the script looked for the .vsix where build.ps1 had just moved it from, and produced a
+      # package with no extension in it and no complaint. The script now owns the list and the checks, and this
+      # step hands it the artefacts the build job already made.
       - name: Build the Yak package
         shell: pwsh
         run: |
-          $yak = 'C:\Program Files\Rhino 8\System\Yak.exe'
-          if (-not (Test-Path $yak)) { throw "Yak is not at $yak - is Rhino installed on this runner?" }
-
           $expected = ($env:GITHUB_REF -replace '^refs/tags/v', '')
-
-          # Yak builds from a folder holding the .gha, its manifest and anything travelling with it. The rhp
-          # and the vsix ride along so one install is the whole install: Rhino gets both plugins, and the
-          # canvas's pair button hands the extension to VS Code.
-          # Named extensions rather than dist/*, so a stray .yak from anywhere cannot join the staging folder
-          # and then be mistaken for the one just built.
-          $staging = Join-Path $env:RUNNER_TEMP 'yak'
-          if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
-          New-Item -ItemType Directory -Force $staging | Out-Null
-          Copy-Item dist/*.gha, dist/*.rhp, dist/*.vsix, dist/manifest.yml $staging
-
-          Push-Location $staging
-          try {
-            & $yak build
-            if ($LASTEXITCODE -ne 0) { throw 'yak build failed' }
-          }
-          finally { Pop-Location }
-
-          $packages = @(Get-ChildItem $staging -Filter '*.yak')
-          if ($packages.Count -eq 0) { throw 'yak produced no package' }
-          if ($packages.Count -gt 1) { throw "more than one .yak in the staging folder: $($packages.Name -join ', ')" }
-
-          # Yak names the file from the manifest, so the name is the evidence that the right manifest was
-          # used. Checked rather than assumed, because the wrong one is not obvious until somebody installs it.
-          $package = $packages[0]
-          if ($package.Name -notlike "*-$expected-*") {
-            throw "yak built $($package.Name), which is not version $expected"
-          }
-
-          Copy-Item $package.FullName dist
-          "  $($package.Name)  $([int]($package.Length/1KB)) KB"
+          pwsh tools/pack-yak.ps1 -From dist -Destination dist -ExpectVersion $expected
+          Get-ChildItem dist -Filter *.yak | ForEach-Object { "  $($_.Name)  $([int]($_.Length/1KB)) KB" }
 
       - uses: actions/upload-artifact@v4
         with:

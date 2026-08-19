@@ -8,18 +8,28 @@ without its *why* gets re-litigated or quietly dropped.
 
 ## 1. Structure
 
-- [ ] **Delete superseded files.** Nothing found. Every tracked file outside the two plugins' sources is
-      live: the CI workflow, both build scripts, both docs, the manifest, the extension. The working tree
-      does hold in-flight work of its own (`Phenome.Apps.RhinoInsideLink`, new `CommandLine.cs` and
-      `Commands.cs` in the Rhino half), and that is not mine to judge. Left open only because "old files"
-      was the ask and the answer is "there are none I can prove"; say if you meant something specific.
+- [x] **Delete superseded files: there were none.** Every tracked file is live — the CI workflow, both build
+      scripts, both docs, the manifest, the extension, all three projects. What looked like the answer turned
+      out to be a different question: `Phenome.Apps.RhinoInsideLink` was not superseded, it was a project
+      holding one useful class and a pile of document tooling that belonged elsewhere. The tooling left, the
+      project became the third half of the link, and nothing was deleted. Closed.
 
-- [ ] **`tools/yak-destination.txt` is out of the index, but still in the history.** Untracked and ignored
-      on 2026-08-19; the file stays on disk, so packing is unaffected, and a fresh clone simply falls back
-      to `PHENOME_YAK_DESTINATION` or `dist/yak` as the script intends. What is left is that every commit
-      up to now still carries the path, and a public repository's history is as readable as its tip.
-      Rewriting it is a decision of a different size — force-pushing over shared history — so it is
-      written down rather than done. If the path is not worth that, close this and say so.
+- [x] **`HeadlessRhino` is referenced, not forked.** Decided 2026-08-19: the relocated document tooling takes
+      it from this project by `ProjectReference` rather than carrying a copy, on the grounds that the two always
+      travel together anyway. Which makes `HeadlessRhino` public surface with a consumer outside this
+      repository — `Start`, `Prepare`, `SystemDirectory`, `Invoke`, `Serve`, `Stop` — and renaming any of them,
+      or making the type internal, breaks a build that is not in this solution and will not say so here. The
+      csproj says as much where somebody about to do it would look. The reference itself lives in the other
+      repository and is theirs to wire.
+
+- [x] **`tools/yak-destination.txt`: out of the index, and the history is left alone.** Decided 2026-08-19,
+      after the file was untracked and ignored. The tip is clean, the file stays on disk so packing is
+      unaffected, and a fresh clone falls back to `PHENOME_YAK_DESTINATION` or `dist/yak` as the script
+      intends. Every commit up to that point still carries the path, and that is accepted rather than
+      overlooked: what leaked is one folder path on one machine, while rewriting it means force-pushing over
+      published history and invalidating every clone and every release tag's commit. The cure is worse than a
+      folder name. Closed so it does not get re-litigated — if the path itself ever becomes sensitive, the
+      answer is to move the share, not to rewrite this repository.
 
 ## 2. Correctness
 
@@ -42,14 +52,21 @@ without its *why* gets re-litigated or quietly dropped.
       branches of one item and a `Result` of four sums; output graft the same downstream; `none` puts both
       back to one branch of 30.
 
-- [ ] **Three places now assemble a package, and they can disagree.** `tools/pack-yak.ps1` stages one for a
-      private folder source; the `yak` job in CI stages its own from `dist/`; `tools/build.ps1` decides what
-      lands in `dist/` in the first place. Found by shipping the consequence: pack-yak looked for the `.vsix`
-      by wildcard in the folder that produces it, `build.ps1` *moves* it out of there into `dist/`, and so the
-      two run in their natural order produced a package with no extension in it and no complaint — while the
-      README inside promised the pair button would install one. Public releases were never affected, because
-      CI does not use pack-yak; the private path was. Fixed there by naming the version and refusing to build
-      a package that is missing something it promises. The duplication itself is still open.
+- [x] **One place assembles a package now.** Done 2026-08-19. It was three: `tools/pack-yak.ps1` staging one
+      for a private folder source, the `yak` job in CI staging its own from `dist/`, and `tools/build.ps1`
+      deciding what lands in `dist/`. Three descriptions of one thing disagree eventually, and these did —
+      pack-yak looked for the `.vsix` by wildcard in the folder that produces it, `build.ps1` *moves* it from
+      there into `dist/`, and running the two in their natural order made a package with no extension in it and
+      no complaint, while the README inside promised the pair button would install one.
+
+      `pack-yak.ps1` now owns both the list and the checks. A package states what it contains once, as
+      `Requires`, and that is verified after staging however the files arrived; `-From <folder>` packs what a
+      build already produced instead of rebuilding, which is how CI calls it. The two checks that lived only in
+      CI — exactly one `.yak`, and its name carrying the manifest's version — moved into the script, where the
+      packing is. `-ExpectVersion` lets a caller with an opinion, a tag, say so.
+
+      Verified all four ways: from source and from `dist/` produce byte-identical contents; a tag disagreeing
+      with the manifest is refused; and `-From` with the extension held back refuses and produces no package.
 
 - [x] **An agent's edit marks the document modified.** Decided 2026-08-19: an edit is an edit. Before this,
       the link mutated a document and Rhino closed it **without offering to save** — the human lost an
