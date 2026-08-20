@@ -1,5 +1,5 @@
 <!--
-Draft of the Rhino Discourse announcement for 0.24.0. Kept in the repository because a release
+Draft of the Rhino Discourse announcement for 0.24.1. Kept in the repository because a release
 post is part of releasing, and the next one is easier to write with the last one in front of you.
 
 Written in the voice of the illustration - a cybernetic cowboy who has ridden the animal in and
@@ -21,7 +21,7 @@ written for somebody who already installed the last one. The first draft of this
 and meaningless to anybody who was not in the room when it was fixed.
 -->
 
-**Runaround: I rode a live Rhino in — Phenome Link 0.24.0**
+**Runaround: I rode a live Rhino in — Phenome Link 0.24.1**
 
 Whiskey. Something for the positronic lobes, I've been in the saddle since Tuesday.
 
