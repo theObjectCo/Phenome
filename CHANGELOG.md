@@ -11,6 +11,33 @@ the code, do not tell somebody who installed the last version which six things t
 So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
 commit that made it, not here.
 
+## 0.24.1
+
+### Fixed
+
+- **Pair with VS Code registers the server for every host, not only for Claude Code.** It wrote `.mcp.json`
+  and nothing else, which is where *Claude Code* looks — Kilo Code, Roo Code, Cline, Cursor and VS Code's own
+  MCP support each read a different file and none of the others. So on any of those the pairing planted notes
+  written almost entirely in terms of the `grasshopper` tools, and registered those tools nowhere the host
+  would find them: the agent saw no tools at all and had no way to know why. The registration now goes into
+  `.mcp.json`, `.kilocode/mcp.json`, `.roo/mcp.json`, `.cursor/mcp.json` and `.vscode/mcp.json` — merged, so
+  whatever else those files carry stays — and the last of them is keyed `servers` rather than `mcpServers`,
+  which is VS Code's spelling and is silently ignored if you use the other one.
+
+  **If you paired before this version, run *Pair with VS Code* again**; it is idempotent and will add the
+  files that were missing.
+
+- **The notes no longer send an agent to restart a session that was never the problem.** They said a missing
+  tool means the session predates the server, so restart it. That is true of *one* missing tool and useless
+  when there are no `grasshopper` tools at all — the host simply has no server wired up. The two cases are
+  now told apart, and the second one points at the HTTP protocol instead of at a pointless restart.
+
+- **The HTTP fallback says how to start a session.** It could not be worked out from `GET /`, and there is no
+  verb for it — the server lives inside Grasshopper, so nothing answers until Grasshopper runs. Both ways it
+  goes wrong are now written down: Rhino started on its own writes a `phenome-rhino-*.port` and never a
+  `phenome-link-*.port`, and the `/runscript` argument has to be quoted as one whole token or some shells
+  double the inner quotes, Rhino runs no script, and the result is indistinguishable from Rhino being slow.
+
 ## 0.24.0
 
 ### Changed
