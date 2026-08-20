@@ -138,6 +138,7 @@ jobs:
   # That is also the only sensible way to hand it round a studio, since a Yak source is a folder and whoever
   # can read the folder can install. tools/pack-yak.ps1 keeps working and is covered by no CI - say so here
   # rather than letting somebody assume a green tick means it still packs.
+
   # The same three files into the company SharePoint library, so an internal machine can pick up a build
   # without going to a public release page - and so there is a record of every version we cut.
   #

@@ -3,7 +3,7 @@
 What changed for somebody using the link, one entry per release.
 
 **This is not a commit log, and completing it from `git log` would ruin it.** The commits are already a good
-account of the work, and `git log v0.21.1..HEAD` already answers "what landed" better than a second copy
+account of the work, and `git log v0.22.0..HEAD` already answers "what landed" better than a second copy
 would. The difference is not access — everybody reading this can read the commits — it is that a release
 note and a commit log answer different questions. Forty-one commit subjects, written for whoever is changing
 the code, do not tell somebody who installed the last version which six things they are about to notice.
@@ -11,7 +11,7 @@ the code, do not tell somebody who installed the last version which six things t
 So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
 commit that made it, not here.
 
-## Unreleased
+## 0.23.0
 
 ### Fixed
 
@@ -40,6 +40,15 @@ commit that made it, not here.
   which is the repair path when the first wording was wrong; empty or whitespace text is refused on both
   rather than becoming a placeholder.
 
+- **`arrange` is idempotent.** Running it twice ran the definition twice across the canvas: the layout anchors
+  on the top-left of where the objects were, but inside a group the first object sits inset by the frame's
+  padding and its label, so every run added that inset again — 26 by 52 pixels at a time, for ever. It only
+  showed when the top-left-most object was in a group, which is why it looked fine when tested on loose
+  objects. A settled document now answers `moved: 0` and the coordinates do not change.
+
+- **New objects land in free space instead of on the origin.** `add` left an object's position unset, which
+  put it at 0,0 — on top of whatever was already there, and on top of the next object added the same way.
+
 ### Added
 
 - **Annotations can be read back.** `describe` on a note answers its `text`, where it sits (`at`), the
@@ -62,17 +71,6 @@ commit that made it, not here.
 - **`group` plants declared ports on a group that already exists.** Calling it again with `inlets` or
   `outlets` used to accept them and silently do nothing, so a group could not be given a signature after the
   fact. Missing ports are now planted, matched by nickname, and calling it twice adds nothing the second time.
-
-### Fixed — layout
-
-- **`arrange` is idempotent.** Running it twice ran the definition twice across the canvas: the layout anchors
-  on the top-left of where the objects were, but inside a group the first object sits inset by the frame's
-  padding and its label, so every run added that inset again — 26 by 52 pixels at a time, for ever. It only
-  showed when the top-left-most object was in a group, which is why it looked fine when tested on loose
-  objects. A settled document now answers `moved: 0` and the coordinates do not change.
-
-- **New objects land in free space instead of on the origin.** `add` left an object's position unset, which
-  put it at 0,0 — on top of whatever was already there, and on top of the next object added the same way.
 
 ### Changed
 
