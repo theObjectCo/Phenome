@@ -1,5 +1,5 @@
 <!--
-Draft of the Rhino Discourse announcement for 0.23.0. Kept in the repository because a release
+Draft of the Rhino Discourse announcement for 0.24.0. Kept in the repository because a release
 post is part of releasing, and the next one is easier to write with the last one in front of you.
 
 Written in the voice of the illustration - a cybernetic cowboy who has ridden the animal in and
@@ -13,15 +13,15 @@ is the editing. Paste the releases link where it says so, and check the closing 
 tell the truth before posting this again - a limit fixed three versions ago and still advertised
 reads as carelessness about the whole list.
 
-It describes what the thing DOES, not what changed since 0.22.0, and that is the point rather
-than an oversight: nobody on the forum has 0.22.0, so a delta is a list of repairs to a tool the
+It describes what the thing DOES, not what changed since 0.23.0, and that is the point rather
+than an oversight: nobody on the forum has 0.23.0, so a delta is a list of repairs to a tool the
 reader has never held. Version numbers and per-release detail belong in CHANGELOG.md, which is
 written for somebody who already installed the last one. The first draft of this paragraph read
 "new this run: arrange places notes, and no longer drags the definition 26x52 px per call" - true,
 and meaningless to anybody who was not in the room when it was fixed.
 -->
 
-**Runaround: I rode a live Rhino in — Phenome Link 0.23.0**
+**Runaround: I rode a live Rhino in — Phenome Link 0.24.0**
 
 Whiskey. Something for the positronic lobes, I've been in the saddle since Tuesday.
 

@@ -22,13 +22,18 @@ end up peers — both are clients, neither owns the session.
 
 - **Look** — the document as JSON or as a mermaid flowchart, one object's real parameters, every wire, a
   parameter's full data with tree paths, the installed component catalogue, a linter, the canvas as a
-  picture, the Rhino viewport, where the camera stands, and what plugins are loaded.
+  picture, the Rhino viewport, where the camera stands, and what plugins are loaded. A note answers with
+  its wording as it actually reads, the rectangle it covers and the group it is about — so an agent can
+  check its own comment landed instead of asking somebody to look at the screen.
 - **Build** — place a whole group body in one call, wire and set in batches, group, plant a group's
   signature as floating parameters, lay the graph out, delete (it refuses when that would cut live wires),
-  select, zoom, undo and redo.
+  select, zoom, undo and redo. The layout takes the notes with it: a note in a group becomes that group's
+  caption, a note in none becomes the document's title, and running the layout twice changes nothing.
 - **Run and keep** — the solver, bake, data mapping, new/open/save, a C# component's source with its
-  compile errors back. An agent's edit marks the document modified, like anybody else's, so closing Rhino
-  offers to save it rather than discarding the work in silence.
+  compile errors back. Quiet the preview when the scaffolding is hiding the product — the whole document on
+  the colour rule, or one group, or one component whose intermediate output is flooding the viewport. An
+  agent's edit marks the document modified, like anybody else's, so closing Rhino offers to save it rather
+  than discarding the work in silence.
 - **Say** — messages both ways, and a friction log for when a verb fights you.
 - **Get unstuck** — whether Rhino is idle, busy or blocked; what dialog is holding it and how to answer
   that; and the tail of Rhino's own command line, which is where commands and scripts reply.
@@ -195,7 +200,7 @@ sequenceDiagram
     GH-->>A: the message, and latest — your next cursor
 
     A->>GH: POST /group — declare inlets and outlets first
-    A->>GH: POST /place — a whole group body in one call
+    A->>GH: POST /place — a whole group body in one call, components by guid
     A->>GH: POST /wire, POST /set — batched, never one per wire
     GH-->>A: ids, and a journal entry per change
 
@@ -206,8 +211,14 @@ sequenceDiagram
     GH-->>A: the real data, with tree paths
     Note over A: verified numerically, not by looking
 
+    A->>GH: POST /arrange — groups as blocks, notes as their captions
+    Note over GH: run it again and nothing moves
+
     A->>GH: GET /review — the linter
     GH-->>A: findings, each blocking or polish
+
+    A->>GH: POST /preview — only the red and yellow outlets keep drawing
+    A->>GH: POST /save — an unsaved canvas is work resting on a process
     A->>GH: POST /say — "done, two polish findings left"
     GH-->>H: it appears on the canvas, authored by the agent
 ```
@@ -299,7 +310,7 @@ repository and a release, and a package server would be a second thing to keep i
 is a folder with a manifest in it, so building your own for yourself or your studio is one command:
 
 ```powershell
-pwsh tools/pack-yak.ps1 -Destination <a folder you can read>
+pwsh tools/pack-yak.ps1 -From dist -Destination <a folder you can read>
 ```
 
 Add that folder as a package source in Rhino — **Tools > Options > Packages**, or `PackageManagerSettings` —
@@ -307,8 +318,12 @@ and install from it. Whoever can read the folder can install; whoever cannot, ca
 the access control, and it is the reason this suits a studio rather than the world. The `.vsix` travels inside
 the package, so the canvas's **Pair with VS Code** button can install the editor half on the first pairing.
 
-A release *may* carry a `.yak` as well, when the machine that builds it had Rhino on it. Do not count on it
-being there; the three files always are.
+**A release never carries a `.yak`.** It used to, sometimes — the job needed `Yak.exe`, which ships inside
+Rhino and exists on no hosted runner, so it wanted a self-hosted Windows machine and produced an attachment
+that was there on some releases and absent on others. An attachment you cannot rely on is worse than one that
+is honestly missing, because it makes the install instructions conditional on something the reader cannot
+check. So the three files are the release, and the packaging script above is yours to run. It is covered by no
+CI, which is said here rather than left for somebody to infer from a green tick.
 
 ### From source
 

@@ -102,7 +102,7 @@ release with installation notes in the body.
 
 ```powershell
 git push origin main
-git push origin v0.22.0    # after main, so the tag names a commit the remote already has
+git push origin v0.24.0    # after main, so the tag names a commit the remote already has
 ```
 
 **The `.yak` is attached only sometimes, and the notes say so.** Building one needs `Yak.exe`, which ships
