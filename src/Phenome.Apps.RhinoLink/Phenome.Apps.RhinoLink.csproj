@@ -22,7 +22,7 @@
          speaks to a person: OnLoad says "Phenome Rhino Link did not start". -->
     <Title>Phenome Rhino Link</Title>
 
-    <Version>0.23.0</Version>
+    <Version>0.24.0</Version>
 
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

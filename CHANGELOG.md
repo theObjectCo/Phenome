@@ -3,7 +3,7 @@
 What changed for somebody using the link, one entry per release.
 
 **This is not a commit log, and completing it from `git log` would ruin it.** The commits are already a good
-account of the work, and `git log v0.22.0..HEAD` already answers "what landed" better than a second copy
+account of the work, and `git log v0.23.0..HEAD` already answers "what landed" better than a second copy
 would. The difference is not access — everybody reading this can read the commits — it is that a release
 note and a commit log answer different questions. Forty-one commit subjects, written for whoever is changing
 the code, do not tell somebody who installed the last version which six things they are about to notice.
@@ -11,7 +11,7 @@ the code, do not tell somebody who installed the last version which six things t
 So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
 commit that made it, not here.
 
-## Unreleased
+## 0.24.0
 
 ### Changed
 

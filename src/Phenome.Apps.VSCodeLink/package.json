@@ -2,7 +2,7 @@
   "name": "phenome-link",
   "displayName": "Phenome Link",
   "description": "The VS Code end of a Grasshopper canvas: session status, the live journal, canvas recipes and script editing over loopback HTTP.",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "publisher": "phenome",
   "private": true,
   "engines": {
