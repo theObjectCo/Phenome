@@ -456,10 +456,11 @@ const TOOLS = [
     },
     {
         name: 'preview',
-        description: "Quiets the preview, so the viewport shows the product instead of every step that made it - the cutting boxes, the construction curves, the profile that was extruded away. Called with no id it sweeps the whole document: only the outlets of the RED and YELLOW groups keep drawing, and everything else goes dark. That is the finishing move - run it once the definition is built and verified, after review and before save. Name a group instead to quiet just that one, whatever colour it wears; on:true gives a group its whole preview back when you need to look inside again.",
+        description: "Turns a preview off, so the viewport shows the product instead of every step that made it - the cutting boxes, the construction curves, the 23,000 point markers from an intermediate interpolation. USE THIS DURING THE BUILD, not only at the end: the moment an intermediate output floods the viewport, name that component here and it stops drawing. Takes a group id OR a single object id, and 'ids' for a batch of either. With no id at all it sweeps the whole document - only the outlets of the RED and YELLOW groups keep drawing - which is the finishing move, run after review and before save. on:true gives the preview back when you want to look inside again.",
         inputSchema: object({
-            id: str('Group id; omit to sweep the document, leaving only red and yellow groups\' outlets drawing.'),
-            on: { type: 'boolean', description: 'True shows everything in the group again instead of quieting it.' },
+            id: str('A group id or a single object id. Omit entirely to sweep the document, leaving only red and yellow groups\' outlets drawing.'),
+            ids: { type: 'array', items: { type: 'string' }, description: 'Several ids at once, groups or objects, mixed freely. Use this instead of one call each.' },
+            on: { type: 'boolean', description: 'True gives the preview back instead of quieting it.' },
         }),
         run: args => ask('/preview', args),
     },
@@ -720,7 +721,7 @@ const TOOLS = [
     },
     {
         name: 'place',
-        description: "A whole group's body in one call: objects with local ids, wired to each other, to the group's inlet and outlet ids, and to anything already on the canvas. Each object: {id?, name|guid, nickname?, pivot?:[x,y], slider?:{value,minimum,maximum,decimals}, text?, value?, inputs?:[{param?, sources?:[{id, output?}], value?}]} - an input takes 'sources' for wires OR 'value' for a constant typed straight into that socket, and 'param' is a name or an index. Pass 'group' and everything placed joins that group. Answers the local-id to canvas-id map. Always prefer this over add/wire loops. 'text' is the wording of a note and works on both a Scribble and a Panel; it is refused when empty rather than becoming a placeholder, and 'describe' reads it back with the note's position so you can check what you wrote without asking anybody to look at the screen.",
+        description: "A whole group's body in one call: objects with local ids, wired to each other, to the group's inlet and outlet ids, and to anything already on the canvas. Each object: {id?, name|guid, nickname?, pivot?:[x,y], slider?:{value,minimum,maximum,decimals}, text?, value?, inputs?:[{param?, sources?:[{id, output?}], value?}]} - an input takes 'sources' for wires OR 'value' for a constant typed straight into that socket, and 'param' is a name or an index. Pass 'group' and everything placed joins that group. Answers the local-id to canvas-id map. Always prefer this over add/wire loops. 'text' is the wording of a note and works on both a Scribble and a Panel; it is refused when empty rather than becoming a placeholder, and 'describe' reads it back with the note's position so you can check what you wrote without asking anybody to look at the screen. PREFER 'guid' OVER 'name': a ComponentGuid is what a .gh file stores, so it cannot change, while a display name can be renamed by a plugin author and collides between plugins - the guid also skips the ambiguity refusal entirely. A recipe is all-or-nothing: if any entry cannot be resolved NOTHING is placed and the canvas is untouched, and the refusal names EVERY bad entry by your own local id, so fix them all in one pass and send the whole recipe again rather than probing one at a time.",
         inputSchema: object({
             objects: { type: 'array', items: { type: 'object' }, description: 'The recipe, in dataflow order.' },
             group: str("The group this body belongs to - everything placed joins it."),

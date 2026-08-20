@@ -257,27 +257,91 @@ internal static class View
     /// A verb rather than doctrine because doing it by hand is a click per component and the next edit
     /// undoes it.
     /// </para>
+    /// <para>
+    /// <b>An id may name a group or a single object, and <c>ids</c> takes a list of either.</b> Group and
+    /// document were the only granularities at first, and that left one real case out: an intermediate
+    /// component whose output floods the viewport while the rest of its group has to keep drawing. It was
+    /// reported from a facade of 960 panels interpolated through 24 points each - 23,040 preview markers
+    /// standing over the building, so the viewport and every screenshot of it were useless. That is why the
+    /// list matters as much as the widening: the fault arrives in bulk, and quieting it one call at a time is
+    /// the click-per-component this verb exists to replace.
+    /// </para>
+    /// <para>
+    /// One verb rather than two, and that was a decision. A second verb for objects would have said the same
+    /// thing in a second vocabulary, and every caller would have had to know which of them a given id wanted
+    /// before it could ask - having to know something the server can simply look up. What differs between a
+    /// group and an object here is only the policy over its members, and only the sweep has a policy at all.
+    /// </para>
     /// </remarks>
     internal static string Quiet(JsonDocument request)
     {
         string author = Author(request);
-        Guid? only = Field(request, "id") is { } id ? Guid.Parse(id) : null;
         bool on = request.RootElement.TryGetProperty("on", out JsonElement flag) && AsBool(flag);
+
+        List<Guid> asked = [];
+
+        if (Field(request, "id") is { } one)
+        {
+            asked.Add(Guid.Parse(one));
+        }
+
+        if (request.RootElement.TryGetProperty("ids", out JsonElement many)
+            && many.ValueKind == JsonValueKind.Array)
+        {
+            asked.AddRange(many.EnumerateArray().Select(each => Guid.Parse(each.GetString()!)));
+        }
 
         string answer = OnUi(() =>
         {
             GH_Document document = ActiveDocument()
                 ?? throw new InvalidOperationException("There is no document.");
 
-            List<Grasshopper.Kernel.Special.GH_Group> groups =
-                [.. document.Objects.OfType<Grasshopper.Kernel.Special.GH_Group>()
-                    .Where(group => only is null || group.InstanceGuid == only)];
+            List<Grasshopper.Kernel.Special.GH_Group> groups = [];
+            List<IGH_PreviewObject> singles = [];
 
-            if (groups.Count == 0)
+            if (asked.Count == 0)
             {
-                throw new KeyNotFoundException(only is null
-                    ? "There are no groups on the canvas."
-                    : $"No group {only} on the canvas.");
+                groups = [.. document.Objects.OfType<Grasshopper.Kernel.Special.GH_Group>()];
+
+                if (groups.Count == 0)
+                {
+                    throw new KeyNotFoundException("There are no groups on the canvas.");
+                }
+            }
+            else
+            {
+                // Every id checked before any flag moves, and every bad one named in one answer. A caller
+                // holding a list wants to fix the whole list once, not discover it an id at a time.
+                List<string> refused = [];
+
+                foreach (Guid id in asked)
+                {
+                    switch (document.FindObject(id, topLevelOnly: true))
+                    {
+                        case Grasshopper.Kernel.Special.GH_Group group:
+                            groups.Add(group);
+                            break;
+
+                        case IGH_PreviewObject { IsPreviewCapable: true } thing:
+                            singles.Add(thing);
+                            break;
+
+                        case { } other:
+                            refused.Add($"{other.Name} ({id}) draws nothing, so it has no preview to quiet");
+                            break;
+
+                        default:
+                            refused.Add($"nothing on the canvas has id {id}");
+                            break;
+                    }
+                }
+
+                if (refused.Count > 0)
+                {
+                    throw new KeyNotFoundException(
+                        $"{refused.Count} of {asked.Count} id(s) cannot be quieted, so none were: "
+                        + string.Join("; ", refused));
+                }
             }
 
             System.Text.StringBuilder json = new("{\"ok\":true,\"groups\":[");
@@ -295,7 +359,7 @@ internal static class View
 
                 // Named on its own, a group is quieted on its own terms. Swept over the whole document,
                 // only the groups whose colour says "this is geometry to look at" keep their outlets.
-                bool shows = only is not null || Shows(group.Colour);
+                bool shows = asked.Count > 0 || Shows(group.Colour);
 
                 HashSet<Guid> drawing = shows
                     ? [.. outlets.Select(outlet => outlet.InstanceGuid)]
@@ -351,6 +415,35 @@ internal static class View
                 json.Append(",\"changed\":").Append(Json.Number(changed)).Append('}');
 
                 flipped += changed;
+            }
+
+            // And the objects named on their own. No policy here and none wanted: a single object has no
+            // members to have a rule about, so the flag is simply written. This is the granularity the group
+            // sweep could not reach - one intermediate component quieted while the group it belongs to keeps
+            // drawing everything else.
+            json.Append("],\"objects\":[");
+            first = true;
+
+            foreach (IGH_PreviewObject thing in singles)
+            {
+                if (thing.Hidden != !on)
+                {
+                    thing.Hidden = !on;
+                    flipped++;
+                }
+
+                if (!first)
+                {
+                    json.Append(',');
+                }
+
+                first = false;
+
+                IGH_DocumentObject named = (IGH_DocumentObject)thing;
+
+                json.Append("{\"id\":").Append(Json.Quote(named.InstanceGuid.ToString()));
+                json.Append(",\"name\":").Append(Json.Quote(named.NickName ?? named.Name ?? ""));
+                json.Append(",\"drawing\":").Append(on ? "true" : "false").Append('}');
             }
 
             if (flipped > 0)

@@ -255,7 +255,35 @@ internal static class Plumbing
         return side.FirstOrDefault(candidate =>
                 string.Equals(candidate.Name, param, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(candidate.NickName, param, StringComparison.OrdinalIgnoreCase))
-            ?? throw new KeyNotFoundException($"{component.Name} has no parameter '{param}'.");
+            ?? throw NoParameter(component.Name, param);
+    }
+
+    /// <summary>
+    /// No parameter by that name - and, where the name says what was really wanted, which verb has it.
+    /// </summary>
+    /// <remarks>
+    /// Reported from the field: an author with 23,040 preview point markers standing over the building tried
+    /// <c>set</c> with <c>param: "preview"</c>, was told a Construct Point has no such parameter, and
+    /// concluded from that and from reading <c>param</c> and <c>canvas</c> that nothing could turn a preview
+    /// off. The <c>preview</c> verb had done exactly that for several releases. The refusal was accurate and
+    /// still left the reader worse informed than the server was, which is the whole fault: a name that says
+    /// plainly what somebody was reaching for is an opportunity to point at the thing that does it.
+    /// <para>
+    /// Kept to words that could only mean drawing. A guess here is cheap to be wrong about - it adds a
+    /// sentence to a refusal that is a refusal either way - but a wrong guess sends a reader somewhere else
+    /// to be confused, which is worse than saying nothing.
+    /// </para>
+    /// </remarks>
+    internal static Exception NoParameter(string owner, string asked)
+    {
+        string[] drawing = ["preview", "previews", "hidden", "hide", "visible", "visibility", "show", "drawing"];
+
+        string hint = drawing.Contains(asked.Trim().ToLowerInvariant())
+            ? " Drawing is not a parameter: the 'preview' verb turns it off, and takes a group id or an object"
+                + " id - or 'ids' for several at once - with on:true to bring it back."
+            : "";
+
+        return new KeyNotFoundException($"{owner} has no parameter '{asked}'.{hint}");
     }
 
     private static readonly HashSet<Guid> Autosaved = [];

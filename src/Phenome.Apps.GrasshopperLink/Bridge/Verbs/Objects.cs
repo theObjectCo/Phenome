@@ -442,8 +442,36 @@ internal static class Objects
 
             // Every proxy resolved before a single object is added: a recipe either lands whole or leaves
             // the canvas exactly as it was.
-            List<(IGH_ObjectProxy Proxy, JsonElement Spec)> recipe = [.. objects.EnumerateArray()
-                .Select(spec => (Resolve(spec), spec))];
+            //
+            // Every entry resolved before the first refusal is reported, too, which is a different promise
+            // and the one that costs a caller real work. Throwing on the first bad name told an author one
+            // thing about a recipe that had six things wrong with it, so a thirteen-object block came back
+            // six times, each time for one more collision - reported in those words. Atomicity is right and
+            // stays: what was wrong was refusing with less than the server already knew. Now one answer
+            // carries every entry that could not be resolved, keyed by the recipe's own local id, so the
+            // whole batch is fixable in one pass and resent once.
+            List<(IGH_ObjectProxy Proxy, JsonElement Spec)> recipe = [];
+            List<string> unresolved = [];
+
+            foreach (JsonElement spec in objects.EnumerateArray())
+            {
+                try
+                {
+                    recipe.Add((Resolve(spec), spec));
+                }
+                catch (Exception refused) when (refused is KeyNotFoundException or ArgumentException)
+                {
+                    unresolved.Add($"{Which(spec)}: {refused.Message}");
+                }
+            }
+
+            if (unresolved.Count > 0)
+            {
+                throw new ArgumentException(
+                    $"{unresolved.Count} of {unresolved.Count + recipe.Count} entries could not be resolved, "
+                    + "so nothing was placed and the canvas is untouched. Fix all of these and send the recipe "
+                    + $"again -- {string.Join(" || ", unresolved)}");
+            }
 
             // First pass: everything stands, configured, and the recipe's local ids learn their real ones.
             Dictionary<string, IGH_DocumentObject> made = [];
@@ -640,14 +668,57 @@ internal static class Objects
 
         if (found.Count > 1)
         {
+            // Handed back as something to paste rather than something to transcribe. The candidates were
+            // already listed here, as prose - "Merge [Sets › Tree] 3cadddef-..." - and an author reading that
+            // still had to take the guid out of the sentence and build the object literal itself. Worse, the
+            // category is not always the discriminator: both Merges live in Sets › Tree and differ only by
+            // guid, so a reader picking by the label alone cannot tell them apart at all. The literal carries
+            // the one key that is guaranteed stable - ComponentGuid is what a .gh file stores to find a
+            // component again, so it cannot drift the way a display name, a nickname or a ribbon category can.
             string candidates = string.Join(", ", found.Select(one =>
-                $"{one.Desc.Name} [{one.Desc.Category} › {one.Desc.SubCategory}] {one.Guid}"));
+                $"{{\"name\":\"{one.Desc.Name}\",\"guid\":\"{one.Guid}\"}} in {one.Desc.Category} › "
+                + $"{one.Desc.SubCategory}{Hint(one)}"));
 
             throw new ArgumentException(
-                $"'{asked}' names {found.Count} different components - say which by guid: {candidates}");
+                $"'{asked}' names {found.Count} different components - copy the one you meant, guid and all: "
+                + candidates);
         }
 
         return found[0];
+    }
+
+    /// <summary>A candidate's own description, shortened, for the case where the category cannot separate two.</summary>
+    private static string Hint(IGH_ObjectProxy candidate)
+    {
+        string said = (candidate.Desc.Description ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+
+        return said.Length == 0
+            ? ""
+            : $" (\"{(said.Length <= 60 ? said : said[..57] + "...")}\")";
+    }
+
+    /// <summary>
+    /// Which entry of a recipe a complaint is about, said the way the caller wrote it.
+    /// </summary>
+    /// <remarks>
+    /// The recipe's own local id if it has one, because that is the handle the caller is holding and the one
+    /// it will edit; the name it asked for otherwise, and the position as a last resort. Naming the entry is
+    /// most of the value of reporting several at once - "6 entries could not be resolved" is only actionable
+    /// if the reader can tell which six.
+    /// </remarks>
+    private static string Which(JsonElement spec)
+    {
+        if (spec.TryGetProperty("id", out JsonElement local) && local.GetString() is { Length: > 0 } key)
+        {
+            return $"'{key}'";
+        }
+
+        if (spec.TryGetProperty("name", out JsonElement name) && name.GetString() is { Length: > 0 } asked)
+        {
+            return $"the entry asking for '{asked}'";
+        }
+
+        return "an entry with neither id nor name";
     }
 
     /// <summary>
@@ -825,7 +896,7 @@ internal static class Objects
         return side.FirstOrDefault(candidate =>
                 string.Equals(candidate.Name, asked, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(candidate.NickName, asked, StringComparison.OrdinalIgnoreCase))
-            ?? throw new KeyNotFoundException($"{component.Name} has no parameter '{asked}'.");
+            ?? throw NoParameter(component.Name, asked);
     }
 
     /// <summary>

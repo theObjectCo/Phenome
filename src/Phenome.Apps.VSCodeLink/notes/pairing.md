@@ -7,30 +7,61 @@ with `peek`, not `screenshot`, since the canvas carries positions and needs no p
 `launch` when there is no session rather than starting Rhino yourself. A tool missing from your session
 means the session predates the current server - restart it instead of falling back to raw HTTP.
 
-**The components you will reach for, with their exact input names** - so you need not search for them.
-Anything unusual: ask `components`, and `describe` tells you a placed object's real parameters.
+**The components you will reach for, with their guids and their exact input names** - so you need not search
+for them. Pass the **guid**, not the name; the paragraph under the table says why, and it is not a style
+preference. Anything unusual: ask `components` once and take the guid from the answer, and `describe` tells
+you a placed object's real parameters.
 
-| what | component | inputs |
-| --- | --- | --- |
-| a knob | `Number Slider` | (set its domain with `set`) |
-| count out a series | `Series` | Start, Step, Count |
-| divide a span | `Range` | Domain, Steps |
-| arithmetic | `Addition` `Subtraction` `Multiplication` `Division` | A, B |
-| a point | `Construct Point` | X coordinate, Y coordinate, Z coordinate |
-| take a point apart | `Deconstruct` | Point → X component, Y component, Z component |
-| a line | `Line` | Start Point, End Point |
-| a line from a direction | `Line SDL` | Start, Direction, Length |
-| a box | `Box 2Pt` | Point A, Point B, Plane |
-| a box about a centre | `Center Box` | Base, X, Y, Z |
-| gather lists into one | `Merge` | Data 1, Data 2, … (zoom adds more) |
-| move something | `Move` | Geometry, Motion |
-| a vector | `Unit X` `Unit Y` `Unit Z` | Factor |
-| change tree structure | `Flatten Tree` `Graft Tree` | Tree |
-| pair every A with every B | `Cross Reference` | List (A), List (B) |
-| colour the preview | `Custom Preview` | Geometry, Material |
-| a colour | `Colour Swatch` | (set its value) |
-| a note on the canvas | `Panel` | (set its text) |
-| a heading on the canvas | `Scribble` | (set its text) |
+| what | component | guid | inputs |
+| --- | --- | --- | --- |
+| a knob | `Number Slider` | `57da07bd-ecab-415d-9d86-af36d7073abc` | (set its domain with `set`) |
+| count out a series | `Series` | `e64c5fb1-845c-4ab1-8911-5f338516ba67` | Start, Step, Count |
+| divide a span | `Range` | `9445ca40-cc73-4861-a455-146308676855` | Domain, Steps |
+| add | `Addition` | `a0d62394-a118-422d-abb3-6af115c75b25` | A, B |
+| subtract | `Subtraction` | `9c007a04-d0d9-48e4-9da3-9ba142bc4d46` | A, B |
+| multiply | `Multiplication` | `ce46b74e-00c9-43c4-805a-193b69ea4a11` | A, B |
+| divide | `Division` | `9c85271f-89fa-4e9f-9f4a-d75802120ccc` | A, B |
+| a point | `Construct Point` | `3581f42a-9592-4549-bd6b-1c0fc39d067b` | X coordinate, Y coordinate, Z coordinate |
+| take a point apart | `Deconstruct` | `9abae6b7-fa1d-448c-9209-4a8155345841` | Point → X component, Y component, Z component |
+| a line | `Line` | `4c4e56eb-2f04-43f9-95a3-cc46a14f495a` | Start Point, End Point |
+| a line from a direction | `Line SDL` | `4c619bc9-39fd-4717-82a6-1e07ea237bbe` | Start, Direction, Length |
+| a box | `Box 2Pt` | `2a43ef96-8f87-4892-8b94-237a47e8d3cf` | Point A, Point B, Plane |
+| a box about a centre | `Center Box` | `28061aae-04fb-4cb5-ac45-16f3b66bc0a4` | Base, X, Y, Z |
+| gather lists into one | `Merge` | `3cadddef-1e2b-4c09-9390-0e8f78f7609f` | Data 1, Data 2, … (zoom adds more) |
+| move something | `Move` | `e9eb1dcf-92f6-4d4d-84ae-96222d60f56b` | Geometry, Motion |
+| the world X vector | `Unit X` | `79f9fbb3-8f1d-4d9a-88a9-f7961b1012cd` | Factor |
+| the world Y vector | `Unit Y` | `d3d195ea-2d59-4ffa-90b1-8b7ff3369f69` | Factor |
+| the world Z vector | `Unit Z` | `9103c240-a6a9-4223-9b42-dbd19bf38e2b` | Factor |
+| flatten a tree | `Flatten Tree` | `f80cfe18-9510-4b89-8301-8e58faf423bb` | Tree |
+| graft a tree | `Graft Tree` | `87e1d9ef-088b-4d30-9dda-8a7448a17329` | Tree |
+| pair every A with every B | `Cross Reference` | `36947590-f0cb-4807-a8f9-9c90c9b20621` | List (A), List (B) |
+| colour the preview | `Custom Preview` | `537b0419-bbc2-4ff4-bf08-afe526367b2c` | Geometry, Material |
+| a colour | `Colour Swatch` | `9c53bac0-ba66-40bd-8154-ce9829b9db1a` | (set its value) |
+| a note on the canvas | `Panel` | `59e0b89a-e487-49f8-bab8-b5bab16be14c` | (set its text) |
+| a heading on the canvas | `Scribble` | `7f5c6c55-f846-4a08-9c9a-cfdc285cc6fe` | (set its text) |
+
+Three of those rows exist because of a collision, and the guid is what settles it: `Addition` is also a
+vector component taking Vector A and Vector B, `Line` is also a *parameter* holding a collection of line
+segments, and `Merge` has a twin in the very same category - `Sets › Tree` twice - taking Stream A and
+Stream B instead of Data 1 and Data 2. Named, any of the three is a refusal. By guid, none of them is.
+
+**Name a component by its guid, not by its name.** The `guid` column above is `ComponentGuid`, and it is
+the only identity Grasshopper guarantees: it is what a `.gh` file stores in order to find a component again,
+so it cannot change without breaking every file that used it. Everything else drifts. A display name can be
+renamed by a plugin author between releases, a nickname is editable per instance on the canvas, and ribbon
+categories get reorganised whenever somebody feels like it. Names also *collide*: with plugins installed,
+`Addition`, `Merge`, `Scale`, `Rotate`, `Area` and `Deconstruct Domain²` all name more than one component,
+and `place` refuses an ambiguous name rather than guessing - a quietly chosen vector `Addition` instead of
+the maths one surfaces three groups later as "Data conversion failed from Text to Number" and is miserable
+to trace. Six of those refusals in one definition is what prompted this paragraph. Pass the guid and none of
+it can happen. For anything not in the table, ask `components` once and use the guid it gives you.
+
+**A recipe is all-or-nothing, and the refusal tells you everything at once.** If one entry of a `place` call
+cannot be resolved, nothing is placed and the canvas is untouched - so a failure never leaves you a pile of
+orphans to clean up. The refusal names **every** unresolved entry by *your own local id*, not just the first
+one, and an ambiguous name comes back as paste-ready literals like `{"name":"Merge","guid":"3cadddef-..."}`.
+So the loop is: send the recipe, and if it is refused, fix every entry it named and send the whole thing
+again. Do not probe one entry at a time.
 
 **Notes, and how to be sure you wrote what you meant.** Both take their wording in `text` on `place`, and
 both can be reworded afterwards with `set` - which is the repair path when the first wording was wrong, so
@@ -225,6 +256,15 @@ abstraction layer.
    everything else goes dark - grey functions, blue knobs, every intermediate inside every group. Naming a
    group quiets that one on its own terms whatever colour it wears, and `on:true` gives a group its whole
    preview back when you need to look inside again.
+
+**But do not wait until step 12 if the viewport is already unusable.** `preview` takes a single object's id
+as readily as a group's, and `ids` takes a list of either, so the moment an intermediate output floods the
+view - a list of points, a field of construction lines - quiet that component and carry on. This is worth
+knowing because of how badly it goes otherwise: a facade of 960 panels interpolated through 24 points each
+put **23,040 point markers** over the building, and neither the human nor any screenshot could see the
+product underneath. The author looked for a preview flag on `set` and on `param`, did not find one, and
+concluded it could not be done - while the verb that does it had been there all along. Drawing is not a
+parameter. It is this verb.
 
 If the tools are ever unavailable, the same protocol is plain HTTP: the port is in
 `%TEMP%\phenome-link-<pid>.port` (one file per Rhino, a stale one has a dead pid) and `GET /`

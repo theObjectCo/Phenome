@@ -11,6 +11,42 @@ the code, do not tell somebody who installed the last version which six things t
 So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
 commit that made it, not here.
 
+## Unreleased
+
+### Changed
+
+- **A refused `place` tells you everything that is wrong with the recipe, not the first thing.** The recipe is
+  still all-or-nothing — one bad entry and nothing is placed, the canvas untouched — but the refusal now names
+  **every** entry it could not resolve, keyed by your own local id. Reported from the field: a thirteen-object
+  recipe with six name collisions in it came back six times, once per collision, because each refusal
+  mentioned only the first. One pass of edits now fixes the batch.
+
+- **An ambiguous component name comes back as something to paste.** The candidates were already listed, as
+  prose with the guid at the end of a sentence; they now arrive as `{"name":"Merge","guid":"3cadddef-…"}` with
+  the category *and* each candidate's own description. The description is not decoration: both `Merge`
+  components live in `Sets › Tree`, so the category alone cannot tell them apart, and a reader picking by the
+  label had no way to know which was which.
+
+- **`preview` works on a single object, and on a list.** It took a group id or nothing at all, which missed
+  the case that prompted it: one intermediate component flooding the viewport while the rest of its group has
+  to keep drawing. A facade of 960 panels interpolated through 24 points each put **23,040 preview markers**
+  over the building, and neither the human nor any screenshot could see the product underneath. `id` now takes
+  a group or an object, `ids` takes a list of either, and `on:true` gives any of them back. Every id is checked
+  before a single flag moves, so a bad one refuses the batch and says which.
+
+- **`set` with `param: "preview"` says which verb does that instead.** It refused accurately — a Construct
+  Point has no such parameter — and the author reading it concluded, having also checked `param` and `canvas`,
+  that nothing could turn a preview off. The `preview` verb had been doing it for releases. A refusal that
+  leaves the reader worse informed than the server is a fault of its own.
+
+### Added
+
+- **The pairing notes carry each component's `ComponentGuid`.** Same table, one more column, and it changes
+  how an agent should place anything: a guid is what a `.gh` file stores in order to find a component again,
+  so it is the one identity that cannot drift, while a display name can be renamed by a plugin author, a
+  nickname is editable per instance, and ribbon categories get reorganised. Naming by guid also skips the
+  ambiguity refusal entirely — which is six refusals in the definition that prompted this.
+
 ## 0.23.0
 
 ### Fixed

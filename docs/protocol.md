@@ -125,6 +125,21 @@ you nothing here; batching buys you everything.
 **Ids are Grasshopper instance GUIDs**, stable for the life of an object. `/canvas` gives them, `/describe?id=`
 tells you one object's real parameters, `/peek?id=` gives a parameter's full data with tree paths.
 
+**A `ComponentGuid` is the only stable way to name a *kind* of component**, and `/place` takes one in `guid`.
+A display name is not: a plugin author may rename it between releases, and names collide across plugins —
+with a normal set installed, `Addition`, `Merge`, `Scale`, `Rotate` and `Area` each name more than one. An
+ambiguous name is refused rather than guessed at, because a quietly chosen vector `Addition` in place of the
+maths one surfaces several groups later as a type-conversion error and is miserable to trace. The refusal
+hands back each candidate as a paste-ready literal — `{"name":"Merge","guid":"3cadddef-…"}` — with its
+category and its own description, because the category alone does not always separate them: both `Merge`
+components live in `Sets › Tree`.
+
+**A refused `/place` names every entry that failed, not the first.** The recipe stays atomic — one bad entry
+and nothing is placed, the canvas untouched — but the refusal is a full account: each unresolved entry keyed
+by the recipe's own local `id`, so one pass of edits fixes the batch. Reporting only the first turned a
+thirteen-object recipe with six collisions in it into six round trips, which was measured rather than
+imagined.
+
 **`/peek` on a group id answers that group's signature instead** — every inlet and outlet with its name,
 type, branch and item counts, and a few values off each outlet:
 
@@ -181,6 +196,24 @@ One consequence worth knowing, since `/review` reports it: a scribble is a singl
 longer than the components it sits over makes the frame around its group wider than the room the layout
 reserved, and two group frames can touch. `/arrange` will not clear that — it has already placed everything
 where it means to. The finding says so, and says to shorten the note instead.
+
+**`/preview` takes a group id or an object id, and `ids` for a list of either.** Three granularities from one
+verb: no id sweeps the document on the colour rule — only the outlets of the red and yellow groups keep
+drawing — a group id quiets that group on its own terms whatever colour it wears, and an object id quiets
+exactly that object. `on:true` gives any of them back. The answer carries a `groups` array and an `objects`
+array, each with what ended up drawing rather than what this call changed. Every id is checked before any
+flag moves, so a bad id in a list refuses the whole list and says which id it was.
+
+The object granularity was added because the group one could not reach the case that mattered: an
+intermediate component flooding the viewport while the rest of its group has to keep drawing. Reported from a
+facade of 960 panels interpolated through 24 points each — 23,040 preview markers over the building, and no
+usable view of it. One verb rather than two, because what differs between a group and an object here is only
+the policy over members, and only the sweep has a policy; a second verb would have meant every caller
+knowing which of the two a given id wanted before it could ask.
+
+Drawing is not a parameter, and `/set` with `param: "preview"` now says so and names this verb. It used to
+refuse accurately and unhelpfully, which is how the author above concluded the thing could not be done at
+all.
 
 **An edit marks the document modified, so closing Rhino will offer to save it.** Since 0.22.0. Before that
 the link changed a document and left `IsModified` false, so Rhino closed it without asking and the human
