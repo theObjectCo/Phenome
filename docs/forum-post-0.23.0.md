@@ -1,37 +1,46 @@
 <!--
 Draft of the Rhino Discourse announcement for 0.23.0. Kept in the repository because a release
 post is part of releasing, and the next one is easier to write with the last one in front of you.
-Held under 2000 characters on purpose: a forum reads a short post and skims a long one, and every
-paragraph that survives that limit is one somebody actually needs. Paste the releases link where
-it says so - and check the "what it is not" list still tells the truth before posting it again.
+
+Written in the voice of the illustration - a cybernetic cowboy who has ridden the animal in and
+wants something for the positronic lobes. That is a decision, not a flourish: the honest way to
+describe a tool that hands a CAD session to a language model is from the saddle, and a rider who
+admits what threw him is easier to believe than a changelog. The instructions stay literal
+inside the voice, because somebody is going to copy them.
+
+Under 2000 characters on purpose: a forum reads a short post and skims a long one, so the limit
+is the editing. Paste the releases link where it says so, and check the closing warnings still
+tell the truth before posting this again - a limit fixed three versions ago and still advertised
+reads as carelessness about the whole list.
 -->
 
-**Runaround: a saddle for a live Rhino — Phenome Link 0.23.0**
+**Runaround: I rode a live Rhino in — Phenome Link 0.23.0**
 
-Hand a language model a Grasshopper canvas and no protocol, and it drops forty components on the
-origin, wires the wrong sockets, and reports success. Nothing told it what success looks like, and
-nothing let it look.
+Whiskey. Something for the positronic lobes, I've been in the saddle since Tuesday.
 
-The picture is the specification: a cybernetic cowboy on a live rhinoceros. The animal is not a
-machine — one mind, one thing at a time, and now and then it stops dead waiting for somebody to
-dismiss a dialog. You do not automate an animal. You ride it, and the engineering is all tack.
+You want to know how it handles. It's not a machine, friend. One mind, one thing at a time, and
+every so often it plants its feet and won't budge till somebody dismisses a dialog. You don't
+automate an animal. You ride it — and all the engineering is in the tack.
 
-Phenome Link is the tack: a Grasshopper plugin speaking HTTP on loopback, a Rhino plugin watching
-for the moments it stops answering, an MCP server turning both into tools. It enforces the rules a
-canvas has no compiler to enforce — a group is a function and does one thing, a group declares a
-signature and nothing crosses its boundary otherwise, colour is a role and not decoration. `review`
-measures that and says where a definition falls short. Nothing is ever positioned by hand.
+The tack is what I came to sell. A plugin talking HTTP on loopback, another watching for the
+moments the beast stops answering, an MCP server making reins of the pair. Rules of the trail,
+and I hold to them because a canvas has no compiler to hold me: one group, one job. A group wears
+its signature at its edges and nothing crosses otherwise. Colour is a role, not a hatband.
+`review` says where I fell short. I never set a thing down by hand.
 
-New in 0.23.0: `arrange` places notes too — a note's group is what it is *about*, so in a group it
-becomes the caption, loose it becomes the title. `arrange` is finally idempotent; it used to walk
-the whole definition 26×52 px per run. An agent can read a note's text and rectangle back instead
-of writing blind. And a verb reported as failed no longer turns out to have run.
+New this run: `arrange` puts the notes where they belong — a note's group is what it's *about*, so
+inside a group it's the caption, loose it's the title. And `arrange` stays put now. It used to
+drag the whole outfit 26×52 px across the canvas every time I called it, like a herd drifting
+overnight. I can read a note back, text and rectangle both, instead of writing blind and hoping.
+And nothing tells me a verb failed when it went through. That one nearly threw me.
 
-Install: **Unblock** both files (Properties → Unblock), drop the `.gha` and `.rhp` into your
+Want the tack? **Unblock** both files (Properties → Unblock), drop the `.gha` and `.rhp` in your
 Grasshopper Components folder, restart Rhino. `.vsix` for VS Code. Rhino 8, Windows.
 
-Honest limits: it is early. Loopback with no authentication, so not on a shared machine. One UI
-thread, so slow is slow for everybody. And it makes a capable model *verifiable* — it does not make
-a weak one good.
+Fair warning, since I'd want it: it's early. Loopback, no lock on the door — don't ride it on a
+shared machine. One UI thread, so slow is slow for everybody. And it won't make a poor rider good.
+It'll make a good one honest.
 
 Download: **[paste the releases link here]**
+
+Now. That whiskey.
