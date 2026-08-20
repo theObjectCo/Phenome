@@ -4,8 +4,14 @@
 lists them with their arguments, so they are not repeated here. Four habits that list cannot teach you:
 search `components` before `add` when unsure of a name; prefer `place` over add/wire loops; verify
 with `peek`, not `screenshot`, since the canvas carries positions and needs no picture; and use
-`launch` when there is no session rather than starting Rhino yourself. A tool missing from your session
-means the session predates the current server - restart it instead of falling back to raw HTTP.
+`launch` when there is no session rather than starting Rhino yourself.
+
+**If you cannot see any `grasshopper` tool at all, you are not on a stale session - your host has no MCP
+server wired up.** Restarting will not conjure one. Do not spend another thought on it: go straight to
+*Without the MCP tools* at the end of this file, which is the whole protocol over plain HTTP and includes
+the one thing you cannot otherwise work out - how to start a session when there is no `launch` verb to call.
+(If *some* tools are there and one you want is missing, that is the stale case, and restarting the session
+does fix it.)
 
 **The components you will reach for, with their guids and their exact input names** - so you need not search
 for them. Pass the **guid**, not the name; the paragraph under the table says why, and it is not a style
@@ -266,7 +272,46 @@ product underneath. The author looked for a preview flag on `set` and on `param`
 concluded it could not be done - while the verb that does it had been there all along. Drawing is not a
 parameter. It is this verb.
 
-If the tools are ever unavailable, the same protocol is plain HTTP: the port is in
-`%TEMP%\phenome-link-<pid>.port` (one file per Rhino, a stale one has a dead pid) and `GET /`
-describes every verb. Put your own name in `author` on every POST and skip your own echo. The rest -
-the journal's cursor, its gaps, the rules the verbs share - is in the plugin's `docs/protocol.md`.
+## Without the MCP tools
+
+Everything above is the same protocol either way, so none of it is wasted - only the door changes. Read this
+if your host has no `grasshopper` tools, and stop reading it the moment it does.
+
+**Starting a session is the part you cannot guess, so here it is exactly.** There is no verb for it: the
+server lives *inside* Grasshopper, so nothing can answer until Grasshopper is running, which is why `launch`
+sits in the MCP layer and not in the protocol. Two mistakes are easy here and both leave you with a Rhino
+that will never answer:
+
+```powershell
+# 1. Note which sessions exist BEFORE you start anything.
+Get-ChildItem "$env:TEMP\phenome-link-*.port"
+
+# 2. Start Rhino AND Grasshopper. Rhino alone is not enough - the plugin loads with Grasshopper,
+#    so no Grasshopper means no canvas link, ever. Quote the WHOLE argument, exactly like this:
+#    an inner "_Grasshopper" gets its quotes doubled by some shells and launchers, Rhino then runs
+#    no script at all, and you are left waiting for a port file that will never be written.
+& "C:\Program Files\Rhino 8\System\Rhino.exe" /nosplash "/runscript=_Grasshopper"
+
+# 3. Wait for a port file that was NOT in the list from step 1. Rhino takes its time - poll every
+#    3 seconds, give it up to 90. Attaching to a port that was already there puts you on somebody
+#    else's canvas, which is the one failure worse than not starting at all.
+# 4. GET http://127.0.0.1:<that port>/ describes every verb, its arguments and its answers.
+```
+
+A `phenome-rhino-<pid>.port` appears too, on its own port: that is the Rhino half, and it answers about the
+process rather than the canvas - `GET /pulse` for whether Rhino is idle, busy or blocked, which works even
+while the UI thread is held. If you see only that file and no `phenome-link-<pid>.port`, step 2's script did
+not run and Grasshopper never opened: that is the failure to recognise, and the fix is not to wait longer.
+
+If you cannot start a process at all, or step 2 keeps giving you a Rhino with no canvas, **ask the human to
+open Rhino and Grasshopper and tell you when it is up.** One sentence, costs a few seconds, and cannot go
+wrong - much better than a second and a third attempt leaving Rhinos open behind you.
+
+The port file holds nothing but the number. One file per Rhino; a stale one names a dead pid, so a port that
+does not answer is a leftover and not a fault.
+
+**Then the rules that apply whichever door you came through.** Put your own name in `author` on every POST -
+the journal records it, that is how you skip your own echo and how anybody tells two agents apart. Every verb
+in this file is an endpoint of the same name: `POST /place`, `POST /wire`, `GET /peek?id=`, `GET /review`,
+`POST /arrange`, `POST /preview`, `POST /save`. The rest - the journal's cursor, its gaps, what each verb
+answers - is in `GET /` and, at length, in the plugin's `docs/protocol.md`.

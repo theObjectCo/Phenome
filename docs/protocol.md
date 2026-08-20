@@ -46,6 +46,24 @@ Everything is `http://127.0.0.1:<port>`. The listener never binds anything but l
 is `*`, which is safe for exactly that reason: the clients are local windows, and nothing off the machine
 can reach the socket in the first place.
 
+**Starting a session is not a verb, and cannot be.** The server lives inside Grasshopper, so nothing can
+answer until Grasshopper is running — which is why the MCP layer carries a `launch` tool and the protocol
+does not. A client that speaks only HTTP therefore has one thing it cannot discover from `GET /`, and this
+is it:
+
+```
+Rhino.exe /nosplash "/runscript=_Grasshopper"
+```
+
+Both parts matter. **Rhino alone gives you no canvas link** — the `.gha` loads with Grasshopper, so a Rhino
+started without that script writes a `phenome-rhino-*.port` and never a `phenome-link-*.port`, which is the
+symptom to recognise rather than wait out. And **the whole argument is quoted as one token**: an inner
+`"_Grasshopper"` has its quotes doubled by some shells and process launchers, after which Rhino runs no
+script at all and the failure looks identical to Rhino being slow.
+
+Then poll for a port file that was **not** there before starting — Rhino can take tens of seconds, and
+attaching to a port that already existed puts two clients on one canvas, which is worse than not starting.
+
 ## One JSON in, one JSON out
 
 `GET` for reads, `POST` with a JSON body for writes. No content negotiation, no versioning header, no

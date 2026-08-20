@@ -306,29 +306,55 @@ async function teachAgents(quiet) {
     }
 
     // The MCP half: the server script into the workspace (stable path, survives extension updates), and
-    // its registration merged into .mcp.json - which is where agents look for project tool servers.
+    // its registration merged into every place a host looks for project tool servers.
     const home = path.join(folder.uri.fsPath, '.phenome');
 
     fs.mkdirSync(home, { recursive: true });
     fs.copyFileSync(path.join(context.extensionUri.fsPath, 'mcp.js'), path.join(home, 'gh-mcp.js'));
 
-    const registry = path.join(folder.uri.fsPath, '.mcp.json');
+    // Once, .mcp.json was the only file written here, on the grounds that it is "where agents look for
+    // project tool servers". It is where *Claude Code* looks. Every other host has its own convention and
+    // reads none of the others, so an agent on any of them saw no grasshopper tools at all - and the notes
+    // it had just been taught are written almost entirely in terms of those tools. Watched happening: an
+    // agent on Kilo spent its whole first turn reasoning about why the tools were missing, correctly worked
+    // out that our own note about stale sessions did not apply, and set off to launch Rhino by hand.
+    //
+    // So: register everywhere, merging rather than replacing, because these files are the workspace owner's
+    // and may already carry servers of their own. Writing a config for a host that is not installed costs a
+    // small file nobody reads; writing none for the host that IS installed costs the whole feature.
+    //
+    // The path stays relative. Every one of these hosts spawns the server with the workspace as its working
+    // directory, and these files get committed - an absolute path would be one machine's truth in a file
+    // that travels.
+    const server = { command: 'node', args: ['.phenome/gh-mcp.js'] };
 
-    let servers = {};
+    // VS Code's own MCP support keys this differently - `servers`, not `mcpServers` - and silently ignores
+    // the other spelling, which is the kind of difference that reads as "the feature does not work".
+    const registries = [
+        { file: '.mcp.json', key: 'mcpServers' },            // Claude Code
+        { file: '.kilocode/mcp.json', key: 'mcpServers' },   // Kilo Code
+        { file: '.roo/mcp.json', key: 'mcpServers' },        // Roo Code
+        { file: '.cursor/mcp.json', key: 'mcpServers' },     // Cursor
+        { file: '.vscode/mcp.json', key: 'servers' },        // VS Code, Copilot
+    ];
 
-    try {
-        servers = JSON.parse(fs.readFileSync(registry, 'utf8'));
-    } catch {
-        // Absent or broken; either way this write is the whole content.
+    for (const { file, key } of registries) {
+        const registry = path.join(folder.uri.fsPath, file);
+
+        let servers = {};
+
+        try {
+            servers = JSON.parse(fs.readFileSync(registry, 'utf8'));
+        } catch {
+            // Absent or broken; either way this write is the whole content.
+        }
+
+        servers[key] = { ...servers[key], grasshopper: server };
+
+        fs.mkdirSync(path.dirname(registry), { recursive: true });
+        fs.writeFileSync(registry, JSON.stringify(servers, null, 2) + '\n', 'utf8');
+        taught.push(file);
     }
-
-    servers.mcpServers = {
-        ...servers.mcpServers,
-        grasshopper: { command: 'node', args: ['.phenome/gh-mcp.js'] },
-    };
-
-    fs.writeFileSync(registry, JSON.stringify(servers, null, 2) + '\n', 'utf8');
-    taught.push('.mcp.json');
 
     // And the permissions, so the first session already trusts the server and its tools: one rule names
     // the whole server. Local settings, merged - whatever else lives there is somebody's and stays.
