@@ -12,6 +12,13 @@ Under 2000 characters on purpose: a forum reads a short post and skims a long on
 is the editing. Paste the releases link where it says so, and check the closing warnings still
 tell the truth before posting this again - a limit fixed three versions ago and still advertised
 reads as carelessness about the whole list.
+
+It describes what the thing DOES, not what changed since 0.22.0, and that is the point rather
+than an oversight: nobody on the forum has 0.22.0, so a delta is a list of repairs to a tool the
+reader has never held. Version numbers and per-release detail belong in CHANGELOG.md, which is
+written for somebody who already installed the last one. The first draft of this paragraph read
+"new this run: arrange places notes, and no longer drags the definition 26x52 px per call" - true,
+and meaningless to anybody who was not in the room when it was fixed.
 -->
 
 **Runaround: I rode a live Rhino in — Phenome Link 0.23.0**
@@ -28,11 +35,12 @@ and I hold to them because a canvas has no compiler to hold me: one group, one j
 its signature at its edges and nothing crosses otherwise. Colour is a role, not a hatband.
 `review` says where I fell short. I never set a thing down by hand.
 
-New this run: `arrange` puts the notes where they belong — a note's group is what it's *about*, so
-inside a group it's the caption, loose it's the title. And `arrange` stays put now. It used to
-drag the whole outfit 26×52 px across the canvas every time I called it, like a herd drifting
-overnight. I can read a note back, text and rectangle both, instead of writing blind and hoping.
-And nothing tells me a verb failed when it went through. That one nearly threw me.
+What you'd notice from the porch: it lays the canvas out for me — groups as blocks, the flow
+running left to right, every comment landing on the thing it explains — and laying the same
+definition out twice gives the same picture twice. It reads a canvas back as a diagram, so I can
+see a definition I didn't build without squinting at a screenshot. And it doesn't lie to me: it
+never calls a thing failed that quietly went through. That's the one that costs you two of
+everything, and it nearly threw me.
 
 Want the tack? **Unblock** both files (Properties → Unblock), drop the `.gha` and `.rhp` in your
 Grasshopper Components folder, restart Rhino. `.vsix` for VS Code. Rhino 8, Windows.
