@@ -168,9 +168,16 @@ internal static class Review
 
                 if (a.IntersectsWith(b))
                 {
+                    bool caption = !Body(document, groups[i]).IntersectsWith(Body(document, groups[j]));
+
                     findings.Add(Finding(
                         "overlap",
-                        $"'{groups[i].NickName}' and '{groups[j].NickName}' overlap - run arrange, which lays groups out as whole blocks.",
+                        $"'{groups[i].NickName}' and '{groups[j].NickName}' overlap - "
+                            + (caption
+                                ? "a note reaches past the members it captions, so the frame drawn around it is "
+                                    + "wider than the room the layout reserved. arrange will not change this - it "
+                                    + "already landed where it means to. Shorten the note, or take it out of the group."
+                                : "run arrange, which lays groups out as whole blocks."),
                         groups[i].InstanceGuid));
                 }
             }
@@ -406,7 +413,13 @@ internal static class Review
                 null));
         }
 
-        int loose = nodes.Count(thing => !grouped.Contains(thing.InstanceGuid));
+        // A note that belongs to no group is not the same fault as a component that belongs to no group. The
+        // rule this finding enforces is "every component lives in the function that uses it", and a note is not
+        // used by anything - a document-level caption belongs to the document. A scribble never reached here
+        // anyway, being neither component nor parameter; an unwired panel did, because a panel *is* a
+        // parameter, so a caption written as a panel was reported as a stray object.
+        int loose = nodes.Count(thing =>
+            !grouped.Contains(thing.InstanceGuid) && !IsAnnotation(thing));
 
         if (loose > 0)
         {
@@ -414,6 +427,38 @@ internal static class Review
                 "ungrouped",
                 $"{loose} object(s) belong to no group - every component should live in the function that uses it.",
                 null));
+        }
+
+        // A note sitting on top of something is the fault notes actually have, and until now nothing looked
+        // for it: the layout pass does not move notes, so one placed before an arrange stays where it was
+        // while everything else moves out from under it. Reported as polish rather than blocking, because the
+        // definition still runs - it is just unreadable, which is what a note was for.
+        foreach (IGH_DocumentObject note in document.Objects.Where(IsAnnotation))
+        {
+            if (note.Attributes?.Bounds is not { } over)
+            {
+                continue;
+            }
+
+            foreach (IGH_DocumentObject other in document.Objects)
+            {
+                if (ReferenceEquals(other, note)
+                    || other is GH_Group
+                    || IsAnnotation(other)
+                    || other.Attributes?.Bounds is not { } under
+                    || !over.IntersectsWith(under))
+                {
+                    continue;
+                }
+
+                findings.Add(Finding(
+                    "note covers",
+                    $"A note sits on top of '{Named(other)}' - arrange does not move notes, so put it in the "
+                        + "group it explains, or move it clear.",
+                    note.InstanceGuid));
+
+                break;
+            }
         }
 
         System.Text.StringBuilder json = new("{\"findings\":[");
@@ -507,6 +552,36 @@ internal static class Review
     /// <summary>Close enough: Grasshopper's own colour picker rounds, and so does a human eye.</summary>
     private static bool Near(int one, int other) => Math.Abs(one - other) <= 12;
 
+    /// <summary>Where a group's members are, counting only the ones the layout puts there.</summary>
+    /// <remarks>
+    /// This exists to tell two kinds of frame overlap apart, because they want opposite advice. arrange sizes a
+    /// group's box from its <em>nodes</em> - a note is not a node, carries no data and takes no part in the
+    /// layout algebra - and then a pass afterwards puts each note above the members it captions. So a note
+    /// wider than those members reaches out past the room that was reserved, the frame is drawn around the note
+    /// too, and two frames touch that the layout believes it separated. Running arrange again lands on exactly
+    /// the same coordinates, because arrange is idempotent, so "run arrange" would send the author round a
+    /// loop. Comparing bodies rather than frames says which of the two cases this is.
+    /// </remarks>
+    private static RectangleF Body(GH_Document document, GH_Group group)
+    {
+        RectangleF body = RectangleF.Empty;
+
+        foreach (Guid member in Members(document, group))
+        {
+            if (document.FindObject(member, topLevelOnly: true) is not { } thing
+                || thing is GH_Group
+                || IsAnnotation(thing)
+                || thing.Attributes?.Bounds is not { } box)
+            {
+                continue;
+            }
+
+            body = body.IsEmpty ? box : RectangleF.Union(body, box);
+        }
+
+        return body;
+    }
+
     private static bool Related(GH_Document document, GH_Group one, GH_Group other) =>
         Members(document, one).Contains(other.InstanceGuid)
         || Members(document, other).Contains(one.InstanceGuid);
@@ -553,6 +628,21 @@ internal static class Review
         "error", "multiplies", "shared object", "no signature", "simplify", "hidden mapping",
         "mismatched paths",
     ];
+
+    /// <summary>
+    /// Whether an object is there to be read rather than to carry data.
+    /// </summary>
+    /// <remarks>
+    /// A scribble always is. A panel is one only when nothing is wired to it in either direction: a panel in
+    /// the middle of a definition is a probe on the data and belongs to the function it watches, while an
+    /// unwired one with words in it is a caption. The difference matters because the rules for a component do
+    /// not apply to prose.
+    /// </remarks>
+    private static bool IsAnnotation(IGH_DocumentObject thing) =>
+        thing is GH_Scribble
+        || (thing is GH_Panel panel
+            && panel.SourceCount == 0
+            && panel.Recipients.Count == 0);
 
     private static string Finding(string kind, string what, Guid? id)
     {

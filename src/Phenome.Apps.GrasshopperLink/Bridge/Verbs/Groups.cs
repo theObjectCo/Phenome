@@ -70,6 +70,63 @@ internal static class Groups
                     already.AddObject(id);
                 }
 
+                // Ports declared against a group that already exists. This used to fall out of the early
+                // return below and do nothing at all, silently: a caller asking to add one outlet to a live
+                // group got ok and no outlet, which is the same fault as a note whose text was dropped and
+                // was reported in the same breath. A group's signature is the thing most likely to need
+                // changing after the fact - you learn what a function returns by writing it - so this is an
+                // edit worth supporting rather than refusing.
+                //
+                // Only what is missing: matched by nickname, so calling this twice with the same declaration
+                // adds nothing the second time, and an existing port keeps its wires.
+                HashSet<string> already_there = [.. Signature.Members(document, already)
+                    .Select(id => document.FindObject(id, topLevelOnly: true))
+                    .OfType<IGH_Param>()
+                    .Select(port => port.NickName ?? "")];
+
+                System.Drawing.RectangleF frame = already.Attributes?.Bounds
+                    ?? new System.Drawing.RectangleF(100, 100, 400, 200);
+
+                foreach ((string side, List<(string Name, string? Type)> these, float column) in
+                    new[] { ("inlet", inlets, frame.Left - 90f), ("outlet", outlets, frame.Right + 40f) })
+                {
+                    float at = frame.Top + 10;
+
+                    foreach ((string what, string? type) in these)
+                    {
+                        if (already_there.Contains(what))
+                        {
+                            // Answered anyway, so a caller gets the same name-to-id map whether the port was
+                            // planted just now or was already standing there.
+                            IGH_Param? standing = Signature.Members(document, already)
+                                .Select(id => document.FindObject(id, topLevelOnly: true))
+                                .OfType<IGH_Param>()
+                                .FirstOrDefault(port => port.NickName == what);
+
+                            if (standing is not null)
+                            {
+                                made[what] = standing.InstanceGuid;
+                            }
+
+                            continue;
+                        }
+
+                        IGH_Param port = PortFor(type);
+
+                        port.NickName = what;
+                        Signature.MarkAsPort(port, "group");
+                        port.CreateAttributes();
+                        port.Attributes.Pivot = new System.Drawing.PointF(column, at);
+                        at += 32;
+
+                        document.AddObject(port, update: false);
+                        document.UndoUtil.RecordAddObjectEvent($"Phenome Link: {side}", port);
+                        already.AddObject(port.InstanceGuid);
+
+                        made[what] = port.InstanceGuid;
+                    }
+                }
+
                 already.ExpireCaches();
                 global::Grasshopper.Instances.ActiveCanvas?.Refresh();
                 Changed(document);

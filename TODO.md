@@ -410,3 +410,34 @@ two `signature` calls in a row still add nothing.
 - **CI and both build scripts survived the file moves untouched.** They address projects and build
   outputs, never individual sources, so `Bridge/` and `Definition/` cost them nothing. The shared folder
   has no `.csproj`, so it never becomes a project of its own.
+
+## 5. Known, and left for later on purpose
+
+- [ ] **`arrange` does not reserve room for a caption, so a long note can push two group frames together.**
+      Found 2026-08-20, while checking that captions land where they should — they do, and this is the other
+      half of the same feature request: *"it must reserve space so an annotation's bbox never intersects
+      another object's."* Idempotence is done and proven; reservation is not.
+
+      The mechanism, exactly. `arrange` measures a group's box from its **nodes**, because a note is not a
+      node — it carries no data, has no ports and takes part in no dataflow, which is precisely why it was
+      kept out of the layout algebra. The caption pass then puts each note above the members it captions.
+      A scribble is one unwrapped line, so a wordy caption is easily wider than the four sliders under it;
+      the frame is drawn around every member including the note, so the frame grows past the width the
+      layout reserved, and the next block along — placed at `BlockGapX` from a box that turned out to be
+      narrower than the frame — is touched. Measured on the caption test: a 503 px caption on a block at
+      x=100 reaches x=603, and the neighbouring group starts at x=579.
+
+      What it costs today: nothing that stops anybody. `review` reports it as `polish`, the definition runs,
+      and the canvas reads fine unless the captions are long. The one real harm was the advice — the finding
+      said "run arrange", which cannot help, because arrange has already landed where it means to. That is
+      fixed: the finding now compares the two groups' **bodies** as well as their frames, and when only the
+      frames touch it says a note is reaching past what it captions and to shorten it. Honest advice for a
+      cosmetic fault, which is the right trade before a release.
+
+      The real fix, when it is worth it: fold the caption band into `Measure` — a group block's width becomes
+      `max(body, widest caption)` and its height gains the caption band — and offset its children downward in
+      `Apply` by that band, so the reserved box is the box that gets drawn. Deliberately **not** done now:
+      `Measure`/`Apply` is the most delicate code in the repo, `Attributes.Bounds` is computed during a layout
+      pass and cached, so anything that measures right after writing a pivot reads a stale number — a trap
+      already sprung three times in this file — and the reward is that two frames stop touching. Wrong trade
+      the week of a public release, right trade afterwards.

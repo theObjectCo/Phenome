@@ -127,59 +127,17 @@ jobs:
           name: phenome-link
           path: dist/*
 
-  # The Yak package, which needs Yak.exe - it ships inside Rhino and no hosted runner has one. A self-hosted
-  # runner on a machine with Rhino does, so this is the step that turns having one into something.
+  # There is no Yak job, and that is a decision rather than an omission. Building a package needs Yak.exe,
+  # which ships inside Rhino and exists on no hosted runner - so it wanted a self-hosted Windows machine with
+  # Rhino on it, gated behind a repository variable, producing an asset that was sometimes there and sometimes
+  # not. An attachment you cannot rely on is worse than one that is honestly absent: it makes the install
+  # instructions conditional on something the reader cannot check.
   #
-  # Gated on a repository variable rather than on a label, because a job asking for a runner that does not
-  # exist queues for six hours and then fails. Set PHENOME_SELF_HOSTED to 'true' once a Windows runner with
-  # Rhino is registered; until then this skips and the release carries the loose files, which is enough
-  # to install by hand.
-  #
-  # Tags only, and that is a security boundary rather than a convenience. This repository is public, so
-  # letting an organisation runner serve it means somebody else's pull request could run on our machine.
-  # A tag can only be pushed by somebody with write access; a fork's pull request never is one. Everything a
-  # stranger can trigger stays on GitHub's hosted runners, where it belongs.
-  yak:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v') && vars.PHENOME_SELF_HOSTED == 'true'
-    runs-on: [self-hosted, windows]
-
-    steps:
-      # Checked out because this job runs a script from the repository now, and it did not used to: it staged a
-      # folder inline and needed nothing but the artefacts. First, because checkout cleans the workspace - so
-      # anything downloaded before it would be swept away.
-      - uses: actions/checkout@v4
-
-      # A self-hosted runner does not get a clean workspace the way a hosted one does: whatever the last run
-      # left is still here. v0.18.0 shipped a .yak named 0.1.0 because the previous release's package was
-      # still sitting in dist and got copied along.
-      - name: Start from an empty dist
-        shell: pwsh
-        run: if (Test-Path dist) { Remove-Item -Recurse -Force dist }
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: phenome-link
-          path: dist
-
-      # Through tools/pack-yak.ps1 rather than staging a folder here. This step used to do its own copying and
-      # its own checking, which made three places that knew what a package contains - this file, that script,
-      # and tools/build.ps1 deciding what lands in dist. Three descriptions of one thing disagree eventually,
-      # and these did: the script looked for the .vsix where build.ps1 had just moved it from, and produced a
-      # package with no extension in it and no complaint. The script now owns the list and the checks, and this
-      # step hands it the artefacts the build job already made.
-      - name: Build the Yak package
-        shell: pwsh
-        run: |
-          $expected = ($env:GITHUB_REF -replace '^refs/tags/v', '')
-          & ./tools/pack-yak.ps1 -From dist -Destination dist -ExpectVersion $expected
-          Get-ChildItem dist -Filter *.yak | ForEach-Object { "  $($_.Name)  $([int]($_.Length/1KB)) KB" }
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: phenome-link-yak
-          path: dist/*.yak
-
+  # So a release carries the three files and nothing else, and whoever wants a package builds one:
+  #   pwsh tools/pack-yak.ps1 -From dist -Destination <a folder you can read>
+  # That is also the only sensible way to hand it round a studio, since a Yak source is a folder and whoever
+  # can read the folder can install. tools/pack-yak.ps1 keeps working and is covered by no CI - say so here
+  # rather than letting somebody assume a green tick means it still packs.
   # The same three files into the company SharePoint library, so an internal machine can pick up a build
   # without going to a public release page - and so there is a record of every version we cut.
   #
@@ -188,7 +146,7 @@ jobs:
   # on a machine that already holds another. Tag-only, so a fork's pull request never reaches the secret -
   # GitHub withholds secrets from fork pull requests anyway, and the two together are the belt and braces.
   sharepoint:
-    needs: [build, yak]
+    needs: build
     if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && needs.build.result == 'success'
     runs-on: ubuntu-latest
 
@@ -196,12 +154,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: phenome-link
-          path: dist
-
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: phenome-link-yak
           path: dist
 
       - name: Upload to the Builds folder
@@ -234,7 +186,7 @@ jobs:
           # overwrite its predecessor on every release - leaving a file nobody can date.
           $target = "$env:FOLDER/$version"
 
-          $files = Get-ChildItem dist -Include *.gha, *.vsix, *.yak -Recurse
+          $files = Get-ChildItem dist -Include *.gha, *.rhp, *.vsix -Recurse
           if (-not $files) { throw 'nothing to upload' }
 
           $token = (Invoke-RestMethod -Method POST `
@@ -276,9 +228,7 @@ jobs:
           catch { Write-Host "  Teams refused the message: $($_.Exception.Message)" }
 
   release:
-    # The yak job is skipped when no self-hosted runner is configured, and a skipped dependency would take the
-    # release with it. always() keeps the release going and the download below tolerates the missing artifact.
-    needs: [build, yak]
+    needs: build
     if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
@@ -290,26 +240,19 @@ jobs:
           name: phenome-link
           path: dist
 
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: phenome-link-yak
-          path: dist
-
       - uses: softprops/action-gh-release@v2
         with:
           # Named rather than dist/*, because that also published manifest.yml - a build input, and one more
           # file to wonder about on a page where every entry should be something you install.
           files: |
-            dist/*.yak
             dist/*.gha
             dist/*.rhp
             dist/*.vsix
           body: |
-            Three parts of one mechanism, and they install by hand. There is no package server behind this
-            and no plan for one; `tools/pack-yak.ps1` builds a `.yak` for your own folder source if you want
-            one. A `.yak` is attached below only when the machine that built this release had Rhino on it —
-            do not count on it, the three files are always here.
+            Three parts of one mechanism, and they install by hand. These three files are the whole release:
+            there is no package on any server and no plan for one. If you would rather install from Rhino's
+            Package Manager, `tools/pack-yak.ps1` in the repository builds a `.yak` for a folder of your own,
+            which is also how to hand it round a studio — whoever can read the folder can install.
 
             **The .gha** goes in `%APPDATA%\Grasshopper\Libraries\`. Then right-click it, Properties,
             **Unblock** — Windows marks files that arrived from elsewhere and Grasshopper refuses a blocked

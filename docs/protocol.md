@@ -168,8 +168,19 @@ are counted and otherwise ignored; the verb ran, and there is nobody left to tel
 **Notes carry their text and their position.** A `Scribble` and a `Panel` both take `text` on `place` and can
 be reworded with `/set`; empty or whitespace text is refused rather than silently replaced with a placeholder.
 `/describe` answers `annotation: {kind, text, at, box, group, groupName}` and `/canvas` carries the same per
-note, so wording *and* placement are checkable without a screenshot. Notes are outside the `/arrange` pass, so
-their position is whatever put them there — compare boxes if overlap matters.
+note, so wording *and* placement are checkable without a screenshot.
+
+**A note's group decides where `/arrange` puts it.** Notes are laid out by a pass of their own, after the
+components have their positions — they are not part of the layout algebra, having no ports and no dataflow, and
+they do not need to be. The rule needs no new field: a note **in a group** is that group's caption and goes
+above the group's other members; a note **in no group** is about the whole definition and goes above everything
+as a title. `/place` already says which by taking a `group`, and `/describe` reports it back. Repeated
+`/arrange` calls land on the same coordinates.
+
+One consequence worth knowing, since `/review` reports it: a scribble is a single unwrapped line, so a caption
+longer than the components it sits over makes the frame around its group wider than the room the layout
+reserved, and two group frames can touch. `/arrange` will not clear that — it has already placed everything
+where it means to. The finding says so, and says to shorten the note instead.
 
 **An edit marks the document modified, so closing Rhino will offer to save it.** Since 0.22.0. Before that
 the link changed a document and left `IsModified` false, so Rhino closed it without asking and the human

@@ -153,8 +153,15 @@ internal static class CanvasWriter
             return "{\"mermaid\":\"flowchart LR\",\"ids\":{}}";
         }
 
+        // Notes are in here now. They used not to be - the filter took components and parameters, and a
+        // scribble is neither - so a note explaining a group rendered as nothing at all: an agent read the
+        // chart back and could not see the caption it had just written. Safe to include, because a note has no
+        // parameters and is not an active object, so it draws no wires and can never be marked broken; it
+        // simply appears inside the subgraph of whichever group it belongs to, which is where a caption
+        // belongs. Its own membership is the anchor, so no new field is needed to say what it explains.
         Dictionary<Guid, string> shortId = [];
-        List<IGH_DocumentObject> nodes = [.. document.Objects.Where(thing => thing is IGH_Component or IGH_Param)];
+        List<IGH_DocumentObject> nodes = [.. document.Objects
+            .Where(thing => thing is IGH_Component or IGH_Param or Grasshopper.Kernel.Special.GH_Scribble)];
 
         for (int i = 0; i < nodes.Count; i++)
         {
@@ -241,6 +248,24 @@ internal static class CanvasWriter
         if (thing is null)
         {
             return "[?]";
+        }
+
+        // A note is drawn as what it is: its own wording, in a shape that is not a component. Rendering it as
+        // [Scribble] told a reader nothing - the name of the type is the one thing about a note that does not
+        // matter, and its text is the only thing that does.
+        if (thing is Grasshopper.Kernel.Special.GH_Scribble note)
+        {
+            return $"[/{Label(note.Text, "an empty note")}/]";
+        }
+
+        // A panel is a parameter, so it keeps its box, but a panel nobody wired is prose rather than data and
+        // reads better as its own words.
+        if (thing is GH_Panel panel
+            && panel.SourceCount == 0
+            && panel.Recipients.Count == 0
+            && !string.IsNullOrWhiteSpace(panel.UserText))
+        {
+            return $"[/{Label(panel.UserText, "an empty panel")}/]";
         }
 
         string name = thing.Name;

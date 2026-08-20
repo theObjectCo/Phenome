@@ -45,8 +45,34 @@ commit that made it, not here.
 - **Annotations can be read back.** `describe` on a note answers its `text`, where it sits (`at`), the
   rectangle it covers (`box`) and the group it belongs to; `canvas` carries the same for every note. Until now
   a note had no readable position at all, which made every fix to it unverifiable from an agent's side — it
-  could write one and had to believe. Placement is the half that goes wrong, because notes sit outside the
-  `arrange` pass, and a box can be checked against another box without anybody looking at a screen.
+  could write one and had to believe. Placement is the half that went wrong, and a box can be checked against
+  another box without anybody looking at a screen.
+
+- **`arrange` places notes, as captions.** A note's group is what the note is about, so that is all the
+  instruction the layout needs: a note in a group becomes that group's caption and is put above the group's
+  other members, a note in no group is about the whole definition and is put above everything as a title.
+  Before this, `arrange` moved every component and left the notes where they were, which is how a scribble
+  ended up lying across the sliders it was written to explain. Nothing new to pass — an author already says
+  which kind of note it is by giving `place` a `group` or not.
+
+- **Notes appear in the mermaid diagram.** `canvas` with `as:'mermaid'` renders each one as `[/"the text"/]`,
+  inside its group's subgraph or loose at the top level, so reading a definition back gives you its comments
+  and not only its wiring.
+
+- **`group` plants declared ports on a group that already exists.** Calling it again with `inlets` or
+  `outlets` used to accept them and silently do nothing, so a group could not be given a signature after the
+  fact. Missing ports are now planted, matched by nickname, and calling it twice adds nothing the second time.
+
+### Fixed — layout
+
+- **`arrange` is idempotent.** Running it twice ran the definition twice across the canvas: the layout anchors
+  on the top-left of where the objects were, but inside a group the first object sits inset by the frame's
+  padding and its label, so every run added that inset again — 26 by 52 pixels at a time, for ever. It only
+  showed when the top-left-most object was in a group, which is why it looked fine when tested on loose
+  objects. A settled document now answers `moved: 0` and the coordinates do not change.
+
+- **New objects land in free space instead of on the origin.** `add` left an object's position unset, which
+  put it at 0,0 — on top of whatever was already there, and on top of the next object added the same way.
 
 ### Changed
 
@@ -63,6 +89,12 @@ commit that made it, not here.
   pasted into a request instead of assembled first. The duration is not padded: aligned digits are worth
   having in a column of four-digit numbers and read as a gutter in one where almost every line is two digits
   of milliseconds, and the brackets already do that work.
+
+- **A release carries the plugin files, not a Yak package.** There is no public package server to publish to,
+  so the package was being built and attached for nobody: installing it still meant downloading a file and
+  running `yak install` by hand, which is no easier than dropping the `.gha` and `.rhp` into the Grasshopper
+  components folder. The build no longer makes one. `tools/pack-yak.ps1` is still there and still works if you
+  want a package for your own distribution.
 
 ## 0.22.0
 

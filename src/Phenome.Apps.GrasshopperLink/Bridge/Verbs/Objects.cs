@@ -50,17 +50,18 @@ internal static class Objects
 
             thing.CreateAttributes();
 
-            if (request.RootElement.TryGetProperty("pivot", out JsonElement pivot))
-            {
-                thing.Attributes.Pivot = new System.Drawing.PointF(
-                    (float)pivot[0].GetDouble(),
-                    (float)pivot[1].GetDouble());
-            }
-
             GH_Document document = ActiveDocument()
                 ?? throw new InvalidOperationException("There is no document to add to.");
 
             EnsureAutosave(document);
+
+            // A pivot if one was asked for, and otherwise clear of what is already there. CreateAttributes
+            // leaves an object on the origin, so `add` without a pivot used to stack every component on the
+            // same spot - which is one half of the pile reported from the field, `place` without a group being
+            // the other. Neither caller should have to know a coordinate to avoid it.
+            thing.Attributes.Pivot = request.RootElement.TryGetProperty("pivot", out JsonElement pivot)
+                ? new System.Drawing.PointF((float)pivot[0].GetDouble(), (float)pivot[1].GetDouble())
+                : FreeLane(document);
 
             document.AddObject(thing, update: false);
             document.UndoUtil.RecordAddObjectEvent("Phenome Link: add", thing);
@@ -435,7 +436,7 @@ internal static class Objects
 
             System.Drawing.PointF lane = host?.Attributes?.Bounds is { } frame
                 ? new System.Drawing.PointF(frame.Left + 170, frame.Top + 10)
-                : new System.Drawing.PointF(100, 100 + (document.ObjectCount * 4));
+                : FreeLane(document);
 
             int laid = 0;
 
@@ -647,6 +648,43 @@ internal static class Objects
         }
 
         return found[0];
+    }
+
+    /// <summary>
+    /// Somewhere to put objects that nobody positioned: clear of everything already on the canvas.
+    /// </summary>
+    /// <remarks>
+    /// A definition is built before it is grouped - components first, groups after, wires after that, and
+    /// <c>arrange</c> last - so most of what is placed arrives with no group to belong to and no position
+    /// asked for. The old answer stepped down by four pixels per object already on the canvas, which for
+    /// objects fifty pixels tall means each batch lands almost exactly on the last one. That is the pile
+    /// reported from the field, and it is at its worst in the case that matters: a human watching an agent
+    /// work, wanting to read the canvas while there is still time to intervene.
+    /// <para>
+    /// Below everything, not beside it, because a definition grows left to right: below leaves the dataflow
+    /// direction free for <c>arrange</c> to use, and a new batch never has to be hunted for - it is at the
+    /// bottom. This is a staging area and nothing more; <c>arrange</c> is what decides where things end up,
+    /// which is why no caller should be computing coordinates of its own.
+    /// </para>
+    /// </remarks>
+    private static System.Drawing.PointF FreeLane(GH_Document document)
+    {
+        float bottom = 0;
+        bool any = false;
+
+        foreach (IGH_DocumentObject thing in document.Objects)
+        {
+            if (thing.Attributes is { } attributes)
+            {
+                bottom = any ? Math.Max(bottom, attributes.Bounds.Bottom) : attributes.Bounds.Bottom;
+                any = true;
+            }
+        }
+
+        // A clear gap, so the eye reads the new batch as a new batch rather than as part of what was there.
+        return any
+            ? new System.Drawing.PointF(100, bottom + 120)
+            : new System.Drawing.PointF(100, 100);
     }
 
     /// <summary>One recipe entry into a live object, from a proxy already resolved.</summary>

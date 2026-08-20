@@ -49,11 +49,26 @@ recently it was not possible - an agent had to wait for a human to look at the s
 wrong". Empty or whitespace text is refused rather than quietly turned into a placeholder, on create and on
 edit alike.
 
-**One thing notes do not get: automatic placement.** `arrange` lays out components and groups; a note is
-outside that pass, so it stays where it was put. So after placing one, compare its `box` with the `box` or
-`at` of what is nearby - a note that lands on top of a group's sliders is the common accident, and you can
-see it in the numbers without a picture. Putting the note in the group it describes, with `place`'s `group`,
-at least keeps the two together.
+**A note's group is what the note is about, and that is the whole placement rule.** `arrange` now places
+notes too, in a pass after the components have their positions, and it needs nothing from you but the group:
+
+- **In a group** → the note becomes that group's caption and is put above the group's other members.
+- **In no group** → the note is about the whole definition, and is put above everything as a title.
+
+So pass `group` on `place` when the note explains one function, and leave it out when it explains the piece.
+Then never position it yourself. Running `arrange` twice gives the same coordinates twice, so you can call it
+whenever you like without anything creeping.
+
+**Do not say the same thing twice.** A scribble is a *comment* - the why, the caveat, the thing the next
+reader would otherwise have to work out. A group's nickname is the *function signature* - what this does.
+A caption reading "Sphere radius" over a group named "Sphere radius" costs a reader a line and tells them
+nothing; write "SubD would need a different exporter" instead, or write no note at all. Most groups need no
+caption: the name is the documentation, and that is the point of naming it well.
+
+One thing to watch, since `review` will tell you about it: a scribble is one long line and cannot wrap, so a
+wordy caption makes the frame around its group wider than the components inside it, and two group frames can
+end up touching. `arrange` will not fix that - it has already put everything where it means to. Shorten the
+note.
 
 **How to build.** Not by making a mess and tidying it - by declaring the shape first, the way code is
 written:
