@@ -30,7 +30,10 @@ end up peers — both are clients, neither owns the session.
   select, zoom, undo and redo. The layout takes the notes with it: a note in a group becomes that group's
   caption, a note in none becomes the document's title, and running the layout twice changes nothing.
 - **Run and keep** — the solver, bake, data mapping, new/open/save, a C# component's source with its
-  compile errors back. Quiet the preview when the scaffolding is hiding the product — the whole document on
+  compile errors back. Every open document is listable and switchable, and closing takes two verbs rather
+  than a flag: one discards what is unsaved, the other writes it first. Worth knowing that new and open
+  leave the previous document open, so a long session accumulates more of them than anybody intended.
+  Quiet the preview when the scaffolding is hiding the product — the whole document on
   the colour rule, or one group, or one component whose intermediate output is flooding the viewport. An
   agent's edit marks the document modified, like anybody else's, so closing Rhino offers to save it rather
   than discarding the work in silence.

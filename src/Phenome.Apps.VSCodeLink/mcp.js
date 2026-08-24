@@ -584,6 +584,27 @@ const TOOLS = [
         run: args => ask('/open', args),
     },
     {
+        name: 'documents',
+        description: "Every document Grasshopper holds open, with its id, name, path, whether it has unsaved edits, how many objects it holds, and which one the canvas is showing - then pass 'use' with an id to work on a different one. Read this when you are not certain which document your verbs are landing in: new_document and open both leave the previous document OPEN and unreachable, so a session usually holds more of them than anybody intended, each keeping its own unsaved edits. Same shape as sessions one level up, which chooses between running Grasshoppers rather than between the documents inside one.",
+        inputSchema: object({ use: str('Id of the document to show from now on. Omit to just read the list.') }),
+        run: args => (args.use === undefined ? ask('/documents') : ask('/documents', args)),
+    },
+    {
+        name: 'close',
+        description: "Close a document AND DISCARD whatever is unsaved in it - the one on the canvas unless you name another with 'id'. There is no prompt and no undo: use saveandclose if the work is worth keeping, and documents first if you are unsure what is open or which one is showing. It answers what the canvas shows afterwards, and says discardedUnsavedChanges when something was in fact thrown away. Closing the last one leaves no document, which is fine - the building verbs make one when they need it.",
+        inputSchema: object({ id: str('Document id; omit for the one the canvas is showing.') }),
+        run: args => ask('/close', args),
+    },
+    {
+        name: 'saveandclose',
+        description: "Write the document, then close it. Without 'path' it saves where it already lives; a document that has never been saved is refused rather than given a location nobody chose, so pass 'path' for that case. This is the verb to reach for when tidying up an accumulated session - documents lists what is open, and each one that matters can be saved and closed in turn.",
+        inputSchema: object({
+            id: str('Document id; omit for the one the canvas is showing.'),
+            path: str('Absolute .gh path, needed when the document has never been saved.'),
+        }),
+        run: args => ask('/saveandclose', args),
+    },
+    {
         name: 'report',
         description: "Leave a note where a verb fought you: what you expected against what happened. Refused requests log themselves, so this is for the rest - a tool that technically worked but not as its description promised. Costs nothing, goes to a local file, and is how the bridge gets fixed.",
         inputSchema: object({

@@ -82,6 +82,161 @@ internal static class Documents
         return "{\"ok\":true}";
     }
 
+    /// <summary>
+    /// Every document Grasshopper is holding open, and which one the canvas is showing.
+    /// </summary>
+    /// <remarks>
+    /// This exists because the link makes documents faster than a human does and, until the verbs below,
+    /// never closed one. <c>new</c> and <c>open</c> both add to Grasshopper's document server and point the
+    /// canvas at the newcomer; whatever was there stays open, keeps its unsaved edits, and becomes
+    /// unreachable - every verb speaks to the one the canvas shows. Measured after a single <c>new</c>: two
+    /// documents, both modified, both never saved, one of them addressable by nothing at all. The journal
+    /// had been saying so all along - two <c>documentOpened</c> entries and no <c>documentClosed</c>.
+    /// <para>
+    /// Shaped like <c>sessions</c>, which has the same problem one level up: read it to see what there is,
+    /// pass 'use' to change which one the later verbs mean. The id is Grasshopper's own document id, which
+    /// is stable for the life of the document, unlike a name - "unnamed" is what most of them are called.
+    /// </para>
+    /// </remarks>
+    internal static string Opened() =>
+        OnUi(() =>
+        {
+            GH_Document? shown = ActiveDocument();
+            StringBuilder json = new("{\"ok\":true,\"documents\":[");
+            bool first = true;
+
+            foreach (GH_Document document in global::Grasshopper.Instances.DocumentServer)
+            {
+                if (!first)
+                {
+                    json.Append(',');
+                }
+
+                first = false;
+
+                json.Append("{\"id\":").Append(Json.Quote(document.DocumentID.ToString()));
+                json.Append(",\"name\":").Append(Json.Quote(document.DisplayName ?? "unsaved"));
+                json.Append(",\"path\":").Append(Json.Quote(document.FilePath ?? ""));
+                json.Append(",\"modified\":").Append(document.IsModified ? "true" : "false");
+                json.Append(",\"objectCount\":").Append(Json.Number(document.ObjectCount));
+                json.Append(",\"active\":").Append(ReferenceEquals(document, shown) ? "true" : "false");
+                json.Append('}');
+            }
+
+            return json.Append("]}").ToString();
+        });
+
+    /// <summary>Points the canvas at one of the open documents, so every later verb means that one.</summary>
+    internal static string Use(JsonDocument request)
+    {
+        string author = Author(request);
+
+        Guid id = Guid.Parse(Field(request, "use")
+            ?? throw new ArgumentException(
+                "documents needs 'use' - the id of the document to show. GET /documents lists them."));
+
+        string name = OnUi(() =>
+        {
+            GH_Document wanted = Find(id);
+
+            if (global::Grasshopper.Instances.ActiveCanvas is { } canvas)
+            {
+                canvas.Document = wanted;
+            }
+
+            return wanted.DisplayName ?? "unsaved";
+        });
+
+        Journal.Append(author, "documentUse", $",\"name\":{Json.Quote(name)}");
+
+        return $"{{\"ok\":true,\"name\":{Json.Quote(name)}}}";
+    }
+
+    /// <summary>
+    /// Closes a document - discarding what is unsaved, or writing it first, depending on which verb asked.
+    /// </summary>
+    /// <remarks>
+    /// Two verbs rather than one with a flag, for the reason <c>dismiss</c> defaults to declining: the
+    /// destructive reading has to be the one somebody named. A <c>close</c> with an optional 'save' would
+    /// put losing an afternoon's work one forgotten field away, and a flag left out looks exactly like a
+    /// flag considered.
+    /// <para>
+    /// Grasshopper's own <c>SafeRemoveDocument</c> is the wrong tool for either: it answers the unsaved
+    /// question with a modal prompt, and a modal dialog holds the UI thread that every verb in this server
+    /// runs on - the link would then answer nothing at all until somebody walked over to the machine, which
+    /// is the exact failure <c>pulse</c> and <c>dismiss</c> exist to dig out of. The question it would ask
+    /// has already been answered by the choice of verb, so the blunt removal is the right one here.
+    /// </para>
+    /// </remarks>
+    internal static string Close(JsonDocument request, bool saveFirst)
+    {
+        string author = Author(request);
+        string? which = Field(request, "id");
+        string? asked = Field(request, "path");
+
+        (string name, string? wrote, bool lost, string? showing) = OnUi(() =>
+        {
+            GH_Document document = which is null
+                ? ActiveDocument() ?? throw new InvalidOperationException("There is no document to close.")
+                : Find(Guid.Parse(which));
+
+            string label = document.DisplayName ?? "unsaved";
+            string? saved = null;
+
+            if (saveFirst)
+            {
+                string target = asked
+                    ?? document.FilePath
+                    ?? throw new ArgumentException(
+                        $"'{label}' has never been saved, so there is nowhere to write it - say where with "
+                        + "'path'. Use close instead if you meant to discard it.");
+
+                WriteDocument(document, target);
+                document.FilePath = target;
+                document.IsModified = false;
+                document.OnModifiedChanged();
+                saved = target;
+            }
+
+            // Reported, not hidden: discarding is what this verb is for, but a caller that closed the wrong
+            // document deserves to read that something was thrown away rather than infer it from silence.
+            bool discarded = !saveFirst && document.IsModified;
+
+            // Where the canvas looks next, decided before the removal: RemoveDocument disposes the document,
+            // and a canvas still pointing at a disposed one paints from freed state. Null is a real answer -
+            // it is the start screen Grasshopper itself opens on, and the build verbs make a document when
+            // they need one.
+            GH_Document? next = global::Grasshopper.Instances.DocumentServer
+                .FirstOrDefault(other => !ReferenceEquals(other, document));
+
+            if (global::Grasshopper.Instances.ActiveCanvas is { } canvas
+                && ReferenceEquals(canvas.Document, document))
+            {
+                canvas.Document = next;
+            }
+
+            global::Grasshopper.Instances.DocumentServer.RemoveDocument(document);
+
+            return (label, saved, discarded, next?.DisplayName);
+        });
+
+        Journal.Append(
+            author,
+            saveFirst ? "documentSavedAndClosed" : "documentClosed",
+            $",\"name\":{Json.Quote(name)}" + (wrote is null ? "" : $",\"path\":{Json.Quote(wrote)}"));
+
+        return "{\"ok\":true,\"closed\":" + Json.Quote(name)
+            + (wrote is null ? "" : $",\"path\":{Json.Quote(wrote)}")
+            + (lost ? ",\"discardedUnsavedChanges\":true" : "")
+            + ",\"showing\":" + (showing is null ? "null" : Json.Quote(showing))
+            + "}";
+    }
+
+    /// <summary>One open document by Grasshopper's own id, or a refusal that says how to find the right one.</summary>
+    private static GH_Document Find(Guid id) =>
+        global::Grasshopper.Instances.DocumentServer.FirstOrDefault(document => document.DocumentID == id)
+        ?? throw new KeyNotFoundException($"No open document has the id {id}. GET /documents lists what is open.");
+
     internal static string Save(JsonDocument request)
     {
         string author = Author(request);
