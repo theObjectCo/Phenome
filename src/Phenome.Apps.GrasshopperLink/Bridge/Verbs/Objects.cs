@@ -60,8 +60,7 @@ internal static class Objects
                 thing.CreateAttributes();
             }
 
-            GH_Document document = ActiveDocument()
-                ?? throw new InvalidOperationException("There is no document to add to.");
+            GH_Document document = EnsureDocument();
 
             EnsureAutosave(document);
 
@@ -429,8 +428,7 @@ internal static class Objects
 
         string mapping = OnUi(() =>
         {
-            GH_Document document = ActiveDocument()
-                ?? throw new InvalidOperationException("There is no document to place into.");
+            GH_Document document = EnsureDocument();
 
             EnsureAutosave(document);
 

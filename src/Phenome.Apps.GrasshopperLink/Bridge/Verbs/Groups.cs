@@ -37,8 +37,7 @@ internal static class Groups
 
         Guid born = OnUi(() =>
         {
-            GH_Document document = ActiveDocument()
-                ?? throw new InvalidOperationException("There is no document.");
+            GH_Document document = EnsureDocument();
 
             EnsureAutosave(document);
 

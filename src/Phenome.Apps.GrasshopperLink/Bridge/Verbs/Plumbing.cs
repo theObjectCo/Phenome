@@ -204,6 +204,43 @@ internal static class Plumbing
         global::Grasshopper.Instances.ActiveCanvas?.Document
         ?? global::Grasshopper.Instances.DocumentServer.FirstOrDefault();
 
+    /// <summary>
+    /// The document to put new objects into, made if Grasshopper has not made one.
+    /// </summary>
+    /// <remarks>
+    /// A freshly opened Grasshopper has no document at all. It shows a start screen - the tiles of recent
+    /// files, and an invitation to drag a component onto the canvas - and only makes a document once
+    /// somebody does. So the canvas a human would call empty is one the link rightly called absent, and the
+    /// first verb of every build was refused: "There is no document", twice in the friction log, both times
+    /// a <c>group</c> sent seconds after <c>launch</c> reported the session up. Nothing was wrong except
+    /// that nobody had clicked anything yet.
+    /// <para>
+    /// Made rather than refused, because making one is precisely what Grasshopper itself does the moment a
+    /// human drags the first component onto that screen - so this follows the canvas's own behaviour rather
+    /// than inventing a policy. Only the verbs whose job is to put new objects down call this. Reading still
+    /// answers honestly that there is nothing there, and a verb that edits something already on the canvas
+    /// still refuses, because an empty document made this instant cannot hold the object it was asked for -
+    /// there the refusal is the truth and worth keeping.
+    /// </para>
+    /// </remarks>
+    internal static GH_Document EnsureDocument()
+    {
+        if (ActiveDocument() is { } already)
+        {
+            return already;
+        }
+
+        GH_Document made = new();
+        global::Grasshopper.Instances.DocumentServer.AddDocument(made);
+
+        if (global::Grasshopper.Instances.ActiveCanvas is { } canvas)
+        {
+            canvas.Document = made;
+        }
+
+        return made;
+    }
+
     internal static string Named(IGH_DocumentObject thing) =>
         string.IsNullOrWhiteSpace(thing.NickName) ? thing.Name : thing.NickName;
 
