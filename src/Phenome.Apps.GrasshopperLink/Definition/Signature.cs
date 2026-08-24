@@ -34,7 +34,7 @@ internal static class Signature
     private const string Mark = "phenome-link:port";
 
     /// <summary>
-    /// Marks a parameter as a group's edge, for whoever planted it.
+    /// Marks a parameter as a group's inlet or outlet, for whoever planted it.
     /// </summary>
     /// <remarks>
     /// The <c>group</c> verb plants ports too, when it is given inlets and outlets to declare, and it was not
@@ -43,12 +43,36 @@ internal static class Signature
     /// a second port in front of a declared one, which is the doubling the remark above is about; and a
     /// declared outlet with nothing downstream was not recognised as an outlet at all, so the terminal group
     /// of every definition reported an empty signature.
+    /// <para>
+    /// The side is written down rather than worked out later. <see cref="Ports"/> used to derive it from the
+    /// wires alone, on the reasoning that a port fed from outside is an inlet and one read from outside is an
+    /// outlet. That is true of a port in use and no help at all before it is wired, which is most of a
+    /// signature-first build: a declared inlet holding a constant instead of a wire came back as neither
+    /// side, and a whole signature declared a moment ago and not yet filled came back as no signature at
+    /// all. The second was the worse of the two, because <c>peek</c> then advised calling <c>signature</c> -
+    /// the very thing that had just been done.
+    /// </para>
     /// </remarks>
-    internal static void MarkAsPort(IGH_Param parameter, string planter) =>
-        parameter.Description = $"{Mark} - a group's edge, planted by {planter}.";
+    internal static void MarkAsPort(IGH_Param parameter, string planter, string side) =>
+        parameter.Description = $"{Mark} - a group's {side}, planted by {planter}.";
 
     private static bool IsPort(IGH_Param parameter) =>
         parameter.Description?.StartsWith(Mark, StringComparison.Ordinal) == true;
+
+    /// <summary>
+    /// The side a port was planted as, or null for one that never recorded it.
+    /// </summary>
+    /// <remarks>
+    /// Null is the honest answer for a port planted by a version that wrote "edge" and no side: nothing was
+    /// stored, so there is nothing to read, and <see cref="Ports"/> falls back to the wires as before. A
+    /// document built before this is therefore no worse off - and no better, because <c>signature</c> reuses
+    /// the ports it finds rather than re-marking them.
+    /// </remarks>
+    private static string? DeclaredSide(IGH_Param parameter) =>
+        !IsPort(parameter) ? null
+        : parameter.Description!.Contains("a group's inlet", StringComparison.Ordinal) ? "inlet"
+        : parameter.Description!.Contains("a group's outlet", StringComparison.Ordinal) ? "outlet"
+        : null;
 
     /// <summary>
     /// A parameter already standing at a boundary, whoever put it there.
@@ -245,7 +269,7 @@ internal static class Signature
                 continue;
             }
 
-            IGH_Param inlet = Like(needy[0], NameFor(source, needy[0]));
+            IGH_Param inlet = Like(needy[0], NameFor(source, needy[0]), "inlet");
 
             // Only when the constructor left none - a second CreateAttributes on a component orphans its
             // parameters' parent attributes (the long version is on `add`); on a floating param it is
@@ -324,7 +348,7 @@ internal static class Signature
                     continue;
                 }
 
-                IGH_Param outlet = Like(output, NameFor(output, output));
+                IGH_Param outlet = Like(output, NameFor(output, output), "outlet");
 
                 // Only when the constructor left none, for the same reason as the inlets above.
                 if (outlet.Attributes is null)
@@ -383,7 +407,7 @@ internal static class Signature
     }
 
     /// <summary>A floating parameter of the same type as the socket it stands for.</summary>
-    private static IGH_Param Like(IGH_Param shape, string name)
+    private static IGH_Param Like(IGH_Param shape, string name, string side)
     {
         IGH_Param made =
             global::Grasshopper.Instances.ComponentServer.EmitObjectProxy(shape.ComponentGuid)?.CreateInstance()
@@ -391,7 +415,7 @@ internal static class Signature
             ?? new Grasshopper.Kernel.Parameters.Param_GenericObject();
 
         made.NickName = name;
-        MarkAsPort(made, "signature");
+        MarkAsPort(made, "signature", side);
         made.Access = shape.Access;
         made.Optional = true;
 
@@ -423,9 +447,10 @@ internal static class Signature
     /// way <see cref="StandsAtEdge"/> recognises it while signing - otherwise a hand-built group would look
     /// like it had no signature at all.
     ///
-    /// The direction is not stored anywhere and does not need to be: a port fed from outside the group is
-    /// an inlet, one read from outside is an outlet. That is the same rule the planting uses, so the two
-    /// cannot disagree.
+    /// A planted port says which side it is, and that answer is taken over anything the wires suggest - see
+    /// <see cref="MarkAsPort"/> for what went wrong while the side was only ever derived. The wires still
+    /// decide for the two cases that carry no declaration: a port an author planted by hand, and one planted
+    /// before the side was recorded.
     /// </remarks>
     internal static (List<IGH_Param> Inlets, List<IGH_Param> Outlets) Ports(GH_Document document, GH_Group group)
     {
@@ -453,12 +478,25 @@ internal static class Signature
                 && port.SourceCount > 0
                 && port.Sources.All(source => !Outside(source));
 
-        List<IGH_Param> inlets = [.. ports.Where(port => port.Sources.Any(Outside))];
-        List<IGH_Param> outlets = [.. ports.Where(port => port.Recipients.Any(Outside) || Terminal(port))];
+        // Terminal's mirror, and missing for as long as Terminal has been here: a port with nothing upstream
+        // is still an inlet. Nothing feeds it because the value is typed into its socket rather than wired
+        // in - which is what a knob is - and the body downstream is what it feeds.
+        bool Initial(IGH_Param port) =>
+            IsPort(port)
+                && port.SourceCount == 0
+                && port.Recipients.Count > 0
+                && port.Recipients.All(reader => !Outside(reader));
 
-        // A port wired both ways is an inlet: it takes from outside first, and calling it both would count
-        // one object twice in a signature that is meant to read as a function's type.
-        outlets.RemoveAll(inlets.Contains);
+        // Declared first, derived second. A port wired both ways is an inlet: it takes from outside first,
+        // and calling it both would put one object twice into a signature meant to read as a type.
+        string? Side(IGH_Param port) =>
+            DeclaredSide(port)
+                ?? (port.Sources.Any(Outside) || Initial(port) ? "inlet"
+                    : port.Recipients.Any(Outside) || Terminal(port) ? "outlet"
+                    : null);
+
+        List<IGH_Param> inlets = [.. ports.Where(port => Side(port) == "inlet")];
+        List<IGH_Param> outlets = [.. ports.Where(port => Side(port) == "outlet")];
 
         return (inlets, outlets);
     }

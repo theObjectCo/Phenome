@@ -114,7 +114,7 @@ internal static class Groups
                         IGH_Param port = PortFor(type);
 
                         port.NickName = what;
-                        Signature.MarkAsPort(port, "group");
+                        Signature.MarkAsPort(port, "group", side);
                         // Only when the constructor left none - a second CreateAttributes is how the
                         // unclearable wire selection was born (the long version is on `add`).
                         if (port.Attributes is null)
@@ -166,7 +166,7 @@ internal static class Groups
                     // Unmarked, a port declared here was recognised only while a wire happened to cross the
                     // boundary at it - so signature could plant a duplicate in front of one, and a declared
                     // outlet at the end of a definition was not counted as an outlet at all.
-                    Signature.MarkAsPort(port, "group");
+                    Signature.MarkAsPort(port, "group", side);
 
                     // Only when the constructor left none, same as everywhere an object is stood up.
                     if (port.Attributes is null)
