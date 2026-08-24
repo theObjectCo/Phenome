@@ -11,6 +11,44 @@ the code, do not tell somebody who installed the last version which six things t
 So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
 commit that made it, not here.
 
+## 0.24.2
+
+### Added
+
+- **Every open document is now listable, switchable and closable.** `documents` answers what Grasshopper is
+  holding open — id, name, path, whether it has unsaved edits, how many objects — and says which one the
+  canvas is showing; passing `use` points the canvas at another. This matters more than it sounds, because
+  `new` and `open` have always left the previous document **open**: it keeps its unsaved edits and becomes
+  unreachable, since every verb speaks to whichever document is on the canvas. A long session had been
+  quietly accumulating them with no way to see it, let alone get back.
+
+  Closing is two verbs rather than one with a flag: `close` discards whatever is unsaved, `saveandclose`
+  writes it first and refuses a document that has never been saved rather than inventing a location for it.
+  Naming the destructive one is the point — a forgotten flag looks exactly like a considered one. Neither
+  puts up a save prompt: a modal dialog holds the thread every verb needs, so the choice is the verb you
+  picked, and `close` reports `discardedUnsavedChanges` when something was in fact thrown away.
+
+### Fixed
+
+- **Wires stop showing a selection that nothing could clear.** After the link placed a component, clicking
+  near one of its sockets lit every wire into it as though the component were selected, while the component
+  itself was not — and no amount of clicking, deselecting or Escape put it out. Standing an object up called
+  for new attributes on a component that already had them, which left its parameters pointing at an object
+  the document could no longer reach; the selection landed there, where nothing could reach it either.
+  Existing files were never damaged and need nothing done to them — reopening one has always been enough.
+
+- **A group reports the signature you declared, before anything is wired to it.** A group whose inlets and
+  outlets had just been declared by name came back with no ports at all, and `peek` then advised calling
+  `signature` — the very thing that had just been done. An inlet holding a constant typed into its socket
+  disappeared the same way. The side a port stands on is now recorded when it is planted instead of being
+  inferred from wires that are not there yet.
+
+- **The first verb after `launch` no longer fails with "There is no document".** A freshly opened Grasshopper
+  holds no document at all — it shows its start screen and makes one when somebody drags a component onto
+  the canvas — so the opening call of a session was refused for a reason nobody could see, and the remedy
+  was a verb you had to know to ask for. `add`, `place` and `group` now make a document when there is none,
+  which is what Grasshopper does itself. Reading still answers honestly that there is nothing there.
+
 ## 0.24.1
 
 ### Fixed
