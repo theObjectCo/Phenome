@@ -247,8 +247,15 @@ internal static class Signature
 
             IGH_Param inlet = Like(needy[0], NameFor(source, needy[0]));
 
-            inlet.CreateAttributes();
-            inlet.Attributes.Pivot = new System.Drawing.PointF(left - 90, y);
+            // Only when the constructor left none - a second CreateAttributes on a component orphans its
+            // parameters' parent attributes (the long version is on `add`); on a floating param it is
+            // merely wasted, and one rule is easier to hold than two.
+            if (inlet.Attributes is null)
+            {
+                inlet.CreateAttributes();
+            }
+
+            inlet.Attributes!.Pivot = new System.Drawing.PointF(left - 90, y);
             y += 30;
 
             document.AddObject(inlet, update: false);
@@ -319,8 +326,13 @@ internal static class Signature
 
                 IGH_Param outlet = Like(output, NameFor(output, output));
 
-                outlet.CreateAttributes();
-                outlet.Attributes.Pivot = new System.Drawing.PointF(right + 40, y);
+                // Only when the constructor left none, for the same reason as the inlets above.
+                if (outlet.Attributes is null)
+                {
+                    outlet.CreateAttributes();
+                }
+
+                outlet.Attributes!.Pivot = new System.Drawing.PointF(right + 40, y);
                 y += 30;
 
                 document.AddObject(outlet, update: false);

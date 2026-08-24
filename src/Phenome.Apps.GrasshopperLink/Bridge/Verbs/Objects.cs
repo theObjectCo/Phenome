@@ -48,7 +48,17 @@ internal static class Objects
                 thing.NickName = nickname;
             }
 
-            thing.CreateAttributes();
+            // Only when the constructor left none. A component's own constructor already made attributes
+            // and parented every parameter's linked attributes to that object; a second CreateAttributes
+            // swaps the component's attributes but not the parameters' parents, which leaves the wires
+            // resolving selection through an orphan nothing can reach. Clicking near a socket wrote
+            // Selected into that orphan, the wires lit as if the component were selected, and no deselect
+            // - Grasshopper's or ours - could put it out, because both walk the document's objects and
+            // the orphan is not one of them.
+            if (thing.Attributes is null)
+            {
+                thing.CreateAttributes();
+            }
 
             GH_Document document = ActiveDocument()
                 ?? throw new InvalidOperationException("There is no document to add to.");
@@ -59,7 +69,7 @@ internal static class Objects
             // leaves an object on the origin, so `add` without a pivot used to stack every component on the
             // same spot - which is one half of the pile reported from the field, `place` without a group being
             // the other. Neither caller should have to know a coordinate to avoid it.
-            thing.Attributes.Pivot = request.RootElement.TryGetProperty("pivot", out JsonElement pivot)
+            thing.Attributes!.Pivot = request.RootElement.TryGetProperty("pivot", out JsonElement pivot)
                 ? new System.Drawing.PointF((float)pivot[0].GetDouble(), (float)pivot[1].GetDouble())
                 : FreeLane(document);
 
@@ -772,9 +782,15 @@ internal static class Objects
             thing.NickName = nickname.GetString() ?? thing.NickName;
         }
 
-        thing.CreateAttributes();
+        // Only when the constructor left none - a second CreateAttributes orphans the parameters'
+        // parent attributes and their wires render a selection nothing can clear. The long version
+        // is on `add`.
+        if (thing.Attributes is null)
+        {
+            thing.CreateAttributes();
+        }
 
-        thing.Attributes.Pivot = spec.TryGetProperty("pivot", out JsonElement pivot)
+        thing.Attributes!.Pivot = spec.TryGetProperty("pivot", out JsonElement pivot)
             ? new System.Drawing.PointF((float)AsDouble(pivot[0]), (float)AsDouble(pivot[1]))
             : fallback;
 

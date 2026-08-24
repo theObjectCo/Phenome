@@ -115,8 +115,14 @@ internal static class Groups
 
                         port.NickName = what;
                         Signature.MarkAsPort(port, "group");
-                        port.CreateAttributes();
-                        port.Attributes.Pivot = new System.Drawing.PointF(column, at);
+                        // Only when the constructor left none - a second CreateAttributes is how the
+                        // unclearable wire selection was born (the long version is on `add`).
+                        if (port.Attributes is null)
+                        {
+                            port.CreateAttributes();
+                        }
+
+                        port.Attributes!.Pivot = new System.Drawing.PointF(column, at);
                         at += 32;
 
                         document.AddObject(port, update: false);
@@ -162,8 +168,13 @@ internal static class Groups
                     // outlet at the end of a definition was not counted as an outlet at all.
                     Signature.MarkAsPort(port, "group");
 
-                    port.CreateAttributes();
-                    port.Attributes.Pivot = new System.Drawing.PointF(x + offset, at);
+                    // Only when the constructor left none, same as everywhere an object is stood up.
+                    if (port.Attributes is null)
+                    {
+                        port.CreateAttributes();
+                    }
+
+                    port.Attributes!.Pivot = new System.Drawing.PointF(x + offset, at);
                     at += 32;
 
                     document.AddObject(port, update: false);
