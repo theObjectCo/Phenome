@@ -11,6 +11,54 @@ the code, do not tell somebody who installed the last version which six things t
 So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
 commit that made it, not here.
 
+## 0.30.0
+
+### Changed
+
+- **The MCP tools are now `mcp__phenome__*`, not `mcp__grasshopper__*`. Run *Pair with VS Code* again.**
+  The pairing rewrites the registration in all five host files and the permission rule, and removes the old
+  name as it goes — leaving both would register two servers, spawn two copies of the script, and offer every
+  verb twice. Until you re-pair, a host that was set up before this version will find no tools at all.
+
+  The old name described the half that came first. It stopped being true some releases ago: commands, the
+  document, the command line, the dialogs and now the plug-ins are all answered by the Rhino half, in a
+  Rhino that never opened a canvas. A prefix saying *grasshopper* on those verbs sent agents looking for a
+  canvas they did not need — including one that started Grasshopper in order to install a Rhino plug-in.
+
+- **`screenshot` and `camera` no longer need Grasshopper running.** A viewport is Rhino's, and answering
+  about it from the canvas half meant starting Grasshopper to photograph a Rhino window. Neither verb ever
+  touched Grasshopper — they were written where the server happened to be at the time. Both now answer from
+  the Rhino half, and a pairing where only the canvas side is current still works, because the client falls
+  back there.
+
+### Added
+
+- **`plugins` answers "why is my plug-in not loading".** It now reports every plug-in Rhino holds a record
+  of, **including the ones that are not loaded**, each with the path Rhino believes, whether Rhino thinks
+  the assembly is managed, whether it is load protected, and the registry key. A record present with
+  `loaded:false` rules out the registry in one call, which is otherwise a morning of `reg query` against a
+  plug-in that works. It also carries the runtime Rhino is hosting, because Rhino 8 hosts two CLRs — the
+  executable is .NET Framework and there is a .NET Core half beside it — and a plug-in has to match
+  whichever one is running. Answered by the Rhino half, so it works with no Grasshopper open.
+
+- **`rhino_load`** loads a plug-in by id or by path to an `.rhp`, quietly and again even after a failed
+  attempt. Both matter: every plug-in somebody installed is load protected, so the confirmation dialog is
+  the normal case rather than the odd one, and Rhino remembers a failure and will not retry — which is why
+  a rebuild-and-load loop appears to do nothing the second time round. Turning load-protection asking off
+  globally is not the same thing and is a trap: Rhino then silently does not load a protected plug-in at
+  all.
+
+- **`restart`** ends this agent's Rhino and brings a fresh one up, waiting until the link answers. This is
+  the unit of iteration for plug-in work, because a .NET assembly cannot be unloaded from Rhino — there is
+  `LoadPlugIn` and no `UnloadPlugIn` — so a rebuilt file reaches a running Rhino only through a new
+  process. It refuses while either half holds unsaved work, since the process is ended outright and there
+  is no save prompt on the way out; `discard:true` says you meant it. Only the process this agent is
+  working in is ended, so a second Rhino somebody else is using survives.
+
+- **`launch` says to use `grasshopper:false` for plug-in work.** Building, installing and loading a Rhino
+  plug-in needs no canvas, and starting Grasshopper for it costs a slower launch and one more thing that
+  can fail to load.
+
 ## 0.24.2
 
 ### Added

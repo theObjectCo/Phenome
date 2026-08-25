@@ -96,7 +96,7 @@ jobs:
               -XPath '//Version').Node.InnerText.Trim()
             'package.json' = (Get-Content src/Phenome.Apps.VSCodeLink/package.json -Raw | ConvertFrom-Json).version.Trim()
             'mcp.js' = (Get-Content src/Phenome.Apps.VSCodeLink/mcp.js |
-              Select-String "name: 'grasshopper', version: '(.+?)'").Matches.Groups[1].Value.Trim()
+              Select-String "name: 'phenome', version: '(.+?)'").Matches.Groups[1].Value.Trim()
           }
           $versions.GetEnumerator() | ForEach-Object { "  $($_.Key): $($_.Value)" }
 

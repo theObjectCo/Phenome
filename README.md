@@ -40,6 +40,11 @@ end up peers — both are clients, neither owns the session.
 - **Say** — messages both ways, and a friction log for when a verb fights you.
 - **Get unstuck** — whether Rhino is idle, busy or blocked; what dialog is holding it and how to answer
   that; and the tail of Rhino's own command line, which is where commands and scripts reply.
+- **Develop a plug-in** — every plug-in Rhino has a record of, loaded or not, with the path it believes,
+  the registry key, whether it is load protected and which of Rhino's two runtimes is hosting; load one
+  quietly and again after a failure; and restart the process, which is the only way a rebuilt assembly
+  reaches a running Rhino. None of it needs a canvas, so `launch` with `grasshopper: false` is enough — and
+  the viewport and the camera answer there too, since neither was ever Grasshopper's business.
 
 ## When the canvas is not the problem
 

@@ -1012,7 +1012,7 @@ async function handle(line) {
             reply(id, {
                 protocolVersion: params?.protocolVersion ?? '2024-11-05',
                 capabilities: { tools: {} },
-                serverInfo: { name: 'grasshopper', version: '0.24.2' },
+                serverInfo: { name: 'phenome', version: '0.30.0' },
                 instructions: instructions(),
             });
             break;
