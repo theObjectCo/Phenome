@@ -789,7 +789,7 @@ const TOOLS = [
             zoomExtents: { type: 'boolean', description: "False captures the human's current framing instead." },
         }),
         run: async args => {
-            const answer = await ask(`/screenshot?width=${args.width ?? 640}&zoomExtents=${args.zoomExtents ?? true}`);
+            const answer = await askRhino(`/screenshot?width=${args.width ?? 640}&zoomExtents=${args.zoomExtents ?? true}`);
 
             if (!answer.png) {
                 return answer;
@@ -855,7 +855,7 @@ const TOOLS = [
             const aiming = ['location', 'target', 'up', 'lens', 'projection']
                 .some(key => args[key] !== undefined);
 
-            return aiming ? ask('/camera', args) : ask('/camera');
+            return aiming ? askRhino('/camera', args) : askRhino('/camera');
         },
     },
     {

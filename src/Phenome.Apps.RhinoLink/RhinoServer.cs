@@ -36,7 +36,10 @@ internal static class RhinoServer
             "GET /doc": "the Rhino document: name, layers, object count",
             "GET /console": "?tail=50 - the tail of Rhino's command line, which is where Rhino answers. One capture per Rhino and this is it; the canvas link reads from here",
             "GET /plugins": "?all=false - every plug-in Rhino has a record of, with the runtime it would load into: loaded, dotnet, loadProtected, the path Rhino believes and the registry key. This is how to answer 'why is my plug-in not loading' without proving the registry innocent by hand. Shipped plug-ins are left out unless all=true, because there are a hundred of them and they are never the suspect",
-            "POST /load": "{id?, path?} - load a plug-in on purpose, quietly and again even if a previous attempt failed. Rhino remembers a failure and will not retry, which is why the ordinary build-and-load loop appears to do nothing the second time round. Answers with what Rhino's record says afterwards rather than with a result word meaning 'no'"
+            "POST /load": "{id?, path?} - load a plug-in on purpose, quietly and again even if a previous attempt failed. Rhino remembers a failure and will not retry, which is why the ordinary build-and-load loop appears to do nothing the second time round. Answers with what Rhino's record says afterwards rather than with a result word meaning 'no'",
+            "GET /screenshot": "?width=640&zoomExtents=true - the active viewport as PNG (base64), framed on the geometry for the capture and the camera put back where the human left it",
+            "GET /camera": "where the active viewport is looking: projection, location, target, up, 35mm lens length and the viewport's pixel size",
+            "POST /camera": "{location?, target?, up?, lens?, projection?} - aim the active viewport; only what you pass changes. This is how to frame a view deliberately: Rhino's Zoom is interactive and a scripted one waits for a pick that never comes, which holds the UI thread and takes every other verb down with it"
           },
           "why": "Grasshopper's link only exists once Grasshopper has been started, so it cannot report on anything that happens before that - including a dialog on startup, which is exactly when nothing else can answer.",
           "discovery": "%TEMP%/phenome-rhino-<rhino pid>.port holds this port"
@@ -115,6 +118,9 @@ internal static class RhinoServer
                 ("GET", "/plugins") => Plugins.List(
                     string.Equals(context.Request.QueryString["all"], "true", StringComparison.OrdinalIgnoreCase)),
                 ("POST", "/load") => Plugins.Load(payload),
+                ("GET", "/screenshot") => View.Screenshot(context.Request),
+                ("GET", "/camera") => View.ReadCamera(),
+                ("POST", "/camera") => View.AimCamera(payload),
                 ("GET", "/console") => CommandLine.Tail(
                     int.TryParse(context.Request.QueryString["tail"], out int back) ? Math.Clamp(back, 1, 500) : 50),
                 _ => throw new KeyNotFoundException($"There is no {method} {path}. GET / describes what there is."),
