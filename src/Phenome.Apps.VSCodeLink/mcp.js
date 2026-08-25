@@ -331,6 +331,100 @@ async function launchRhinoAlone(fresh) {
     throw new Error('Rhino started but the Rhino link never answered - is the Phenome Link plugin installed?');
 }
 
+/// Everything a restart would throw away, named rather than counted.
+///
+/// Both halves are asked, because a session can have unsaved work in either and the process takes both
+/// with it. Failures are swallowed on purpose: a half that is not answering has nothing to lose, and a
+/// check that refuses because it could not check would make the safe path the annoying one.
+async function unsaved() {
+    const outstanding = [];
+
+    try {
+        const doc = await askRhino('/doc');
+
+        if (doc?.modified) {
+            outstanding.push(`the Rhino document (${doc.name ?? 'unsaved'})`);
+        }
+    } catch {
+        // No Rhino half, or no document open in it.
+    }
+
+    try {
+        if (port !== null || (await sessions()).length > 0) {
+            for (const one of (await ask('/documents'))?.documents ?? []) {
+                if (one.modified) {
+                    outstanding.push(`a Grasshopper document (${one.name})`);
+                }
+            }
+        }
+    } catch {
+        // An older canvas link without /documents, or none running.
+    }
+
+    return outstanding;
+}
+
+/// Ends this agent's Rhino and starts a fresh one.
+///
+/// The verb exists because a .NET plug-in cannot be unloaded: RhinoCommon has LoadPlugIn and no
+/// UnloadPlugIn, so a rebuilt .rhp or .gha reaches Rhino only through a new process. That makes the
+/// restart the unit of iteration for anybody developing a plug-in, and doing it by hand is two tools plus
+/// knowing that launch will not end the old one.
+///
+/// The process is ended outright, which is what makes the unsaved check part of the verb rather than
+/// advice next to it: there is no save prompt to answer on the way out, so work that has not been written
+/// is simply gone. Named destruction again - 'discard' is how you say you meant it.
+async function restart(discard, withGrasshopper) {
+    const canvas = await sessions();
+    const rhinos = await rhinoSessions();
+
+    // This agent's process, not every Rhino on the machine: a human with two open should lose only the one
+    // the agent was working in.
+    const mine = canvas.find(one => one.port === port)
+        ?? rhinos.find(one => one.port === rhinoPort)
+        ?? canvas[0]
+        ?? rhinos[0];
+
+    if (!mine) {
+        return `Nothing was running, so this is a start rather than a restart. ${await launch(false, withGrasshopper)}`;
+    }
+
+    if (!discard) {
+        const outstanding = await unsaved();
+
+        if (outstanding.length > 0) {
+            throw new Error(
+                `Restarting ends the process and there is no save prompt on the way out, so this would lose: `
+                + `${outstanding.join('; ')}. Save first - 'save' for the canvas, 'saveandclose' per document - `
+                + `or pass discard:true if losing it is what you meant.`);
+        }
+    }
+
+    try {
+        process.kill(mine.pid);
+    } catch (failed) {
+        throw new Error(`Could not end process ${mine.pid} (${failed.message}).`);
+    }
+
+    for (let waited = 0; waited < 30_000; waited += 500) {
+        await new Promise(rest => setTimeout(rest, 500));
+
+        try {
+            process.kill(mine.pid, 0);
+        } catch {
+            break;
+        }
+    }
+
+    // Forgotten before the new one is started, or discovery would keep handing back the ports of the
+    // process that just died.
+    port = null;
+    rhinoPort = null;
+    chosen = null;
+
+    return `Ended process ${mine.pid}. ${await launch(false, withGrasshopper)}`;
+}
+
 // ------------------------------------------------------------------------------------------------ tools
 
 const object = (properties, required) => ({ type: 'object', properties, ...(required ? { required } : {}) });
@@ -632,7 +726,7 @@ const TOOLS = [
     },
     {
         name: 'launch',
-        description: "Start Rhino with Grasshopper and wait for the link to answer. Use when there is no session. With fresh:true it starts another Rhino even though one is already running and works with that one - which is how two agents each get a canvas of their own instead of editing the same one. With grasshopper:false it starts Rhino alone - faster, and enough for anything that is about the document rather than a definition: open, select, run commands, export.",
+        description: "Start Rhino with Grasshopper and wait for the link to answer. Use when there is no session. With fresh:true it starts another Rhino even though one is already running and works with that one - which is how two agents each get a canvas of their own instead of editing the same one. With grasshopper:false it starts Rhino alone - faster, and enough for anything that is about the document rather than a definition: open, select, run commands, export. USE grasshopper:false FOR PLUG-IN WORK: building, installing and loading a Rhino plug-in needs no canvas, and starting Grasshopper for it costs a slower launch and one more thing that can fail to load. The plugins, rhino_load, rhino_command, rhino_doc, pulse, dismiss, escape and console verbs all answer in a Rhino that never opened Grasshopper.",
         inputSchema: object({
             fresh: flag('Start another Rhino and use it, even if a session exists.'),
             grasshopper: flag('False starts Rhino without Grasshopper; canvas tools then have nothing to talk to.'),
@@ -706,9 +800,46 @@ const TOOLS = [
     },
     {
         name: 'plugins',
-        description: "What is loaded: Grasshopper libraries and loaded Rhino plug-ins, each with its version and the file it came from. Read this when something in the console names a plug-in, or when a component behaves like a version other than the one you expect. Libraries marked shipped came with Grasshopper; the rest somebody installed.",
-        inputSchema: object({}),
-        run: () => ask('/plugins'),
+        description: "What Rhino and Grasshopper have: the runtime Rhino is hosting, every Rhino plug-in Rhino holds a record of - loaded or NOT loaded, with the path Rhino believes, whether it thinks the assembly is managed, whether it is load protected, and the registry key - and the Grasshopper libraries when a canvas is open. This is the verb for 'my plug-in will not load': a record that is present with loaded:false rules out the registry in one call, and the runtime line settles the other usual cause, because Rhino 8 hosts two CLRs and a plug-in must match the one that is running. Answered by the Rhino half, so it works in a Rhino that never opened Grasshopper. Shipped plug-ins are left out unless all:true.",
+        inputSchema: object({ all: flag('Include the hundred or so plug-ins that ship with Rhino.') }),
+        run: async args => {
+            const report = await askRhino(`/plugins${args.all === true ? '?all=true' : ''}`);
+
+            // Grasshopper's own libraries are the canvas half's to answer, and only when there is a canvas.
+            // Absent rather than empty when there is not: a Rhino without Grasshopper has no libraries,
+            // which is a different fact from having none loaded.
+            if (Array.isArray(report?.plugins)) {
+                try {
+                    const canvas = await ask('/plugins');
+
+                    if (Array.isArray(canvas?.grasshopper)) {
+                        report.grasshopper = canvas.grasshopper;
+                    }
+                } catch {
+                    // No canvas; the answer that matters is already in hand.
+                }
+            }
+
+            return report;
+        },
+    },
+    {
+        name: 'rhino_load',
+        description: "Load a Rhino plug-in on purpose, by 'id' from plugins or by 'path' to an .rhp. Quietly, so the confirmation a load-protected plug-in raises does not stop it - and every plug-in somebody installed is load protected, so that dialog is the normal case. Do NOT reach for the global setting instead: with load-protection asking turned off, Rhino silently does not load a protected plug-in at all, which is the same silence read as a broken build. It also loads again after a failed attempt, which Rhino otherwise refuses - the reason a rebuild-and-load loop appears to do nothing the second time. Answers with what Rhino's record says afterwards, not with the call's own word for 'no'.",
+        inputSchema: object({
+            id: str('Plug-in id, as plugins reports it.'),
+            path: str('Absolute path to an .rhp, for one Rhino has no record of yet.'),
+        }),
+        run: args => askRhino('/load', args),
+    },
+    {
+        name: 'restart',
+        description: "End this agent's Rhino and start a fresh one, waiting until the link answers again. This is the unit of iteration when developing a plug-in: a .NET assembly cannot be unloaded from Rhino - there is LoadPlugIn and no UnloadPlugIn - so a rebuilt .rhp or .gha reaches a running Rhino only through a new process. It refuses while either half holds unsaved work, because the process is ended outright and there is no save prompt on the way out; pass discard:true if losing it is what you meant. Only the process this agent is working in is ended, so a second Rhino somebody else is using survives.",
+        inputSchema: object({
+            discard: flag('Restart even though unsaved work would be lost.'),
+            grasshopper: flag('False brings Rhino back without Grasshopper - faster, and enough for plug-in work.'),
+        }),
+        run: args => restart(args.discard === true, args.grasshopper !== false),
     },
     {
         name: 'camera',
