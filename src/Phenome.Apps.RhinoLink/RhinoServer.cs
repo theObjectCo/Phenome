@@ -30,7 +30,8 @@ internal static class RhinoServer
           "protocol": {
             "GET /": "this description",
             "GET /pulse": "whether Rhino is idle, busy or blocked. Answered off the UI thread, so it answers when nothing else does. 'busy' names the running command and how long it has run: wait. 'blocked' names the open dialog and lists its buttons: nothing will answer until it is clicked",
-            "POST /dismiss": "{button?, key?, expect?} - answer the open dialog: press a button by name, type a key, or close it when neither is given. When /pulse says clickable:false the dialog draws its own buttons and only a key reaches it",
+            "POST /dismiss": "SUPERSEDED by /dialog, and kept working. {button?, key?, expect?} - press a button by name, type a key, or close it when neither is given. When /pulse says clickable:false the dialog draws its own buttons and only a key reaches it",
+            "POST /dialog": "{button?, key?, close?, expect?} - answer the open dialog. Nothing is assumed: with no answer given this refuses and lists the buttons, because a decline by omission cannot be told from a decline by decision. 'close' declines, said out loud. No verb here guesses which button means yes - on a save prompt the affirmative is whichever of Save and Don't Save you meant",
             "POST /escape": "{times?} - post Escape to Rhino, cancelling whatever it is waiting for. For the case /dismiss cannot answer: a command waiting on a pick is not a dialog, so nothing is disabled and there is no window to click, yet the UI thread is held and every other verb reports 'busy' as though waiting would help. Scripting an interactive command is the ordinary way to get here. 'times' cancels that many levels; one by default",
             "POST /command": "{script} - run a Rhino command script. Here rather than only on the canvas link, because Rhino is what runs commands and Grasshopper need not be open for it",
             "GET /doc": "the Rhino document: name, layers, object count",
@@ -112,6 +113,7 @@ internal static class RhinoServer
                 ("GET", "") => Description,
                 ("GET", "/pulse") => Pulse.Report(),
                 ("POST", "/dismiss") => Dismissed(payload),
+                ("POST", "/dialog") => AnswerDialog(payload),
                 ("POST", "/escape") => Escaped(payload),
                 ("POST", "/command") => Commands.Run(payload),
                 ("GET", "/doc") => Commands.Document(),
@@ -157,6 +159,24 @@ internal static class RhinoServer
         }
 
         return Pulse.Dismiss(button, expect, key);
+    }
+
+    /// <summary>Answers the open dialog, with nothing assumed when nothing was said.</summary>
+    private static string AnswerDialog(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return Pulse.Answer(null, null, close: false, null);
+        }
+
+        using JsonDocument request = JsonDocument.Parse(payload);
+
+        return Pulse.Answer(
+            Json.Text(request, "button"),
+            Json.Text(request, "key"),
+            request.RootElement.TryGetProperty("close", out JsonElement asked)
+                && asked.ValueKind == JsonValueKind.True,
+            Json.Text(request, "expect"));
     }
 
     private static string Escaped(string payload)

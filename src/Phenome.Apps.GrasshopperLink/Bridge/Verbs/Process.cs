@@ -46,6 +46,23 @@ internal static class Process
         return answer;
     }
 
+    /// <summary>Answers the open dialog, with nothing assumed when nothing was said.</summary>
+    internal static string AnswerDialog(JsonDocument request)
+    {
+        string author = Author(request);
+        string? button = Field(request, "button");
+        string? expect = Field(request, "expect");
+        string? key = Field(request, "key");
+
+        bool close = request.RootElement.TryGetProperty("close", out JsonElement asked) && AsBool(asked);
+
+        string answer = Pulse.Answer(button, key, close, expect);
+
+        Journal.Append(author, "dialog", $",\"answer\":{Json.Quote(key ?? button ?? (close ? "close" : "none"))}");
+
+        return answer;
+    }
+
     internal static string Escaped(JsonDocument request)
     {
         string author = Author(request);

@@ -13,6 +13,24 @@ mechanism, versioned together.
 listens on loopback only. The protocol is worth the same to any Grasshopper user with any agent, which is why
 it is MIT and why it is here rather than bundled into something larger.
 
+> ### Breaking change in 0.30.0 — re-pair your workspaces
+>
+> The MCP tools are now **`mcp__phenome__*`**, not `mcp__grasshopper__*`. The prefix comes from the
+> registration key the pairing writes, so it changes nowhere else — but until you run **Pair with VS Code**
+> (or *Teach Agents in This Workspace*) again, a workspace paired before this version finds **no tools at
+> all**, with nothing to say why.
+>
+> Re-pairing is idempotent: it rewrites the registration in all five host files and the permission rule, and
+> removes the old name as it goes. Both must go together — a host that finds the old key and the new one
+> registers two servers and offers every verb twice.
+>
+> The old name described the half that came first. It stopped being true several releases ago: commands, the
+> document, the command line, the dialogs, the plug-ins and the viewport are all answered by the Rhino half,
+> in a Rhino that never opened a canvas. It also read as an instruction — an agent building a Rhino plug-in,
+> seeing every tool called *grasshopper*, started Grasshopper in order to install an `.rhp`.
+>
+> Nothing else breaks. `dismiss` is superseded by `dialog` in 0.31.0 and still works.
+
 ## What the link is for
 
 A Grasshopper definition is hard to work on together, because one person has the canvas and everyone else
@@ -58,9 +76,12 @@ So a second, smaller server answers about the process, from a thread of its own:
 - **`pulse`** — `idle`, `busy` or `blocked`. Busy names the running command and how long it has run.
   Blocked names the dialog and lists its buttons — or says it has none that can be clicked, which is the
   case for Rhino's newer dialogs: they draw their own, so there is nothing to post a click to.
-- **`dismiss`** — presses a button, types a key, or closes the dialog. Closing is the default because
-  closing is what the X does and what the X does is decline; agreeing to something has to be asked for.
-- **`escape`** — the case `dismiss` cannot answer. A command waiting on a pick is not a dialog: nothing is
+- **`dialog`** — presses a button by name, types a key into one that draws its own, or declines with
+  `close`. Send one of the three: with no answer given it refuses and lists what the dialog offers, rather
+  than deciding for you. Nothing guesses which button means yes — on a save prompt the affirmative is
+  whichever of Save and Don't Save you meant. (`dismiss` is the old name and still works, with the old
+  default: nothing said means close, and close means decline.)
+- **`escape`** — the case `dialog` cannot answer. A command waiting on a pick is not a dialog: nothing is
   disabled and there is no window to click, yet the thread is held all the same. Scripting an interactive
   command is the ordinary way to get there.
 - **`console`** — the tail of the command line. It has been one-way until now: the link writes a line into
@@ -368,11 +389,11 @@ curl http://127.0.0.1:<port>/            # the protocol, in full
 curl http://127.0.0.1:<port>/canvas      # the document
 ```
 
-From an agent, the MCP server is the better door: it wraps all 46 verbs as named tools. Point your client at
+From an agent, the MCP server is the better door: it wraps all 52 verbs as named tools. Point your client at
 `mcp.js` in the extension, or let the extension launch the agent for you — it pins the session to one canvas
 through an environment variable.
 
-### Say yes once, not forty-six times
+### Say yes once, not fifty-two times
 
 Run **Phenome Link: Teach Agents in This Workspace** from the VS Code command palette, once per project. It
 writes the pairing notes into `AGENTS.md`, registers the MCP server in `.mcp.json`, and — the part this
@@ -381,16 +402,16 @@ section is about — adds a single rule to `.claude/settings.local.json`:
 ```json
 {
   "enableAllProjectMcpServers": true,
-  "permissions": { "allow": ["mcp__grasshopper"] }
+  "permissions": { "allow": ["mcp__phenome"] }
 }
 ```
 
 **One rule names the whole server**, so every verb is trusted at once, including verbs added by a later
 version. Restart the agent session afterwards: MCP servers load at session start.
 
-Without it, a client that asks per tool will ask forty-six times, once for each verb the first time it is
+Without it, a client that asks per tool will ask fifty-two times, once for each verb the first time it is
 used — and the rules it accumulates are per verb, so each new one asks again. If that has already happened,
-the single `mcp__grasshopper` rule supersedes the lot; the per-verb entries left behind are harmless and can
+the single `mcp__phenome` rule supersedes the lot; the per-verb entries left behind are harmless and can
 be deleted at leisure. Other agents keep their permissions elsewhere, but the shape is the same: trust the
 server, not the tools one by one.
 

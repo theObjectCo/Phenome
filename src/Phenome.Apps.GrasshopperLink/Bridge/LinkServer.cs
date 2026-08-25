@@ -70,7 +70,8 @@ internal static class LinkServer
             "GET /canvas": "the whole document: every object, wires, values, selection, enabled, preview, mapping, solver state",
             "GET /canvas?as=mermaid": "the same document as a mermaid flowchart - groups as subgraphs, red components marked - with a map of short node ids to real guids. The shape of a definition at a fiftieth of the size; it carries no data, so branch and item counts still come from peek",
             "GET /events?since=N": "the journal after entry N; response carries 'latest' to ask from next time; a gap below your cursor means entries were dropped - re-read /canvas",
-            "POST /dismiss": "{author, button?, key?, expect?} - answer the dialog Rhino is waiting on: press a button by name, type a key, or close it when neither is given. When /pulse says clickable:false the dialog draws its own buttons and only a key reaches it - the underlined letter of the answer, or {ESC}. 'expect' names the dialog you meant to answer and refuses if another one is up by then",
+            "POST /dismiss": "SUPERSEDED by /dialog, and kept working. {author, button?, key?, expect?} - press a button by name, type a key, or close it when neither is given. When /pulse says clickable:false the dialog draws its own buttons and only a key reaches it - the underlined letter of the answer, or {ESC}. 'expect' names the dialog you meant to answer and refuses if another one is up by then",
+            "POST /dialog": "{author, button?, key?, close?, expect?} - answer the dialog Rhino is waiting on. Nothing is assumed: with no answer given this refuses and lists the buttons, so a decline is always something somebody said rather than something left out. 'close' declines. Supersedes /dismiss, which is kept for callers that already send it",
             "GET /console?tail=50": "the tail of Rhino's own command line - what commands and scripts said, which until now went only to the human. Drained when the UI thread breathes, so a long command's output arrives when it ends; /pulse is the verb for the meantime",
             "GET /pulse": "whether Rhino is idle, busy or blocked - answered without the UI thread, so it still answers when nothing else does. 'busy' names the running command and how long it has run: wait. 'blocked' names the open dialog: nothing will answer until somebody clicks it",
             "POST /say": "{author, text, to?} - a message into the journal, for whoever reads it",
@@ -200,6 +201,7 @@ internal static class LinkServer
                 ("GET", "/events") => Journal.Since(Since(context.Request)),
                 ("GET", "/pulse") => Pulse.Report(),
                 ("POST", "/dismiss") => Process.Dismissed(Read(payload)),
+                ("POST", "/dialog") => Process.AnswerDialog(Read(payload)),
                 ("POST", "/escape") => Process.Escaped(Read(payload)),
                 ("GET", "/console") => CommandLine.Tail(
                     int.TryParse(context.Request.QueryString["tail"], out int back) ? Math.Clamp(back, 1, 500) : 50,

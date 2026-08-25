@@ -228,6 +228,31 @@ internal static class Pulse
     internal static string Dismiss(string? button, string? expect) => Dismiss(button, expect, null);
 
     /// <summary>
+    /// Answers the open dialog, and refuses to guess which answer was meant.
+    /// </summary>
+    /// <remarks>
+    /// What <c>dismiss</c> should have been called, with the one behaviour it should not have had. The old
+    /// name describes a single outcome of a verb that has three - press, type, close - so agreeing to
+    /// something read as "dismiss it with the OK button", and an agent that wanted to agree reached for the
+    /// thing whose name means the opposite. A field report has one doing exactly that: it closed a load
+    /// confirmation twice, declining the load it was trying to confirm, before reading <c>pulse</c> and
+    /// working out that OK was the yes.
+    /// <para>
+    /// The second half of that fault was the default. Sending nothing meant close, close means decline, and
+    /// a decline by omission is indistinguishable from a decline by decision. So here nothing means
+    /// nothing: with no action given this refuses and lists what the dialog offers, which is one refusal
+    /// that teaches the whole verb. Declining is <c>close</c>, said out loud, as agreeing always had to be.
+    /// </para>
+    /// <para>
+    /// No verb guesses which button means yes, and none should: on a save prompt the affirmative is
+    /// whichever of Save and Don't Save the caller meant, and a wrong guess there writes or discards
+    /// somebody's file. <c>pulse</c> lists the buttons; the caller names one.
+    /// </para>
+    /// </remarks>
+    internal static string Answer(string? button, string? key, bool close, string? expect) =>
+        Act(button, key, close, expect);
+
+    /// <summary>
     /// As above, and with a key for dialogs that cannot be clicked.
     /// </summary>
     /// <remarks>
@@ -237,7 +262,17 @@ internal static class Pulse
     /// substitute, because on a "save changes?" prompt closing means cancel, and cancel means the thing
     /// you were trying to do does not happen.
     /// </remarks>
-    internal static string Dismiss(string? button, string? expect, string? key)
+    internal static string Dismiss(string? button, string? expect, string? key) =>
+        Act(
+            button,
+            key,
+            // The old default, kept exactly: nothing said means close. Superseded rather than corrected,
+            // because a caller that sends nothing to decline would otherwise stop declining and not be
+            // told - the dialog would simply still be there, and it would ask again.
+            close: string.IsNullOrEmpty(button) && string.IsNullOrEmpty(key),
+            expect);
+
+    private static string Act(string? button, string? key, bool close, string? expect)
     {
         Dialog dialog = ModalDialog();
 
@@ -267,8 +302,21 @@ internal static class Pulse
 
         if (string.IsNullOrEmpty(button))
         {
-            PostMessage(dialog.Handle, WmClose, IntPtr.Zero, IntPtr.Zero);
-            return $"{{\"ok\":true,\"dialog\":{Json.Quote(dialog.Title ?? "")},\"did\":\"closed\"}}";
+            if (close)
+            {
+                PostMessage(dialog.Handle, WmClose, IntPtr.Zero, IntPtr.Zero);
+                return $"{{\"ok\":true,\"dialog\":{Json.Quote(dialog.Title ?? "")},\"did\":\"closed\"}}";
+            }
+
+            // Nothing to do, and nothing done. The buttons are listed rather than described, because the
+            // next call is going to name one of them and a caller should not have to go and ask.
+            string choices = string.Join(", ", ButtonsOf(dialog.Handle).Select(b => b.Text).Where(t => t.Length > 0));
+
+            throw new InvalidOperationException(
+                $"The dialog \"{dialog.Title}\" was left alone, because no answer was given. "
+                + (choices.Length == 0
+                    ? "It draws its own buttons, so send 'key' - the underlined letter of the answer you want, or \"{ESC}\"."
+                    : $"It offers: {choices}. Send 'button' to press one, 'key' to type, or close:true to decline."));
         }
 
         List<(IntPtr Handle, string Text)> buttons = ButtonsOf(dialog.Handle);

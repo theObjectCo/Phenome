@@ -11,6 +11,32 @@ the code, do not tell somebody who installed the last version which six things t
 So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
 commit that made it, not here.
 
+## 0.31.0
+
+### Added
+
+- **`dialog` answers the dialog Rhino is waiting on, and assumes nothing.** `button` presses one by name,
+  `key` types into a dialog that draws its own buttons and cannot be clicked, `close` declines. Send one of
+  the three: with **no answer given it refuses and lists what the dialog offers**, rather than deciding for
+  you.
+
+  That last part is the point. `dismiss` treated "nothing said" as close, close means decline, and a decline
+  by omission cannot be told from a decline by decision — so the safe-looking call was the one that said no.
+  A field report has an agent closing a load confirmation twice, declining the very load it was trying to
+  confirm, before reading `pulse` and working out that OK was the yes. The old name did the rest of the
+  damage: agreeing to something read as *dismissing* it with the OK button.
+
+  No verb guesses which button means yes, and none will: on a save prompt the affirmative is whichever of
+  Save and Don't Save you meant, and guessing there writes or discards somebody's file. `pulse` lists the
+  buttons; you name one.
+
+### Deprecated
+
+- **`dismiss` is superseded by `dialog` and still works exactly as before**, including "nothing means
+  close". Its behaviour was left alone rather than corrected: a caller that sends nothing in order to
+  decline would otherwise stop declining without being told, and would find the dialog still there, asking
+  again. It will be removed a release or two from now.
+
 ## 0.30.0
 
 ### Changed

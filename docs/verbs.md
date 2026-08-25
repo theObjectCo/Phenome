@@ -1,6 +1,6 @@
 # Every verb, and which half answers it
 
-As of 0.30.0. Fifty-one tools over two HTTP servers and one client.
+As of 0.31.0. Fifty-two tools over two HTTP servers and one client.
 
 The MCP server is registered as `phenome`, so a host presents these as `mcp__phenome__<name>`. The prefix
 comes from the registration key the pairing writes, not from the name the server reports in its handshake.
@@ -15,14 +15,15 @@ The client asks the Rhino half first for anything that half owns, and falls back
 404 — so a pairing where only one side has been updated keeps working. Verbs marked *(also on `.gha`)*
 exist in both for that reason.
 
-## RhinoLink — 10 verbs, and none of them need a canvas
+## RhinoLink — 11 verbs, and none of them need a canvas
 
 Start with `launch grasshopper:false` for all of these.
 
 | verb | endpoint | what it does |
 |---|---|---|
 | `pulse` | `GET /pulse` | idle, busy or blocked — answered off the UI thread, so it answers when nothing else does *(also on `.gha`)* |
-| `dismiss` | `POST /dismiss` | answer the open dialog: a button by name, a key, or close — and close means decline *(also on `.gha`)* |
+| `dialog` | `POST /dialog` | answer the open dialog: `button` presses, `key` types, `close` declines. With no answer given it refuses and lists the buttons rather than deciding for you *(also on `.gha`)* |
+| `dismiss` | `POST /dismiss` | superseded by `dialog`, kept working: same thing, except that sending nothing closes the dialog and so declines *(also on `.gha`)* |
 | `escape` | `POST /escape` | cancel whatever Rhino is waiting for, for the case `dismiss` cannot answer *(also on `.gha`)* |
 | `console` | `GET /console` | the tail of Rhino's command line, where commands and scripts reply. `mine:true` reads the link's own echo from the canvas half instead |
 | `rhino_command` | `POST /command` | run a Rhino command script in the scripting dialect *(also on `.gha` as `/rhino`)* |
@@ -114,5 +115,5 @@ exist precisely when nothing is running.
 libraries from the canvas, `console` takes Rhino's own line from Rhino and the link's echo from the canvas.
 Each answers usefully when the other half is absent.
 
-**Duplicates are deliberate.** Seven verbs live in both halves. The canvas copies came first and are kept
+**Duplicates are deliberate.** Eight verbs live in both halves. The canvas copies came first and are kept
 as the fallback, which is what lets one half be updated before the other.

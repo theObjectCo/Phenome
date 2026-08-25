@@ -452,8 +452,19 @@ const TOOLS = [
         run: () => askRhino('/pulse'),
     },
     {
+        name: 'dialog',
+        description: "Answer the dialog Rhino is waiting on: 'button' presses one by name, 'key' types into a dialog that draws its own buttons and cannot be clicked, 'close' declines. Send one of the three - with no answer given this refuses and lists what the dialog offers, rather than assuming you meant to decline. Nothing here guesses which button means yes, and you should not want it to: on a save prompt the affirmative is whichever of Save and Don't Save you meant, and pulse already lists the buttons. 'expect' names the dialog you meant to answer and refuses if another one is up by then, because dialogs are replaced while you are deciding. Supersedes dismiss.",
+        inputSchema: object({
+            button: str('Button label to press, as pulse reports it.'),
+            key: str("A key to type, for dialogs with no clickable buttons - the underlined letter, or '{ESC}'."),
+            close: flag('Decline: close the dialog, which is what its X does.'),
+            expect: str('Title of the dialog you meant to answer.'),
+        }),
+        run: args => askRhino('/dialog', args),
+    },
+    {
         name: 'dismiss',
-        description: "Answer the dialog Rhino is waiting on: press a button by name, or close it when no name is given. pulse names the dialog and lists its buttons. Closing is declining, so it is the default; pressing a button is agreeing to something and has to be asked for. Pass 'expect' with the dialog's title and it refuses if a different one is up by then - dialogs are transient, and a blind press answers whatever happens to be there.",
+        description: "SUPERSEDED by dialog, and kept working for callers that already send it. Answers the open dialog: a button by name, a key, or - with neither - closes it, which declines. Prefer dialog, where declining is something you say rather than something you leave out.",
         inputSchema: object({
             button: str("The button to press, exactly as pulse lists it. Omit to close the dialog instead."),
             key: str("A key to type instead of clicking - needed when pulse says clickable:false, which means the dialog draws its own buttons and has nothing to click. Use the underlined letter of the answer you want."),
@@ -1012,7 +1023,7 @@ async function handle(line) {
             reply(id, {
                 protocolVersion: params?.protocolVersion ?? '2024-11-05',
                 capabilities: { tools: {} },
-                serverInfo: { name: 'phenome', version: '0.30.0' },
+                serverInfo: { name: 'phenome', version: '0.31.0' },
                 instructions: instructions(),
             });
             break;
