@@ -1,12 +1,12 @@
 ## Pairing with Grasshopper (Phenome Link)
 
-**Prefer the MCP tools.** The `grasshopper` server registers one per verb and your session already
+**Prefer the MCP tools.** The `phenome` server registers one per verb and your session already
 lists them with their arguments, so they are not repeated here. Four habits that list cannot teach you:
 search `components` before `add` when unsure of a name; prefer `place` over add/wire loops; verify
 with `peek`, not `screenshot`, since the canvas carries positions and needs no picture; and use
 `launch` when there is no session rather than starting Rhino yourself.
 
-**If you cannot see any `grasshopper` tool at all, you are not on a stale session - your host has no MCP
+**If you cannot see any `phenome` tool at all, you are not on a stale session - your host has no MCP
 server wired up.** Restarting will not conjure one. Do not spend another thought on it: go straight to
 *Without the MCP tools* at the end of this file, which is the whole protocol over plain HTTP and includes
 the one thing you cannot otherwise work out - how to start a session when there is no `launch` verb to call.
@@ -275,7 +275,7 @@ parameter. It is this verb.
 ## Without the MCP tools
 
 Everything above is the same protocol either way, so none of it is wasted - only the door changes. Read this
-if your host has no `grasshopper` tools, and stop reading it the moment it does.
+if your host has no `phenome` tools, and stop reading it the moment it does.
 
 **Starting a session is the part you cannot guess, so here it is exactly.** There is no verb for it: the
 server lives *inside* Grasshopper, so nothing can answer until Grasshopper is running, which is why `launch`

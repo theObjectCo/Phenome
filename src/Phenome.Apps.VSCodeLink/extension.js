@@ -349,7 +349,14 @@ async function teachAgents(quiet) {
             // Absent or broken; either way this write is the whole content.
         }
 
-        servers[key] = { ...servers[key], grasshopper: server };
+        // This key is what a host turns into the tool prefix, so it - not the name the server reports in
+        // its handshake - is what made the tools `mcp__grasshopper__*`. Renamed in 0.30.0, because the
+        // server drives Rhino as much as Grasshopper and half its verbs answer with no canvas open at all.
+        //
+        // The old key is deleted rather than left beside the new one: a host that finds both registers two
+        // servers, spawns two copies of this script, and offers every verb twice under two prefixes.
+        servers[key] = { ...servers[key], phenome: server };
+        delete servers[key].grasshopper;
 
         fs.mkdirSync(path.dirname(registry), { recursive: true });
         fs.writeFileSync(registry, JSON.stringify(servers, null, 2) + '\n', 'utf8');
@@ -375,9 +382,13 @@ async function teachAgents(quiet) {
     settings.permissions ??= {};
     settings.permissions.allow ??= [];
 
-    if (!settings.permissions.allow.includes('mcp__grasshopper')) {
-        settings.permissions.allow.push('mcp__grasshopper');
+    if (!settings.permissions.allow.includes('mcp__phenome')) {
+        settings.permissions.allow.push('mcp__phenome');
     }
+
+    // The rule for the old name goes, for the reason the old registration key goes: it names a server this
+    // workspace no longer has, and a stale allow rule is the kind of line somebody later has to work out.
+    settings.permissions.allow = settings.permissions.allow.filter(rule => rule !== 'mcp__grasshopper');
 
     fs.writeFileSync(local, JSON.stringify(settings, null, 2) + '\n', 'utf8');
     taught.push('.claude/settings.local.json');
@@ -542,7 +553,7 @@ function handleUri(uri) {
 
     terminal.sendText(
         `${invoke} "You are pairing with a live Grasshopper canvas${port ? ` on port ${port}` : ''}. If you ` +
-        `have 'grasshopper' MCP tools (canvas, events, say, ...), use them - each asks permission once, and ` +
+        `have 'phenome' MCP tools (canvas, events, say, ...), use them - each asks permission once, and ` +
         `they are already bound to this canvas${port ? '' : ' by discovery'}. Otherwise it is loopback HTTP ` +
         `at ${where}: GET / describes the whole protocol - start there. Read the canvas, then greet the ` +
         `human with say (author 'claude'). Poll events?since=N while pairing (the response's 'latest' is ` +

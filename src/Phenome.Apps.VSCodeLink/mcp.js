@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The Grasshopper link as an MCP server: the same loopback HTTP protocol, wrapped so that agents see named
 // tools instead of shell commands. The point is permissions as much as ergonomics - a raw Invoke-RestMethod
-// is a different command every time and gets challenged every time, while grasshopper__say is one name a
+// is a different command every time and gets challenged every time, while phenome__say is one name a
 // user allows once.
 //
 // Deliberately dependency-free: newline-delimited JSON-RPC on stdio, discovery by the same port files the
@@ -28,7 +28,7 @@ async function ask(pathname, body) {
     }
 
     if (port === null) {
-        throw new Error('No Grasshopper session. Use grasshopper__launch to start one.');
+        throw new Error('No Grasshopper session. Use phenome__launch to start one.');
     }
 
     try {
@@ -66,7 +66,7 @@ async function askRhino(pathname, body) {
             return ask(old, body);
         }
 
-        throw new Error('No Rhino session. Use grasshopper__launch to start one.');
+        throw new Error('No Rhino session. Use phenome__launch to start one.');
     }
 
     try {
