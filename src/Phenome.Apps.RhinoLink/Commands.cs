@@ -35,13 +35,13 @@ internal static class Commands
             ? field.GetString()!
             : throw new ArgumentException("command needs 'script'.");
 
-        bool ran = OnUi(() => Rhino.RhinoApp.RunScript(script, echo: true));
+        bool ran = Ui.On(() => Rhino.RhinoApp.RunScript(script, echo: true));
 
         return $"{{\"ok\":{(ran ? "true" : "false")}}}";
     }
 
     /// <summary>The document: what it is called, what it holds, and where the human is looking.</summary>
-    internal static string Document() => OnUi(() =>
+    internal static string Document() => Ui.On(() =>
     {
         Rhino.RhinoDoc doc = Rhino.RhinoDoc.ActiveDoc
             ?? throw new InvalidOperationException("There is no Rhino document.");
@@ -101,43 +101,4 @@ internal static class Commands
 
         return json.ToString();
     });
-
-    /// <summary>
-    /// Runs work on the Rhino UI thread and waits for it, or says why the wait ended instead.
-    /// </summary>
-    /// <remarks>
-    /// A timeout here is never simply "no answer": a long command and an open dialog both look like
-    /// silence from the outside and want opposite responses from the caller. Pulse can tell them apart
-    /// without the thread this is waiting for, so the refusal borrows its sentence.
-    /// </remarks>
-    private static T OnUi<T>(Func<T> work)
-    {
-        T result = default!;
-        Exception? failure = null;
-
-        using SemaphoreSlim done = new(0, 1);
-
-        Rhino.RhinoApp.InvokeOnUiThread(() =>
-        {
-            try
-            {
-                result = work();
-            }
-            catch (Exception thrown)
-            {
-                failure = thrown;
-            }
-            finally
-            {
-                done.Release();
-            }
-        });
-
-        if (!done.Wait(TimeSpan.FromSeconds(15)))
-        {
-            throw new TimeoutException(Pulse.Sentence());
-        }
-
-        return failure is null ? result : throw failure;
-    }
 }
