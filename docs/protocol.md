@@ -52,14 +52,27 @@ does not. A client that speaks only HTTP therefore has one thing it cannot disco
 is it:
 
 ```
-Rhino.exe /nosplash "/runscript=_Grasshopper"
+Rhino.exe /nosplash /runscript="_Grasshopper"
 ```
 
 Both parts matter. **Rhino alone gives you no canvas link** — the `.gha` loads with Grasshopper, so a Rhino
 started without that script writes a `phenome-rhino-*.port` and never a `phenome-link-*.port`, which is the
-symptom to recognise rather than wait out. And **the whole argument is quoted as one token**: an inner
-`"_Grasshopper"` has its quotes doubled by some shells and process launchers, after which Rhino runs no
-script at all and the failure looks identical to Rhino being slow.
+symptom to recognise rather than wait out.
+
+And **the quotes go around `_Grasshopper`, not around the whole argument.** Measured on Rhino 8, three ways,
+each launched the same way:
+
+| argument | result |
+|---|---|
+| `/runscript="_Grasshopper"` | Grasshopper opens, port file within about six seconds |
+| `"/runscript=_Grasshopper"` | Rhino starts, no canvas, no port file, ever |
+| `/runscript=_Grasshopper` | the same nothing |
+
+Earlier versions of this page recommended the second form. The failure it produces is indistinguishable
+from Rhino being slow to start, so it costs however long you are willing to wait before concluding
+something else is wrong. Whatever launches this must also pass the argument through untouched: a launcher
+that re-quotes for you will turn the working form into one of the others, which is why the `launch` tool
+sets `windowsVerbatimArguments`.
 
 Then poll for a port file that was **not** there before starting — Rhino can take tens of seconds, and
 attaching to a port that already existed puts two clients on one canvas, which is worse than not starting.

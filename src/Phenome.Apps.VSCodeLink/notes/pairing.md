@@ -287,10 +287,16 @@ that will never answer:
 Get-ChildItem "$env:TEMP\phenome-link-*.port"
 
 # 2. Start Rhino AND Grasshopper. Rhino alone is not enough - the plugin loads with Grasshopper,
-#    so no Grasshopper means no canvas link, ever. Quote the WHOLE argument, exactly like this:
-#    an inner "_Grasshopper" gets its quotes doubled by some shells and launchers, Rhino then runs
-#    no script at all, and you are left waiting for a port file that will never be written.
-& "C:\Program Files\Rhino 8\System\Rhino.exe" /nosplash "/runscript=_Grasshopper"
+#    so no Grasshopper means no canvas link, ever. The quotes go around _Grasshopper and NOT around
+#    the whole argument. Measured, three ways, on Rhino 8:
+#
+#      /runscript="_Grasshopper"     Grasshopper opens, port file in ~6 s
+#      "/runscript=_Grasshopper"     Rhino starts, no canvas, no port file, ever
+#      /runscript=_Grasshopper       the same nothing
+#
+#    The last two leave you waiting for a file that is never written, and the wait looks exactly
+#    like Rhino being slow. This is what the launch tool does, and it is why it does it that way.
+& "C:\Program Files\Rhino 8\System\Rhino.exe" /nosplash '/runscript="_Grasshopper"'
 
 # 3. Wait for a port file that was NOT in the list from step 1. Rhino takes its time - poll every
 #    3 seconds, give it up to 90. Attaching to a port that was already there puts you on somebody

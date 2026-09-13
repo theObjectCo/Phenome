@@ -489,20 +489,25 @@ model exists to avoid.
 **A small per-user helper resolves it.** It starts at logon, runs with that user's rights and no others, and
 the gateway asks it to launch rather than launching anything itself.
 
-> **Measured, and not yet working.** A scheduled task with an interactive logon type was used as a cheap
-> stand-in for the helper, twice, and both times Rhino started and never finished starting: the process
-> exists, and the Rhino half - which loads before Grasshopper and announces a port of its own, independent
-> of it - never announced at all. So this is not the `/runscript=_Grasshopper` switch failing to open a
-> canvas, as first assumed; Rhino itself does not come up.
+> **Measured, and it works.** A scheduled task with an interactive logon type stands in for the helper
+> perfectly well: Rhino starts, Grasshopper opens, and the canvas link announces a port within about six
+> seconds. It works with the session connected and with it parked, with another Rhino running and with
+> none. So nothing about launching Rhino from outside the interactive user's own hands is a problem, and
+> the helper is feasible.
 >
-> The measurement is not clean: another Rhino was running at the time, so "a second instance behaves
-> differently" is not excluded. The leading suspicion is a licence check raising a window nobody can see,
-> which would also explain why a human clicking once got it moving.
+> Getting there took a day of wrong conclusions, all of them from one cause worth recording. **The
+> argument form decides everything**: `/runscript="_Grasshopper"` opens a canvas and
+> `"/runscript=_Grasshopper"` silently does not, while looking exactly like Rhino being slow. The second
+> form is what `docs/protocol.md` and the pairing notes recommended, and it is not what `launch` in
+> `mcp.js` actually does - the code was right and the documentation was wrong, so anybody following the
+> documentation got a Rhino with no canvas and no way to tell why. Both pages are corrected.
 >
-> What it does not disprove is the design. A scheduled task crosses the session boundary on every launch;
-> a helper already running inside the session does not cross it at all. Those are different mechanisms and
-> only the first was tested. **Before the helper is treated as settled, launch Rhino from a program inside
-> the session, with no other Rhino running, and see whether the Rhino half announces.**
+> Two smaller findings came out of the same day. A Rhino force-killed loses whatever plug-in registration
+> it was holding, which cost an afternoon of measuring with a detector that was no longer loaded. And
+> `taskkill` without `/F` **cannot** reach a window across a session boundary - Windows answers that the
+> process can only be terminated forcefully - but the same command run as a scheduled task inside the
+> session closes Rhino properly in two seconds. That is the way to close it without a human, and it is
+> worth knowing before reaching for `/F`.
 
 - the gateway keeps its virtual account and gains no privilege at all
 - the Rhino that starts belongs to the person it should belong to, not to a service
