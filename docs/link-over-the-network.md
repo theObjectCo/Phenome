@@ -489,6 +489,21 @@ model exists to avoid.
 **A small per-user helper resolves it.** It starts at logon, runs with that user's rights and no others, and
 the gateway asks it to launch rather than launching anything itself.
 
+> **Measured, and not yet working.** A scheduled task with an interactive logon type was used as a cheap
+> stand-in for the helper, twice, and both times Rhino started and never finished starting: the process
+> exists, and the Rhino half - which loads before Grasshopper and announces a port of its own, independent
+> of it - never announced at all. So this is not the `/runscript=_Grasshopper` switch failing to open a
+> canvas, as first assumed; Rhino itself does not come up.
+>
+> The measurement is not clean: another Rhino was running at the time, so "a second instance behaves
+> differently" is not excluded. The leading suspicion is a licence check raising a window nobody can see,
+> which would also explain why a human clicking once got it moving.
+>
+> What it does not disprove is the design. A scheduled task crosses the session boundary on every launch;
+> a helper already running inside the session does not cross it at all. Those are different mechanisms and
+> only the first was tested. **Before the helper is treated as settled, launch Rhino from a program inside
+> the session, with no other Rhino running, and see whether the Rhino half announces.**
+
 - the gateway keeps its virtual account and gains no privilege at all
 - the Rhino that starts belongs to the person it should belong to, not to a service
 - it extends the rule already in place: a caller reaches their own sessions, so a caller starts their own
@@ -643,11 +658,20 @@ the loopback address appears fourteen times. Before a fourth consumer joins:
 | where a session publishes itself | 6 literals, C# and JS | `Sessions` in Shared, mirrored once in JS |
 | the loopback address | 14 occurrences | one constant, one base-URL helper |
 | find a session and call a verb | 2 copies, `mcp.js` and `extension.js` | one module both use |
+| headers a client must send | 2 copies, and 0.32.0 had to edit both | the same module |
 | bind, accept, read, respond | 3 copies, 1032 lines | `LinkHost` in Shared, optional |
 
 The first three are on the critical path; the gateway reads session files by calling the same code that
 writes them rather than reimplementing the convention a seventh time. `LinkHost` is independent debt, worth
 paying for its own reasons, and skipping it changes nothing here.
+
+**One constraint decides how the client module is shipped, and it is easy to miss.** `mcp.js` is not only
+imported here: the extension **copies it into the user's workspace** as `.phenome/gh-mcp.js`, and five
+different host registries are written pointing `node` at that one file. So it has to stay runnable on its
+own. Extracting a module means the copier carries two files instead of one, and every workspace paired
+before the change keeps a copy with no module beside it until somebody pairs again. That is the same
+version skew the content-type change had to be written around, in a place where the stale copy is on
+somebody else's disk and nothing reminds them.
 
 There are **no tests** in this repository. At this blast radius that is the main risk, so each step is
 followed by the same manual pass: pair from the widget, port on the status bar, `place` and `wire` and
