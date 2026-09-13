@@ -2,7 +2,7 @@
   "name": "phenome-link",
   "displayName": "Phenome Link",
   "description": "The VS Code end of a Grasshopper canvas: session status, the live journal, canvas recipes and script editing over loopback HTTP.",
-  "version": "0.32.0",
+  "version": "0.33.0",
   "publisher": "phenome",
   "private": true,
   "engines": {
@@ -30,6 +30,18 @@
       {
         "command": "phenomeLink.reportProblem",
         "title": "Phenome Link: Report a Problem…"
+      },
+      {
+        "command": "phenomeLink.switchCanvas",
+        "title": "Phenome Link: Switch Canvas…"
+      },
+      {
+        "command": "phenomeLink.showCanvas",
+        "title": "Phenome Link: Show the Canvas"
+      },
+      {
+        "command": "phenomeLink.showViewport",
+        "title": "Phenome Link: Show the Rhino Viewport"
       }
     ],
     "configuration": {

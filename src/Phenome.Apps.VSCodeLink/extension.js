@@ -16,6 +16,10 @@ let context = null;
 
 const link = {
     port: null,
+
+    /// A canvas chosen by hand, which discovery must not wander away from. Null means "whichever answers".
+    pinned: null,
+
     cursor: 0,
     status: null,
     channel: null,
@@ -52,6 +56,24 @@ async function linkFetch(pathname, body) {
 /// Finds a live session: every phenome-link-*.port file names a candidate; the first port that answers
 /// GET / wins. Dead Rhinos leave stale files behind, which is exactly why answering is the test.
 async function discoverLink() {
+    // A hand-picked canvas outranks finding one. Verified rather than trusted, because the Rhino it named
+    // may have closed since, and a pin that outlives its canvas is worse than no pin: every later call
+    // would insist a session exists on a machine that has none.
+    if (link.pinned !== null) {
+        try {
+            link.port = link.pinned;
+
+            if ((await linkFetch('/'))?.phenome === 'grasshopper-link') {
+                return link.pinned;
+            }
+        } catch {
+            // Gone; fall through and drop the pin below.
+        }
+
+        linkLog(`— the canvas on port ${link.pinned} stopped answering; discovering again —`);
+        link.pinned = null;
+    }
+
     let files = [];
 
     try {
@@ -79,12 +101,222 @@ async function discoverLink() {
     return null;
 }
 
+/// Two pictures of the same machine, each in its own panel, each refreshed when asked.
+///
+/// Separate rather than combined, so whichever one is being watched gets the screen. On demand rather
+/// than live, and that is not a limitation: both verbs run on Rhino's single UI thread, so a panel that
+/// refreshed itself would be taking time from whoever is sitting in front of that machine.
+const podglad = { canvas: null, viewport: null };
+
+async function showPicture(kind) {
+    const isCanvas = kind === 'canvas';
+    const title = isCanvas ? 'Grasshopper canvas' : 'Rhino viewport';
+    const id = isCanvas ? 'phenomeCanvas' : 'phenomeViewport';
+
+    if (podglad[isCanvas ? 'canvas' : 'viewport']) {
+        podglad[isCanvas ? 'canvas' : 'viewport'].reveal();
+    } else {
+        const panel = vscode.window.createWebviewPanel(
+            id, title, vscode.ViewColumn.Beside, { enableScripts: true, retainContextWhenHidden: true });
+
+        panel.onDidDispose(() => { podglad[isCanvas ? 'canvas' : 'viewport'] = null; });
+        panel.webview.onDidReceiveMessage(message => {
+            if (message?.what === 'refresh') {
+                refreshPicture(kind).catch(failed => linkLog(`${title}: ${failed.message}`));
+            }
+        });
+
+        podglad[isCanvas ? 'canvas' : 'viewport'] = panel;
+        panel.webview.html = pictureHtml(title, null, null);
+    }
+
+    await refreshPicture(kind);
+}
+
+async function refreshPicture(kind) {
+    const isCanvas = kind === 'canvas';
+    const panel = podglad[isCanvas ? 'canvas' : 'viewport'];
+
+    if (!panel) {
+        return;
+    }
+
+    const title = isCanvas ? 'Grasshopper canvas' : 'Rhino viewport';
+
+    if (link.port === null) {
+        panel.webview.html = pictureHtml(title, null, 'No Grasshopper session is answering.');
+        return;
+    }
+
+    try {
+        // Both verbs are served by the canvas half and both take a width, so neither needs the Rhino
+        // plug-in to be registered - which matters, because that registration is the fragile one.
+        const answer = await linkFetch(isCanvas ? '/canvas-image?width=1400' : '/screenshot?width=1400');
+
+        if (!answer?.png) {
+            panel.webview.html = pictureHtml(title, null, answer?.error ?? 'Nothing came back.');
+            return;
+        }
+
+        panel.webview.html = pictureHtml(title, answer.png, null);
+    } catch (failed) {
+        panel.webview.html = pictureHtml(title, null, failed.message);
+    }
+}
+
+function pictureHtml(title, png, trouble) {
+    const stamp = new Date().toLocaleTimeString();
+
+    // Escaped because trouble is whatever the server or fetch said, and a stray < would swallow the rest
+    // of the page rather than show the sentence that explains why there is no picture.
+    const plain = (trouble ?? 'Nothing yet - press Refresh.')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    const body = png
+        ? `<img src="data:image/png;base64,${png}" alt="${title}">`
+        : `<p class="trouble">${plain}</p>`;
+
+    return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  body { margin: 0; padding: 0; background: var(--vscode-editor-background);
+         color: var(--vscode-foreground); font-family: var(--vscode-font-family); }
+  header { display: flex; align-items: center; gap: 1rem; padding: .5rem .75rem;
+           border-bottom: 1px solid var(--vscode-panel-border); }
+  h1 { font-size: .9rem; font-weight: 600; margin: 0; flex: 1; }
+  time { opacity: .6; font-size: .8rem; }
+  button { font: inherit; padding: .25rem .9rem; cursor: pointer;
+           color: var(--vscode-button-foreground); background: var(--vscode-button-background);
+           border: none; border-radius: 2px; }
+  img { display: block; width: 100%; height: auto; }
+  .trouble { padding: 2rem .75rem; opacity: .7; }
+</style></head><body>
+  <header><h1>${title}</h1><time>${png ? stamp : ''}</time>
+    <button id="again">Refresh</button></header>
+  ${body}
+  <script>
+    // Acquired once and kept. acquireVsCodeApi throws on the second call in the same document, so calling
+    // it from the click handler would work exactly once per refresh and then stop.
+    const editor = acquireVsCodeApi();
+    document.getElementById('again').addEventListener(
+        'click', () => editor.postMessage({ what: 'refresh' }));
+  </script>
+</body></html>`;
+}
+
+/// Every canvas that answers, newest first, with enough about each to tell them apart.
+///
+/// discoverLink takes the first that replies and says so in its own comment; that is fine with one Rhino
+/// and arbitrary with several, because readdirSync promises no order. This is the deliberate version, and
+/// it exists because the one way a human could choose - the button on the canvas - reaches the editor
+/// beside Rhino rather than a browser somewhere else. Working remotely there was no way to say which one.
+async function listSessions() {
+    let files = [];
+
+    try {
+        files = fs.readdirSync(os.tmpdir())
+            .filter(f => /^phenome-link-\d+\.port$/.test(f))
+            .map(f => path.join(os.tmpdir(), f))
+            .map(f => ({ f, at: fs.statSync(f).mtimeMs }))
+            .sort((a, b) => b.at - a.at)
+            .map(entry => entry.f);
+    } catch {
+        return [];
+    }
+
+    const live = [];
+    const wasPort = link.port;
+
+    for (const file of files) {
+        try {
+            const port = parseInt(fs.readFileSync(file, 'utf8').trim(), 10);
+            link.port = port;
+
+            const hello = await linkFetch('/');
+
+            if (hello?.phenome !== 'grasshopper-link') {
+                continue;
+            }
+
+            // What the document is called is the only thing that tells two canvases apart for a human;
+            // the pid tells them apart for everything else. Asked after the greeting, so a Rhino that is
+            // alive but busy still appears rather than being skipped for being slow.
+            let name = null;
+
+            try {
+                name = (await linkFetch('/canvas'))?.document?.name ?? null;
+            } catch {
+                // Busy or mid-solve: it is still a session, just not one that can describe itself now.
+            }
+
+            live.push({
+                port,
+                pid: parseInt(/-(\d+)\.port$/.exec(path.basename(file))?.[1] ?? '0', 10),
+                name,
+            });
+        } catch {
+            // Stale file or foreign server; keep looking.
+        }
+    }
+
+    link.port = wasPort;
+    return live;
+}
+
+/// Asks which canvas, and remembers the answer.
+///
+/// The choice is pinned rather than advisory: the poll below re-discovers whenever a call fails, and
+/// without pinning it would quietly wander back to whichever session answers first. It is dropped when
+/// that Rhino stops answering, so a choice cannot outlive the canvas it named - the same rule the MCP
+/// server already follows.
+async function switchCanvas() {
+    const live = await listSessions();
+
+    if (live.length === 0) {
+        vscode.window.showInformationMessage(
+            'No Grasshopper session is answering. Start Rhino with Grasshopper open.');
+        return;
+    }
+
+    const items = live.map(one => ({
+        label: one.name ? `$(circuit-board) ${one.name}` : '$(circuit-board) unsaved',
+        description: `port ${one.port} · Rhino ${one.pid}`,
+        detail: one.port === link.port ? 'currently connected' : undefined,
+        port: one.port,
+    }));
+
+    const picked = await vscode.window.showQuickPick(items, {
+        title: 'Which canvas?',
+        placeHolder: live.length === 1 ? 'One session is running' : `${live.length} sessions are running`,
+    });
+
+    if (!picked) {
+        return;
+    }
+
+    link.port = picked.port;
+    link.pinned = picked.port;
+    link.cursor = 0;
+    paintLinkStatus();
+    linkLog(`— switched to the canvas on port ${picked.port} —`);
+
+    // The agent is told the same way the canvas button tells it, so a session started from here is bound
+    // to the canvas that was chosen rather than to whichever one answers first.
+    process.env.PHENOME_GH_PORT = String(picked.port);
+}
+
 function paintLinkStatus() {
     link.status ??= vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
-    link.status.text = link.port ? `$(plug) GH :${link.port}` : '$(debug-disconnect) GH offline';
+    const pin = link.pinned !== null && link.pinned === link.port ? '$(pinned) ' : '';
+
+    link.status.text = link.port ? `${pin}$(plug) GH :${link.port}` : '$(debug-disconnect) GH offline';
     link.status.tooltip = link.port
-        ? `Grasshopper link on port ${link.port}. The journal runs in the 'Phenome GH' output channel.`
-        : 'No Grasshopper session. Start Rhino with the Phenome Link plugin.';
+        ? `Grasshopper link on port ${link.port}${link.pinned === link.port ? ', chosen by hand' : ''}.`
+          + " Click to switch canvas. The journal runs in the 'Phenome GH' output channel."
+        : 'No Grasshopper session. Start Rhino with the Phenome Link plugin. Click to look again.';
+
+    // Clickable, because this is where somebody looks when they want to know what they are attached to,
+    // and until now it could only be told rather than asked.
+    link.status.command = 'phenomeLink.switchCanvas';
     link.status.show();
 }
 
@@ -575,6 +807,9 @@ function activate(extensionContext) {
         vscode.commands.registerCommand('phenomeLink.editScript', () => editScript()),
         vscode.commands.registerCommand('phenomeLink.teachAgents', () => teachAgents(false)),
         vscode.commands.registerCommand('phenomeLink.reportProblem', () => reportProblem()),
+        vscode.commands.registerCommand('phenomeLink.switchCanvas', () => switchCanvas()),
+        vscode.commands.registerCommand('phenomeLink.showCanvas', () => showPicture('canvas')),
+        vscode.commands.registerCommand('phenomeLink.showViewport', () => showPicture('viewport')),
 
         vscode.window.registerUriHandler({ handleUri }),
 

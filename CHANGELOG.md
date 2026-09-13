@@ -11,6 +11,26 @@ the code, do not tell somebody who installed the last version which six things t
 So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
 commit that made it, not here.
 
+## 0.33.0
+
+### Added
+
+- **A canvas picker, for a machine with more than one Rhino open.** Until now the extension took whichever
+  session it happened to find first, and on a machine running three of them that was a coin toss you could
+  not see, let alone call. Clicking the status bar now lists every Grasshopper that answers - document name,
+  port and the Rhino process it belongs to, newest first - and picking one **pins** it. The status bar shows
+  a pin while a choice is held, and the pin survives until that session stops answering, so a poll or a
+  restart cannot quietly move you to a different canvas mid-sentence. `Phenome Link: Switch Canvas` does
+  the same thing from the Command Palette.
+
+- **Two preview panels: the canvas and the Rhino viewport.** `Phenome Link: Show the Canvas` and
+  `Phenome Link: Show the Rhino Viewport` open a panel each, with a refresh button and nothing else. They
+  ask the session you are pinned to, so switching canvas switches what they show.
+
+  Both matter most when you are not sitting at the machine. Over a VS Code tunnel the editor is the only
+  window you have, and until now there was no way to look at the canvas without asking an agent to describe
+  it. See [docs/from-anywhere.md](docs/from-anywhere.md).
+
 ## 0.32.0
 
 ### Security
@@ -34,10 +54,12 @@ commit that made it, not here.
   opaque response and learns nothing, and finding which of sixteen thousand ports is a canvas is a
   different problem from knocking until one says `grasshopper-link`.
 
-- **The link now refuses anything a browser sends.** A request carrying `Origin`, `Referer` or any
-  `Sec-Fetch-*` header is answered 403 and a sentence saying why. Browsers attach at least one of those to
-  every request they make and cannot be talked out of it; the MCP server, the extension, a script and curl
-  attach none. `Host` is checked too, which answers the trick of pointing your own domain at 127.0.0.1 so
+- **The link now refuses anything a browser sends.** A request carrying `Origin`, `Referer`,
+  `Sec-Fetch-Site` or `Sec-Fetch-Dest` is answered 403 and a sentence saying why. Browsers attach at least
+  one of those to every request they make and cannot be talked out of it; the MCP server, the extension, a
+  script and curl attach none of the four. Only those two of the `Sec-Fetch-*` family are checked, and the
+  narrowing was measured rather than reasoned: Node's own `fetch` sends `Sec-Fetch-Mode`, so refusing the
+  whole family would have refused our own clients. `Host` is checked too, which answers the trick of pointing your own domain at 127.0.0.1 so
   the browser believes it is same-origin and sends no `Origin` at all.
 
 - **Install the `.gha`, the `.rhp` and the `.vsix` from this release together.** A `POST` must now carry

@@ -29,6 +29,14 @@ a browser that needs nothing installed. A phone will do at a push, though you wi
 Extensions run **on the remote machine**, which is the part people trip on: install Claude Code, Kilo or
 whatever you drive the tools with **there**, not in the browser. The browser is a screen, not a computer.
 
+Install them **from inside the tunnel session** - the Extensions view, or `Install from VSIX…` in its `…`
+menu. A tunnel keeps its own extension directory, separate from the one the VS Code you double-click uses,
+and the two do not see each other. This bites hardest with our own `.vsix`, because it comes as a file
+rather than from the marketplace: install it by sitting at the machine, or over SSH with
+`code --install-extension`, and the tunnel session will not have it and will give no hint why. The command
+line can reach the right directory, but only if told which one:
+`code --extensions-dir "%USERPROFILE%\.vscode-server\extensions" --install-extension phenome-link-<version>.vsix`.
+
 ## What it does not do, and would be unkind not to say
 
 **The machine has to be awake, logged in, and left that way.** Rhino needs a desktop session, so a machine
