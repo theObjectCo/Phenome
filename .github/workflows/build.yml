@@ -20,6 +20,13 @@ jobs:
     # references - but keeping the build on the platform it ships to costs nothing and removes a question.
     runs-on: windows-latest
 
+    # Whether this release carries a Security block in the changelog. Derived rather than declared: a flag
+    # somebody has to remember to set is a flag that will one day not be set, and this file already carries
+    # two comments about exactly that failure. Writing the block is the thing you do anyway; the release
+    # note follows from it.
+    outputs:
+      security: ${{ steps.wersje.outputs.security }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -74,6 +81,12 @@ jobs:
           Copy-Item (Get-ChildItem -Recurse src/Phenome.Apps.RhinoLink/bin/Release -Filter *.rhp)[0].FullName dist
           Copy-Item src/Phenome.Apps.GrasshopperLink/manifest.yml dist
           Copy-Item (Get-ChildItem src/Phenome.Apps.VSCodeLink -Filter 'phenome-link-*.vsix')[0].FullName dist
+
+          # The gateway's zip belongs here too, and is deliberately absent rather than written blind: the
+          # lines above index [0] into a search, so a pattern matching nothing throws and the whole build
+          # stops. Add the build step and the copy together, when the project exists - and remember it is
+          # also named in the version check below, which is the one that fails silently rather than loudly.
+
           Get-ChildItem dist | ForEach-Object { "  $($_.Name)  $([int]($_.Length/1KB)) KB" }
 
       # All five version declarations must agree. Yak cross-checks the first two, the friction log stamps its
@@ -85,6 +98,7 @@ jobs:
       # has to be extended by hand every time there is a new one, and the failure is silent: an unnamed
       # project simply is not checked, and ships with whatever number it happened to have.
       - name: Check every version declaration agrees
+        id: wersje
         shell: pwsh
         run: |
           $versions = [ordered]@{
@@ -121,6 +135,21 @@ jobs:
             throw "CHANGELOG.md has no '## $($distinct[0])' entry"
           }
           "  changelog: an entry for $($distinct[0])"
+
+          # And whether that entry says the release fixes something somebody can be hurt by. The release
+          # note then says so in its title and at the top of its body, without a second tag, a label or
+          # anything else to remember. Pattern built by concatenation rather than interpolation, because
+          # $(...) inside a double-quoted PowerShell string is a subexpression, not a capture group.
+          $zmiany = Get-Content CHANGELOG.md -Raw
+          $wzor = '(?ms)^## ' + [regex]::Escape($distinct[0]) + '\s*\r?\n(.*?)(?=^## |\z)'
+          $security = 'false'
+
+          if ($zmiany -match $wzor -and $Matches[1] -match '(?m)^### Security\s*$') {
+            $security = 'true'
+          }
+
+          "  security: $security"
+          "security=$security" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - uses: actions/upload-artifact@v4
         with:
@@ -187,7 +216,11 @@ jobs:
           # overwrite its predecessor on every release - leaving a file nobody can date.
           $target = "$env:FOLDER/$version"
 
-          $files = Get-ChildItem dist -Include *.gha, *.rhp, *.vsix -Recurse
+          # The zip is the gateway, which is not in the yak package but is part of the same release and
+          # carries the same version. Listed before it exists on purpose: this job selects by extension and
+          # says nothing about what it skipped, so an artefact added later would otherwise be absent here
+          # and nobody would find out. A pattern matching nothing costs nothing.
+          $files = Get-ChildItem dist -Include *.gha, *.rhp, *.vsix, *.zip -Recurse
           if (-not $files) { throw 'nothing to upload' }
 
           $token = (Invoke-RestMethod -Method POST `
@@ -243,13 +276,26 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          # The title says it before anybody opens anything. A release nobody should skip and a release
+          # with six small improvements look identical on a list of tags, and the person who most needs to
+          # know is the one scrolling that list rather than reading the changelog.
+          name: >-
+            ${{ needs.build.outputs.security == 'true'
+                && format('{0} — security release, do not skip', github.ref_name)
+                || github.ref_name }}
           # Named rather than dist/*, because that also published manifest.yml - a build input, and one more
           # file to wonder about on a page where every entry should be something you install.
           files: |
             dist/*.gha
             dist/*.rhp
             dist/*.vsix
+            # The gateway, once it is built here: a separate, deliberate download, outside the yak package
+            # but part of this release and on this release's version. Unmatched globs are not an error, so
+            # naming it now is free and means the release cannot quietly ship without it.
+            dist/*.zip
           body: |
+            ${{ needs.build.outputs.security == 'true' && '> **This release fixes a security problem. The `### Security` block in `CHANGELOG.md` says what it was, what somebody could have done with it, and whether you were exposed. Read that before deciding to install this later.**' || '' }}
+
             Three parts of one mechanism, and they install by hand. These three files are the whole release:
             there is no package on any server and no plan for one. If you would rather install from Rhino's
             Package Manager, `tools/pack-yak.ps1` in the repository builds a `.yak` for a folder of your own,
@@ -272,3 +318,8 @@ jobs:
 
             What changed since the version you have is in `CHANGELOG.md`, which is written for that question
             rather than for the commit history.
+
+            **If that file has a `### Security` block for a version above yours, read it before deciding to
+            skip this release.** The link binds loopback and runs code in Rhino, so a hole in it is reachable
+            by anything that runs on your machine — a web page included. Those entries say what an attacker
+            could do and what to do about it, in plain words.

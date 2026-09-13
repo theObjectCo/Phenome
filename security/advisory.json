@@ -1,0 +1,19 @@
+{
+  "_comment": [
+    "Read by the plugin at startup, in the background, and compared on the machine that read it.",
+    "Nothing is sent: this is a static file and the plugin never says which version it is running.",
+    "",
+    "Set minimum_safe to the first version that is safe. Every older installation then stops serving",
+    "its verbs and tells its user why. Grasshopper and Rhino are untouched; only the link withdraws.",
+    "",
+    "This disables software on other people's machines. Raising minimum_safe is a decision to take",
+    "for a hole somebody can be hurt by, not for a bug. The commit is the record of that decision,",
+    "so write the reason for the person reading it on their screen, not for us.",
+    "",
+    "It fails open: no network, no notice, no effect. PHENOME_IGNORE_ADVISORY=1 overrides it."
+  ],
+
+  "minimum_safe": "0.32.0",
+  "reason": "a web page you visit could drive the canvas and run code in Rhino.",
+  "more": "https://github.com/theObjectCo/Phenome/releases"
+}

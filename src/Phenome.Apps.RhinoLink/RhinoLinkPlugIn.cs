@@ -30,6 +30,14 @@ public class RhinoLinkPlugIn : PlugIn
         try
         {
             RhinoServer.Start();
+
+            // This half asks too, rather than waiting to be told by the other one. The two are separate
+            // assemblies with their own copy of the shared source, so each has its own state and neither
+            // can rely on the other having loaded - a Rhino started without Grasshopper has this half and
+            // nothing else. Two small requests per Rhino start is the price of that independence.
+            Advisory.Watch(notice =>
+                Rhino.RhinoApp.WriteLine(
+                    notice.Sentence + " The Rhino link is refusing verbs until it is updated."));
         }
         catch (Exception failure)
         {

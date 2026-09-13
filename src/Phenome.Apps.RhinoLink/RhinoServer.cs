@@ -104,6 +104,25 @@ internal static class RhinoServer
     {
         string path = context.Request.Url?.AbsolutePath.TrimEnd('/') ?? "";
         string method = context.Request.HttpMethod;
+
+        // A page the user visits can reach loopback; binding to 127.0.0.1 is not a boundary against it.
+        // See Browser.Refuse. This half answers about the process and can type at the command line, so it
+        // is no less worth guarding than the canvas half.
+        if (Browser.Refuse(context.Request, Port) is { } refused)
+        {
+            Respond(context.Response, 403, $"{{\"ok\":false,\"error\":{Json.Quote(refused)}}}");
+            return;
+        }
+
+        // A withdrawn version stops here too. The greeting still answers, so a client sees the session and
+        // the reason rather than a dead port - and the reason is the same one the canvas half gives, from
+        // the same state, because a version is withdrawn or it is not.
+        if (Advisory.Withdrawn is { } notice && path.Length != 0)
+        {
+            Respond(context.Response, 403, $"{{\"ok\":false,\"error\":{Json.Quote(notice.Sentence)}}}");
+            return;
+        }
+
         string payload = method == "POST" ? ReadBody(context.Request) : "";
 
         try

@@ -72,8 +72,26 @@ session token.
 | status | meaning | body |
 |---|---|---|
 | `200` | it worked | the verb's own answer |
+| `403` | you look like a browser, or this build has been withdrawn | `{"ok":false,"error":"<which of the two, in words>"}` |
 | `404` | no such verb | `{"ok":false,"error":"There is no POST /wibble. GET / describes what there is."}` |
 | `500` | the verb refused, or failed | `{"ok":false,"error":"<what went wrong, in words>"}` |
+
+**Since 0.32.0 the link refuses anything that looks like it came from a web page**, and a client author
+should know why so as not to trip it. A page the user visits can reach `127.0.0.1` — the request comes from
+their own machine and is indistinguishable from yours — and this API runs code in Rhino, so binding to
+loopback was never the boundary it appeared to be. The link therefore answers `403` to any request carrying
+`Origin`, `Referer` or a `Sec-Fetch-*` header, and to one whose `Host` is not this link's own address.
+
+**Every `POST` must also carry `Content-Type: application/json`**, and this is the one that does the real
+work. A `no-cors` request may use `text/plain`, `x-www-form-urlencoded` or `multipart/form-data` and
+nothing else, so asking for JSON makes the request non-simple, the browser sends a preflight first, and a
+server that does not answer preflights with permission ends the matter there. The header checks above hold
+only while browsers keep sending what they send today; this one holds because a page cannot satisfy it.
+
+**So do not set the browser headers, and do set the content type**, and be aware that a client running
+*inside* a browser cannot talk to this link at all. That is deliberate and will not be relaxed. There is no
+allow-list and no token to ask for: if your program is not a browser, it already passes, and if it is one,
+nothing will make it pass.
 
 **A refusal is not a crash.** Most `500`s are deliberate: `/delete` refuses when it would cut live wires,
 `/signature` refuses when an object belongs to two groups. The message says which, and it is written for a

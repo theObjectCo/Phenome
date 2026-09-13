@@ -34,6 +34,10 @@ async function ask(pathname, body) {
     try {
         const answer = await fetch(`http://127.0.0.1:${port}${pathname}`, {
             method: body ? 'POST' : 'GET',
+
+            // Required since 0.32.0, and the reason is the header rather than the body: a page cannot set
+            // this on a no-cors request, so demanding it is what keeps a website off this port.
+            headers: body ? { 'Content-Type': 'application/json' } : undefined,
             body: body ? JSON.stringify({ author: 'claude', ...body }) : undefined,
         });
 
@@ -72,6 +76,10 @@ async function askRhino(pathname, body) {
     try {
         const answer = await fetch(`http://127.0.0.1:${rhinoPort}${pathname}`, {
             method: body ? 'POST' : 'GET',
+
+            // Required since 0.32.0, and the reason is the header rather than the body: a page cannot set
+            // this on a no-cors request, so demanding it is what keeps a website off this port.
+            headers: body ? { 'Content-Type': 'application/json' } : undefined,
             body: body ? JSON.stringify({ author: 'claude', ...body }) : undefined,
         });
 
@@ -1023,7 +1031,7 @@ async function handle(line) {
             reply(id, {
                 protocolVersion: params?.protocolVersion ?? '2024-11-05',
                 capabilities: { tools: {} },
-                serverInfo: { name: 'phenome', version: '0.31.0' },
+                serverInfo: { name: 'phenome', version: '0.32.0' },
                 instructions: instructions(),
             });
             break;

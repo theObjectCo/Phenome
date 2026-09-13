@@ -105,6 +105,21 @@ internal static class InsideServer
     {
         string path = context.Request.Url?.AbsolutePath.TrimEnd('/') ?? "";
         string method = context.Request.HttpMethod;
+
+        // A page the user visits can reach loopback; binding to 127.0.0.1 is not a boundary against it.
+        // See Browser.Refuse.
+        if (Browser.Refuse(context.Request, Port) is { } refused)
+        {
+            Respond(context.Response, 403, $"{{\"ok\":false,\"error\":{Json.Quote(refused)}}}");
+            return;
+        }
+
+        if (Advisory.Withdrawn is { } notice && path.Length != 0)
+        {
+            Respond(context.Response, 403, $"{{\"ok\":false,\"error\":{Json.Quote(notice.Sentence)}}}");
+            return;
+        }
+
         string payload = method == "POST" ? ReadBody(context.Request) : "";
 
         served++;

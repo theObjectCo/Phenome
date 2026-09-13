@@ -11,6 +11,69 @@ the code, do not tell somebody who installed the last version which six things t
 So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
 commit that made it, not here.
 
+## 0.32.0
+
+### Security
+
+- **A web page you visited could drive your canvas and run code in Rhino. Update, and the sooner the
+  better.** Every version up to and including 0.31.0 is affected, on every machine where Rhino and
+  Grasshopper were open.
+
+  The link binds `127.0.0.1`, and that was read as "only this machine, therefore only things the user
+  already trusts". The first half is true and the conclusion does not follow. **A browser is a program on
+  that machine**, and a page can ask it to `fetch('http://127.0.0.1:53812/place', {mode:'no-cors', ...})`.
+  The request leaves your own computer, arrives on loopback, and is indistinguishable from a local client.
+  Nobody needs to reach your port from outside; they need you to open a tab.
+
+  What that reached was the whole protocol, `script_write` included, which compiles and runs C# inside
+  Rhino. So: arbitrary code execution, on a machine that merely had Rhino open, triggered by visiting a
+  page.
+
+  It was made materially worse by a header this release removes. The server answered every request with
+  `Access-Control-Allow-Origin: *`, so a page could **read** the replies. Without it a browser gets an
+  opaque response and learns nothing, and finding which of sixteen thousand ports is a canvas is a
+  different problem from knocking until one says `grasshopper-link`.
+
+- **The link now refuses anything a browser sends.** A request carrying `Origin`, `Referer` or any
+  `Sec-Fetch-*` header is answered 403 and a sentence saying why. Browsers attach at least one of those to
+  every request they make and cannot be talked out of it; the MCP server, the extension, a script and curl
+  attach none. `Host` is checked too, which answers the trick of pointing your own domain at 127.0.0.1 so
+  the browser believes it is same-origin and sends no `Origin` at all.
+
+- **Install the `.gha`, the `.rhp` and the `.vsix` from this release together.** A `POST` must now carry
+  `Content-Type: application/json`, and an older extension does not send it, so a plugin updated ahead of
+  its extension will refuse that extension. The refusal says so in as many words rather than leaving you
+  with a header name.
+
+  This is the check worth having, and it is different in kind from the ones above. Those are negative — a
+  request is refused for carrying something — and they hold only while browsers keep sending headers they
+  send today. This one is positive: the request has to prove something, and a page **cannot**. A `no-cors`
+  request may use `text/plain`, `x-www-form-urlencoded` or `multipart/form-data` and nothing else; asking
+  for JSON makes it non-simple, the browser sends a preflight first, and a server that does not answer
+  preflights with permission ends it there.
+
+  It does not replace the `Host` check, which answers a different trick: point your own domain at
+  127.0.0.1 and the browser considers the request same-origin, so there is no preflight and any content
+  type is allowed. Three checks because there are three ways in.
+
+### Added
+
+- **The link can be withdrawn remotely when a version turns out to be unsafe, and says so.** It reads one
+  static file in this repository, in the background, and compares on your machine. If the version you are
+  running has been withdrawn, the canvas link stops answering its verbs and tells you which version to move
+  to; Rhino and Grasshopper are untouched.
+
+  Four things about it, because a plugin that can disable itself deserves plain description rather than a
+  line in a feature list. **It sends nothing** — the whole notice is fetched and compared locally, so there
+  is no telemetry and no way to learn who runs what. **It fails open** — no network, blocked domain, bad
+  file, no effect. **It withdraws the link and nothing else** — taking away a CAD application because a
+  bridge has a bug would be wildly out of proportion. And **it can be overridden**, with
+  `PHENOME_IGNORE_ADVISORY=1`, which says so at every startup: a mistake on our side would otherwise stop
+  your work with no recourse, and the machine is yours.
+
+  It exists because this release is the kind of thing it is for. Deleting a release uninstalls nothing, and
+  the people most at risk are the ones not reading this file.
+
 ## 0.31.0
 
 ### Added

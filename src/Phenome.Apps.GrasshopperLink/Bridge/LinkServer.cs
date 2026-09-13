@@ -179,6 +179,24 @@ internal static class LinkServer
         string path = context.Request.Url?.AbsolutePath.TrimEnd('/') ?? "";
         string method = context.Request.HttpMethod;
 
+        // Before anything is read or run: a browser must not be able to drive this. See Browser.Refuse -
+        // loopback is not a boundary against a page the user merely visits, and this API compiles C#.
+        if (Browser.Refuse(context.Request, Port) is { } refused)
+        {
+            Send(context.Response, 403, $"{{\"ok\":false,\"error\":{Json.Quote(refused)}}}");
+            return;
+        }
+
+        // A version withdrawn while it was running keeps answering the greeting and refuses the verbs.
+        // Tearing the listener down would be tidier to write and worse to receive: a client would see a
+        // dead port, report "no session", and the human would never learn why. A refusal carries the
+        // sentence, so whoever is at the other end - a person or an agent - is told what to do.
+        if (Advisory.Withdrawn is { } notice && path.Length != 0)
+        {
+            Send(context.Response, 403, $"{{\"ok\":false,\"error\":{Json.Quote(notice.Sentence)}}}");
+            return;
+        }
+
         // Read once, up front: the body stream is single-pass, and a refusal cannot say what was asked
         // for unless the asking was kept.
         string payload = method == "POST" ? ReadBody(context.Request) : "";
@@ -449,9 +467,12 @@ internal static class LinkServer
         response.StatusCode = status;
         response.ContentType = "application/json";
 
-        // Open to any origin for the same reason the payload server is: the clients are local windows -
-        // a webview, a browser tab - and the listener never leaves the loopback.
-        response.Headers["Access-Control-Allow-Origin"] = "*";
+        // No Access-Control-Allow-Origin, and its absence is the point. It used to be "*", on the reasoning
+        // that the clients are local windows and the listener never leaves loopback. The second half is
+        // true and the conclusion does not follow: a page the user visits can reach loopback, and that
+        // header was what let it *read* the answers - turning a blind port scan into "knock until something
+        // says grasshopper-link". Without it a browser gets an opaque response and learns nothing, which is
+        // the difference between finding this link in a minute and not finding it at all.
         response.ContentLength64 = bytes.Length;
         response.OutputStream.Write(bytes);
         response.Close();

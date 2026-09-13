@@ -94,6 +94,23 @@ public class LinkRegistration : GH_AssemblyPriority
             global::Grasshopper.GUI.Canvas.GH_Canvas.WidgetListCreated += (_, gathering) =>
                 gathering.AddWidget(new PairWidget());
 
+            // Asks once, in the background, whether this version has been withdrawn, and says so if it has.
+            // The link is already serving by the time an answer arrives - deliberately, because waiting on
+            // the network before Grasshopper can draw would be worse than the problem. Nothing is sent: the
+            // notice is a static file, compared here. PHENOME_IGNORE_ADVISORY=1 turns it off.
+            Advisory.Watch(notice =>
+            {
+                LinkLog.Say(notice.Sentence);
+                LinkLog.Say("Phenome Link: the canvas link is refusing verbs until it is updated.");
+            });
+
+            if (Advisory.Overridden)
+            {
+                LinkLog.Say(
+                    "Phenome Link: PHENOME_IGNORE_ADVISORY is set - safety notices are being ignored on "
+                    + "this machine.");
+            }
+
             LinkLog.Say($"Phenome Link: listening on http://127.0.0.1:{LinkServer.Port}/ ({discovery}).");
             LinkLog.Say($"Phenome Link: friction log at {Friction.Path} - local only, share it if you want the bridge fixed.");
         }

@@ -36,6 +36,9 @@ async function linkFetch(pathname, body) {
     try {
         const answer = await fetch(`http://127.0.0.1:${link.port}${pathname}`, {
             method: body ? 'POST' : 'GET',
+
+            // Required since 0.32.0: a page cannot set this on a no-cors request, so the link demands it.
+            headers: body ? { 'Content-Type': 'application/json' } : undefined,
             body: body ? JSON.stringify({ author: 'vscode', ...body }) : undefined,
             signal: controller.signal,
         });
