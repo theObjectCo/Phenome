@@ -380,6 +380,15 @@ curl http://127.0.0.1:<that port>/
 A description of the whole protocol comes back. No port file means the plugin did not load — which on a
 fresh install is almost always step 1 above.
 
+### Not sitting at that machine
+
+You do not have to be. Turn on VS Code's own remote tunnel on the Rhino machine and open it from a browser
+anywhere: the extension, the MCP server and the agent all run beside Rhino, and the link never leaves
+loopback, so there is nothing of ours to install or configure for it.
+
+The recipe, and the four things it costs, are in [docs/from-anywhere.md](docs/from-anywhere.md). The
+shortest of them: the machine has to be awake and logged in, because a canvas needs a desktop.
+
 ## Talking to it
 
 Any HTTP client is a peer:
