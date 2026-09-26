@@ -88,6 +88,15 @@ without its *why* gets re-litigated or quietly dropped.
       are finishing moves people run more than once, and a save prompt for having run one twice teaches
       callers to distrust the prompt.
 
+- [ ] **Confirm that edits made while the editor is hidden still solve.** On 0.24.0 (2026-08-23 and
+      2026-08-24, three friction reports) objects placed while the Grasshopper editor was hidden
+      (`-_Grasshopper _W _H`) were created and wired but never solved. A `set` after reopening a saved
+      document behaved the same way. Showing the editor and expiring the object woke it. A retest on
+      0.24.1 could not reproduce it, but the report does not say whether the editor was hidden during
+      the retest. No change since then mentions it, and the friction log has no report of it after
+      2026-08-24. The check takes a few minutes: hide the editor, `place` one Construct Point with a
+      constant, `peek` its output. If it solves, close this item.
+
 ## 3. Done
 
 ### Two bugs the modified flag exposed, and one it did not
