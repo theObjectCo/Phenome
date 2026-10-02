@@ -254,10 +254,11 @@ text. Four numbers are r,g,b,a with the alpha last. Eight hex digits are `#aarrg
 which is .NET's order and the reverse of CSS. Any other count of numbers is refused, and a name has to be
 one the system knows.
 
-**`/arrange` stacks sources in the order of the sockets they feed.** Within a column, a block that feeds a
-component's first input stands above one that feeds its second, and the groups feeding another group stand
-in the order of its inlets. Blocks with no wire to settle them keep the vertical order they had, so a second
-`/arrange` answers `moved: 0`.
+**`/arrange` stacks sources in the order of the sockets they feed.** Within a column, a block feeding a
+component's first input stands above one feeding its second, and the groups feeding another group stand in
+the order of its inlets. A block with nothing upstream goes in the column just left of its nearest reader.
+Blocks with no wire to order them keep their vertical order. A second `/arrange` answers `moved: 0`: pivots
+are planned in whole pixels, and an object within a pixel of its place is not moved.
 
 **A note's group decides where `/arrange` puts it.** Notes are laid out by a pass of their own, after the
 components have their positions — they are not part of the layout algebra, having no ports and no dataflow, and
@@ -277,7 +278,7 @@ drawing, and objects in no group are quieted with the rest — a group id quiets
 whatever colour it wears, and an object id quiets exactly that object. `on:true` gives any of them back. The
 answer carries a `groups` array and an `objects` array, each with what ended up drawing rather than what this
 call changed, and a sweep adds `ungrouped` with the same three counts. Every id is checked before any flag
-moves, so an id that is not on the canvas refuses the whole list and says which id it was. An object that
+moves, and an id that is not on the canvas refuses the whole list and is named in the refusal. An object that
 draws nothing is skipped and listed under `skipped`, and the rest of the list goes ahead. On a canvas with no
 groups at all the sweep quiets everything.
 
@@ -307,7 +308,7 @@ screenshot tells you a definition looks plausible, which is not the same claim. 
 `/screenshot` exist for the human's half of the pairing.
 
 `/measure?id=` answers the sizes `/peek` does not: per item, a curve's length and, when it is closed and
-planar, its area; a brep's or mesh's area and, when closed, its volume. Totals and a bounding box follow. It
+planar, its area; a brep's or mesh's area and, when closed, its volume; and totals with a bounding box. It
 reads a component's output unless `side=input`. With `against=` (and `againstSide`, `againstParam`) it
 compares every pair from the two sets: the area two closed planar curves share, the volume two solids share,
 which pairs overlap, and the nearest distance between curves or points. The same id and parameter twice

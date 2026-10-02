@@ -297,7 +297,7 @@ internal static class LinkServer
     private static readonly HashSet<string> Told = [];
 
     /// <summary>
-    /// Verbs that change nothing on the canvas, so a script sending them is no reason to say anything.
+    /// Verbs that change nothing on the canvas. A script sending one of these gets no door sentence.
     /// </summary>
     private static readonly HashSet<string> Talk =
         ["/say", "/report", "/feedback", "/dialog", "/dismiss", "/escape", "/select", "/zoom"];

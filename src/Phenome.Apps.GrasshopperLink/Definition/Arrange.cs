@@ -65,8 +65,8 @@ internal static class Arrange
     /// <summary>Arranges the whole document. Returns how many objects moved.</summary>
     internal static int Whole(GH_Document document)
     {
-        // Notes are laid out by Captions afterwards. An unwired panel is one, and it used to be a node here
-        // as well, so the layout moved it and then the caption pass moved it again.
+        // Notes are laid out by Captions afterwards, and an unwired panel counts as a note. Laid out here as
+        // well, it was moved by the layout and then again by the caption pass.
         List<IGH_DocumentObject> nodes = [.. document.Objects
             .Where(thing => thing is IGH_Component or IGH_Param && thing.Attributes is not null && !IsNote(thing))];
 
@@ -152,8 +152,8 @@ internal static class Arrange
             }
         }
 
-        // Every pivot is planned before any is written, so the anchor correction below can be folded into the
-        // plan rather than applied as a second move.
+        // Every pivot is planned before any is written. The anchor correction below goes into the plan, and
+        // no object is moved twice.
         Dictionary<IGH_DocumentObject, PointF> wants = [];
 
         foreach (Block root in roots)
@@ -451,11 +451,11 @@ internal static class Arrange
             nested ? BlockGapX : NodeGapX,
             nested ? BlockGapY : NodeGapY);
 
-        // Room for the group's captions, in the block's own size, so the box the layout reserves is the box
-        // the frame is drawn around. A caption is one unwrapped line and was often wider than what it
-        // captioned, so the frame grew past the reserved width and touched the next group along: a 503 px
-        // caption over a block at x=100 reached x=603, and the neighbour started at 579. Stacked the way
-        // Captions stacks them, so the topmost caption ends exactly at the top of the band.
+        // Room for the group's captions, in the block's own size: the box the layout reserves is then the box
+        // the frame is drawn around. A caption is one unwrapped line and is often wider than what it captions.
+        // Measured before this: a 503 px caption over a block at x=100 reached x=603, and the neighbour
+        // started at 579. The band adds up the captions the way Captions stacks them, and the topmost caption
+        // ends at the top of the band.
         List<SizeF> captions = Notes(block.Group!);
         float widest = captions.Count == 0 ? 0 : captions.Max(caption => caption.Width);
 
@@ -546,9 +546,9 @@ internal static class Arrange
         // the socket it reads into sits, as a fraction of the block's height.
         List<(int Reader, double Down)>[] readers = Readers(blocks, owner);
 
-        // A block nothing feeds stands just left of what reads it, not at the far left. Longest path from the
-        // sources put every source in the first column, so the groups feeding a component three columns along
-        // stood among the groups feeding the first one, and their wires crossed all of them on the way.
+        // A block nothing feeds goes in the column just left of its nearest reader. Longest path from the
+        // sources alone puts every source in the first column, where the groups feeding a component three
+        // columns along stand among the groups feeding the first one and their wires cross all of them.
         for (int i = 0; i < blocks.Count; i++)
         {
             if (feeders[i].Count == 0 && readers[i].Count > 0)
@@ -572,12 +572,11 @@ internal static class Arrange
 
         // Where each block stands now, top to bottom, is the order the sweeps start from.
         //
-        // It used to be the order of document.Objects, and Restack rewrites that order on every run: it sends
-        // each group to the back in turn, which reverses them. A block with nothing wired to it keeps the place
-        // it starts from, so sixteen unconnected groups came out upside down on every arrange, for ever,
-        // reported as about 160 objects moved each time. A position is what this pass decides, so after one
-        // run the next starts from the same order and ends where it began. Ties fall to the guid, which no pass
-        // rewrites.
+        // Not the order of document.Objects. Restack rewrites that order on every run by sending each group to
+        // the back in turn, which reverses them, and a block with nothing wired to it keeps the place it starts
+        // from. Sixteen unconnected groups came out upside down on every arrange, about 160 objects moved each
+        // time. A position is what this pass decides, and a second run starts from the order the first one
+        // left. Ties fall to the guid, which no pass rewrites.
         float[] top = new float[blocks.Count];
 
         for (int i = 0; i < blocks.Count; i++)
@@ -641,10 +640,10 @@ internal static class Arrange
                 Order(column);
             }
 
-            // Right to left: a block goes level with the socket it feeds. This is what puts the source of a
-            // component's first input above the source of its second, and the inputs of a group in the order
-            // of its inlets. Without it nothing ever moved a column of sources, because a source has no feeders
-            // and so kept whatever place it started in. Run last, so the sources end in socket order.
+            // Right to left: a block goes level with the socket it feeds. This pass puts the source of a
+            // component's first input above the source of its second, and the inputs of a group in the order of
+            // its inlets. A source has no feeders, and without this pass a column of sources kept the order it
+            // started in. It runs last, and the sources end in socket order.
             for (int c = columns.Length - 1; c >= 0; c--)
             {
                 List<int> column = columns[c];
@@ -697,8 +696,8 @@ internal static class Arrange
     /// <remarks>
     /// The fraction is measured on the reading block as it was laid out inside: the leaf's own offset in its
     /// block plus the socket's share of the leaf's height, over the block's height. A block of one component
-    /// gives its first input 0.5 / n and its last (n - 0.5) / n. A group gives the inlet near its top a small
-    /// number, so whatever feeds that inlet is ranked above whatever feeds one lower down.
+    /// gives its first input 0.5 / n and its last (n - 0.5) / n. In a group the inlet near the top gets a small
+    /// number, and its source ranks above the source of an inlet lower down.
     /// </remarks>
     private static List<(int Reader, double Down)>[] Readers(List<Block> blocks, Dictionary<IGH_DocumentObject, int> owner)
     {
@@ -761,9 +760,9 @@ internal static class Arrange
 
     /// <summary>A size in whole pixels, the unit every block is measured and stacked in.</summary>
     /// <remarks>
-    /// A note's bounds come from text measurement and are fractional, and Grasshopper rounds them against the
-    /// pivot, so the same note measured a pixel taller or shorter depending on where it last stood. The band
-    /// reserved for it changed with it, and a second arrange moved the body under it by one pixel.
+    /// Bounds come from text measurement and are fractional, and Grasshopper rounds them against the pivot. The
+    /// same note measures a pixel taller or shorter depending on where it last stood, and before this the band
+    /// reserved for it changed with it and a second arrange moved the body below by one pixel.
     /// </remarks>
     private static SizeF Pixels(SizeF size) => new(MathF.Ceiling(size.Width), MathF.Ceiling(size.Height));
 
@@ -793,8 +792,8 @@ internal static class Arrange
             PointF pivot = node.Attributes.Pivot;
 
             // The pivot sits at its own offset inside the bounds; keeping that offset lands the object's
-            // top-left exactly where the layout said. On whole pixels, because Grasshopper rounds an object's
-            // bounds against its pivot, so a fractional pivot measures differently next time.
+            // top-left exactly where the layout said. Whole pixels, because Grasshopper rounds an object's
+            // bounds against its pivot and a fractional pivot measures differently the next time.
             wants[node] = new PointF(
                 MathF.Round(x + (pivot.X - bounds.X)),
                 MathF.Round(y + (pivot.Y - bounds.Y)));
@@ -822,10 +821,10 @@ internal static class Arrange
         // undo step per object that undoes nothing. Arranging twice is a normal thing to do - it is the
         // finishing move - so the second run should report nothing and record nothing.
         //
-        // Within a pixel, not equality. Grasshopper rounds an object's bounds against its pivot, so a
-        // parameter fifty and a fraction pixels wide measures fifty at one position and fifty-one at the
+        // The test is within a pixel, not equality. Grasshopper rounds an object's bounds against its pivot:
+        // a parameter fifty and a fraction pixels wide measures fifty at one position and fifty-one at the
         // next, and everything laid out after it lands a pixel along. A pixel is below anything a canvas
-        // shows, so a want that close is where the object already is.
+        // shows, and a want that close counts as where the object already is.
         if (Math.Abs(pivot.X - want.X) < Settled && Math.Abs(pivot.Y - want.Y) < Settled)
         {
             return;
@@ -835,9 +834,9 @@ internal static class Arrange
 
         node.Attributes.Pivot = want;
 
-        // Expire *and* recompute, rather than expiring and hoping. Bounds is worked out during a layout
-        // pass and cached, so until the next pass Bounds and Pivot disagree, and anything that reads one to
-        // convert to the other gets the old position. That is how two groups once came to swap places on
+        // The layout is expired *and* recomputed. Bounds is worked out during a layout pass and cached, and until the next
+        // pass Bounds and Pivot disagree: anything that reads one to convert to the other gets the old
+        // position. That is how two groups once came to swap places on
         // alternate runs. Recomputing here costs a layout per moved object and removes the class of fault.
         node.Attributes.ExpireLayout();
         node.Attributes.PerformLayout();

@@ -622,13 +622,13 @@ internal static class Review
     /// Runs are counted the way <c>GH_Component</c> iterates. Branch <i>i</i> of every input is paired with
     /// branch <i>i</i> of the others, and an input with fewer branches lends its last one. Inside a pair the
     /// longest item list sets the count (the shortest, on a component set to shortest-list matching), and a
-    /// list input counts once per branch. Tree inputs are left out. A component set to cross reference is
-    /// skipped entirely: in both cases the author has decided the structure outright.
+    /// list input counts once per branch. Tree inputs and components set to cross reference are both left out,
+    /// because in both the author has decided the structure outright.
     /// <para>
     /// A component run more times than its largest input has items is running some data again against every
     /// extra branch of another input. That is a product, and it is either a grid made on purpose (a grafted
-    /// input against a list) or a flatten upstream that turned 1500 points into 15,000 circles. Structure
-    /// cannot tell the two apart. The size decides: a product with more than <see cref="Suspicious"/> runs
+    /// input against a list) or a flatten upstream that turned 1500 points into 15,000 circles. The structure
+    /// is the same in both, and the size decides: a product with more than <see cref="Suspicious"/> runs
     /// in one branch is blocking, and a smaller one, a 20 by 20 grid for instance, is polish. A long list fed
     /// alongside an equally long one is no product at all. 1500 centres with 1500 radii make 1500 circles, and calling that blocking left a correct
     /// definition unable to reach a clean review.

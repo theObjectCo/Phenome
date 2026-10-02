@@ -45,7 +45,7 @@ internal static class View
 
             // A minimised editor shrinks the canvas to nothing, and GDI+ answers a bitmap of no size with
             // "Parameter is not valid." - six times in a row in the friction log, with no hint of the cause.
-            // The window is the human's, so it is not restored from here.
+            // The window belongs to the human and is not restored from here.
             if (canvas.Width < 1 || canvas.Height < 1)
             {
                 throw new InvalidOperationException(

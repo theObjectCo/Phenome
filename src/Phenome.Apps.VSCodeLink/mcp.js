@@ -36,8 +36,8 @@ async function ask(pathname, body) {
             method: body ? 'POST' : 'GET',
 
             // Required since 0.32.0, and the reason is the header rather than the body: a page cannot set
-            // this on a no-cors request, so demanding it is what keeps a website off this port. The client
-            // header tells the link this edit came through the tools, so it does not point at them.
+            // this on a no-cors request, and demanding it is what keeps a website off this port. The client
+            // header tells the link that this edit came through the tools, and the link does not point at them.
             headers: body ? { 'Content-Type': 'application/json', 'X-Phenome-Client': 'mcp' } : undefined,
             body: body ? JSON.stringify({ author: 'claude', ...body }) : undefined,
         });
@@ -79,8 +79,8 @@ async function askRhino(pathname, body) {
             method: body ? 'POST' : 'GET',
 
             // Required since 0.32.0, and the reason is the header rather than the body: a page cannot set
-            // this on a no-cors request, so demanding it is what keeps a website off this port. The client
-            // header tells the link this edit came through the tools, so it does not point at them.
+            // this on a no-cors request, and demanding it is what keeps a website off this port. The client
+            // header tells the link that this edit came through the tools, and the link does not point at them.
             headers: body ? { 'Content-Type': 'application/json', 'X-Phenome-Client': 'mcp' } : undefined,
             body: body ? JSON.stringify({ author: 'claude', ...body }) : undefined,
         });
@@ -245,7 +245,7 @@ let packageDirs = [];
 /// were given.
 ///
 /// A plug-in under development loads from its build folder, and Rhino finds a folder like that only
-/// through RHINO_PACKAGE_DIRS. launch had no way to pass it, so an agent working on a plug-in started Rhino
+/// through RHINO_PACKAGE_DIRS. launch had no way to pass it. An agent working on a plug-in started Rhino
 /// from its own shell and lost everything launch does: the right quoting of _Grasshopper, the wait for a
 /// new port file, and the pairing by pid.
 function rhinoEnvironment(dirs) {
@@ -313,8 +313,8 @@ function alive(pid) {
 
 /// The title of a process's main window, or null where it cannot be read.
 ///
-/// Windows only, through PowerShell, because the link inside Rhino is exactly the thing that has not loaded
-/// yet, so nothing in Rhino can be asked.
+/// Windows only, through PowerShell. The link inside Rhino is the part that has not loaded yet, and nothing
+/// in Rhino can be asked.
 function windowTitle(pid) {
     if (process.platform !== 'win32') {
         return null;
@@ -367,7 +367,7 @@ async function launch(fresh, withGrasshopper = true, dirs = undefined) {
         }
     }
 
-    // The plugin loads with Grasshopper, so no Grasshopper means no canvas link, ever. See rhinoStart for why
+    // The plugin loads with Grasshopper, and without Grasshopper there is no canvas link. rhinoStart says why
     // the arguments are spelt the way they are.
     const start = rhinoStart(withGrasshopper);
 
@@ -875,7 +875,7 @@ const TOOLS = [
     },
     {
         name: 'launch',
-        description: "Start Rhino with Grasshopper and wait for the link to answer. Use when there is no session. With fresh:true it starts another Rhino even though one is already running and works with that one - which is how two agents each get a canvas of their own instead of editing the same one. With grasshopper:false it starts Rhino alone - faster, and enough for anything that is about the document rather than a definition: open, select, run commands, export. USE grasshopper:false FOR PLUG-IN WORK: building, installing and loading a Rhino plug-in needs no canvas, and starting Grasshopper for it costs a slower launch and one more thing that can fail to load. The plugins, rhino_load, rhino_command, rhino_doc, pulse, dismiss, escape and console verbs all answer in a Rhino that never opened Grasshopper. For a plug-in that loads from its build folder, pass that folder in packageDirs: Rhino reads RHINO_PACKAGE_DIRS only when it starts, and restart keeps the folders, so the agent never has to start Rhino from its own shell. One call waits 90 seconds. An answer beginning NOT UP YET means the Rhino it started is alive and the link is not answering yet - most often a dialog Rhino shows before its main window, so ask the human to look - and calling launch again keeps waiting for that same process rather than starting another.",
+        description: "Start Rhino with Grasshopper and wait for the link to answer. Use when there is no session. With fresh:true it starts another Rhino even though one is already running and works with that one - which is how two agents each get a canvas of their own instead of editing the same one. With grasshopper:false it starts Rhino alone - faster, and enough for anything that is about the document rather than a definition: open, select, run commands, export. USE grasshopper:false FOR PLUG-IN WORK: building, installing and loading a Rhino plug-in needs no canvas, and starting Grasshopper for it costs a slower launch and one more thing that can fail to load. The plugins, rhino_load, rhino_command, rhino_doc, pulse, dismiss, escape and console verbs all answer in a Rhino that never opened Grasshopper. For a plug-in that loads from its build folder, pass that folder in packageDirs: Rhino reads RHINO_PACKAGE_DIRS only when it starts, and restart keeps the folders, so the agent never has to start Rhino from its own shell. One call waits 90 seconds, and an answer beginning NOT UP YET means the Rhino it started is alive and the link is not answering yet - most often a dialog Rhino shows before its main window, so ask the human to look - and calling launch again keeps waiting for that same process rather than starting another.",
         inputSchema: object({
             fresh: flag('Start another Rhino and use it, even if a session exists.'),
             grasshopper: flag('False starts Rhino without Grasshopper; canvas tools then have nothing to talk to.'),
@@ -1043,7 +1043,7 @@ const TOOLS = [
     },
     {
         name: 'measure',
-        description: "Lengths, areas and volumes of the geometry on one parameter - a component's OUTPUT unless side:'input' - item by item with tree paths, plus totals and a bounding box. Curves give length, and area when closed and planar; breps and meshes give area, and volume when closed. Pass 'against' with a second object (and againstParam/againstSide) to compare every pair from the two sets: the area two closed planar curves share, the volume two solids share, the pairs that overlap, and the nearest distance between curves or points. Give the same id and parameter twice to compare a set with itself, each pair once - 'do any of these sections overlap'. At most 2500 pairs per call. Read-only and computed on the data already there, so it belongs in a loop of set and measure; never stand up a script component to measure.",
+        description: "Lengths, areas and volumes of the geometry on one parameter - a component's OUTPUT unless side:'input' - item by item with tree paths, plus totals and a bounding box. Curves give length, and area when closed and planar; breps and meshes give area, and volume when closed. Pass 'against' with a second object (and againstParam/againstSide) to compare every pair from the two sets: the area two closed planar curves share, the volume two solids share, the pairs that overlap, and the nearest distance between curves or points. Give the same id and parameter twice to compare a set with itself, each pair once - 'do any of these sections overlap'. A call compares at most 2500 pairs. Read-only and computed on the data already there, so it belongs in a loop of set and measure; never stand up a script component to measure.",
         inputSchema: object({
             id: str('Object id.'),
             side: { type: 'string', enum: ['input', 'output'] },

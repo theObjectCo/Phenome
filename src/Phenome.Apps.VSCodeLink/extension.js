@@ -780,7 +780,8 @@ function handleUri(uri) {
 
     const agent = agentCommand();
     // A path is quoted for the shell the terminal runs: PowerShell needs the call operator, and zsh or bash
-    // on a Mac need the path in single quotes, with any quote inside it closed and reopened. Untested on a Mac.
+    // on a Mac need the path in single quotes, with any quote inside it closed and reopened. The Mac half has
+    // not been run on a Mac.
     const invoke = !/[\\/]/.test(agent)
         ? agent
         : process.platform === 'win32'

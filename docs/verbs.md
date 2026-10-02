@@ -1,6 +1,6 @@
 # Every verb, and which half answers it
 
-As of 0.31.0, plus `measure`. Fifty-three tools over two HTTP servers and one client.
+As of 0.34.0. Fifty-three tools over two HTTP servers and one client.
 
 The MCP server is registered as `phenome`, so a host presents these as `mcp__phenome__<name>`. The prefix
 comes from the registration key the pairing writes, not from the name the server reports in its handshake.

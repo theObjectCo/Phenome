@@ -12,13 +12,13 @@ namespace Phenome.Apps.GrasshopperLink.Bridge.Verbs;
 
 /// <summary>Lengths, areas and volumes of the geometry on a parameter, and how two sets of it meet.</summary>
 /// <remarks>
-/// <c>peek</c> answers what the data is and says nothing about its size, so a session that tried 64 variants
-/// of one input and needed the overlap after each one wrote its own geometry code in a throwaway script
-/// component. The numbers asked for were the length of a guide curve, the area where two closed profiles
-/// overlap and how far apart two curves stand, which are this verb's answers.
+/// <c>peek</c> answers what the data is and says nothing about its size. A session that tried 64 variants of
+/// one input and needed the overlap after each one wrote its own geometry code in a throwaway script
+/// component. It asked for the length of a guide curve, the area where two closed profiles overlap and the
+/// distance between two curves, and those are this verb's answers.
 /// <para>
-/// Read-only, like <c>peek</c>. It never adds a component to the canvas to compute anything: RhinoCommon
-/// does the arithmetic on the data the parameter already holds.
+/// The verb reads and never writes, like <c>peek</c>. Nothing is added to the canvas: RhinoCommon does the
+/// arithmetic on the data the parameter already holds.
 /// </para>
 /// </remarks>
 internal static class Measure

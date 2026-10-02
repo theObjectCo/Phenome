@@ -31,9 +31,9 @@ namespace Phenome.Apps;
 /// halves' protocol text advertised them. See the README beside this file.
 /// </para>
 /// <para>
-/// The dialog half is Win32 and nothing else, so on macOS it is switched off rather than called: the idle
-/// stamp and the command events still tell idle from busy, a dialog reads as busy, and answering one is
-/// refused with a sentence. Untested on a Mac.
+/// The dialog half is Win32 and nothing else, and on macOS it is switched off. The idle stamp and the command
+/// events still tell idle from busy there, a dialog reads as busy, and answering one is refused with a
+/// sentence. None of this has run on a Mac.
 /// </para>
 /// </remarks>
 internal static class Pulse

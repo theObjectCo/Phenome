@@ -6,16 +6,16 @@ search `components` before `add` when unsure of a name; prefer `place` over add/
 with `peek`, not `screenshot`, since the canvas carries positions and needs no picture; and use
 `launch` when there is no session rather than starting Rhino yourself.
 
-**If no `phenome` tool is in your list, work out which of three cases you are in before you pick a door.**
-In Claude Code the tools may be listed by name only, as deferred tools: one `ToolSearch` with
-`select:mcp__phenome__canvas,mcp__phenome__place,...` loads them, and that is not a missing server. Tools
-that were there earlier in this conversation and are gone now mean the server dropped. It does not come back
-by itself: ask the human to reconnect it (`/mcp` in Claude Code) and carry on with the tools once they are
-back. One session lost them overnight, went to HTTP the next morning and stayed there for a week, long
-after the tools had returned. Only a conversation that never had a `phenome` tool has no server wired up.
-Restarting will not conjure one, and *Without the MCP tools* at the end of this file is the whole protocol
-over plain HTTP, including how to start a session when there is no `launch` verb to call. (If *some* tools
-are there and one you want is missing, that is the stale case, and restarting the session does fix it.)
+**No `phenome` tool in the list is one of three cases, and each has its own answer.** In Claude Code the
+tools may be listed by name only, as deferred tools. One `ToolSearch` with
+`select:mcp__phenome__canvas,mcp__phenome__place,...` loads them, and the server is there. Tools that were in
+this conversation earlier and are gone now mean the server dropped. It does not come back by itself: ask the
+human to reconnect it (`/mcp` in Claude Code), then carry on with the tools. One session lost them overnight,
+moved to HTTP the next morning and stayed there for a week after the tools had returned. Only a conversation
+that never had a `phenome` tool has no server wired up. Restarting does not add one, and *Without the MCP
+tools* at the end of this file is the whole protocol over plain HTTP, including how to start a session with
+no `launch` verb. (Some tools present and one missing is the stale case, and restarting the session does fix
+it.)
 
 **The components you will reach for, with their guids and their exact input names** - so you need not search
 for them. Pass the **guid**, not the name; the paragraph under the table says why, and it is not a style
@@ -280,17 +280,17 @@ parameter. It is this verb.
 ## Without the MCP tools
 
 Everything above is the same protocol either way, so none of it is wasted - only the door changes. Read this
-if your host has no `phenome` tools, and stop reading it the moment it does. Tools that appear later in the
-conversation are the moment: a script already written is not a reason to stay on HTTP.
+when the host has no `phenome` tools, and stop reading it the moment it does. When the tools appear later in
+the conversation, switch back to them, even with a script already written.
 
-**A script is the right tool for a loop, even with the tools at hand.** Trying 64 variants of an input and
-measuring each one is a few hundred calls, and a loop over `set`, `peek` and `measure` in one script is
-quicker to write and to read back than that many tool calls. Building and changing the definition is not a
-loop: groups, `place`, `wire`, `signature`, `arrange`, `review`, `preview` and `save` go through the tools,
-because the workflow above lives there. Sizes and overlaps come from `measure`, and `set` renames a
-parameter (`nickname`) and sizes a panel (`width`, `height`). When the loop needs something no verb does,
-say so with `report`. Reaching into the canvas with a throwaway C# or Python script hides the gap, and two
-such scripts in one session left Rhino stuck in a modal exception dialog.
+**A loop may run as a script, even with the tools at hand.** Trying 64 variants of an input and measuring
+each one takes a few hundred calls, and one script looping over `set`, `peek` and `measure` is quicker to
+write and to read back. Building and changing the definition goes through the tools: groups, `place`, `wire`,
+`signature`, `arrange`, `review`, `preview` and `save`, which are the steps of the workflow above. Sizes and
+overlaps come from `measure`, and `set` renames a parameter with `nickname` and sizes a panel with `width`
+and `height`. When the loop needs something no verb does, say so with `report`. A throwaway C# or Python
+script that edits the canvas hides the gap, and two such scripts in one session left Rhino stuck in a modal
+exception dialog.
 
 **Starting a session is the part you cannot guess, so here it is exactly.** There is no verb for it: the
 server lives *inside* Grasshopper, so nothing can answer until Grasshopper is running, which is why `launch`
@@ -319,10 +319,10 @@ Get-ChildItem "$env:TEMP\phenome-link-*.port"
 # 4. GET http://127.0.0.1:<that port>/ describes every verb, its arguments and its answers.
 ```
 
-On a Mac, which nobody has tried yet, the same steps read: the port files are in `$TMPDIR`, and Rhino starts
-with `"/Applications/Rhino 8.app/Contents/MacOS/Rhinoceros" -nosplash -runscript=_Grasshopper &`, with a
-dash and without the Windows quotes, which Rhino for Mac reads as the name of a file to open. If that is
-where you are, say in a `report` what worked.
+On a Mac, untried so far, the same steps differ in two places. The port files are in `$TMPDIR`, and Rhino
+starts with `"/Applications/Rhino 8.app/Contents/MacOS/Rhinoceros" -nosplash -runscript=_Grasshopper &`, with
+a dash and no quotes round the script, because Rhino for Mac reads the Windows spelling as a file to open. A
+`report` saying what worked is welcome.
 
 A `phenome-rhino-<pid>.port` appears too, on its own port: that is the Rhino half, and it answers about the
 process rather than the canvas - `GET /pulse` for whether Rhino is idle, busy or blocked, which works even
