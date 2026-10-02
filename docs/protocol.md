@@ -234,6 +234,31 @@ be reworded with `/set`; empty or whitespace text is refused rather than silentl
 `/describe` answers `annotation: {kind, text, at, box, group, groupName}` and `/canvas` carries the same per
 note, so wording *and* placement are checkable without a screenshot.
 
+**A panel sends its text as one item unless the text is given as an array.** Grasshopper's Multiline Data
+flag decides this, and it is on for every new panel, including one dragged off the ribbon. With the flag on,
+`"-3\n3\n3\n-3"` arrives downstream as one piece of text. Given as an array of strings, `text` on `/place` or
+`value` on `/set` turns the flag off and writes one line per element, and the panel sends a list. A string
+leaves the flag as it was. `/canvas` reports `multiline` for every panel.
+
+**A parameter stores a list when `value` is an array.** On `/set` and on `/place`, an array stores one item
+per element, and two or three numbers in an inner array are a point: a Point parameter takes
+`[[0,0,0],[10.35,0,0]]` or `["0,0,0","10.35,0,0"]`. A value the parameter cannot read refuses the entry and
+leaves the socket as it was, instead of storing fewer items than were sent. `null` or `[]` empties it.
+
+**`/set` also renames a parameter and sizes a panel.** `nickname` renames a parameter standing on its own,
+such as a group's inlet or outlet, a slider or a panel, and is refused on a component. `width` and `height`
+size a Panel, starting at 20. With any of the three, `value` may be left out.
+
+**Colours are read by Grasshopper's own parser.** `/set` on a Colour Swatch takes `[r,g,b]`, `[r,g,b,a]` or
+text. Four numbers are r,g,b,a with the alpha last. Eight hex digits are `#aarrggbb` with the alpha first,
+which is .NET's order and the reverse of CSS. Any other count of numbers is refused, and a name has to be
+one the system knows.
+
+**`/arrange` stacks sources in the order of the sockets they feed.** Within a column, a block that feeds a
+component's first input stands above one that feeds its second, and the groups feeding another group stand
+in the order of its inlets. Blocks with no wire to settle them keep the vertical order they had, so a second
+`/arrange` answers `moved: 0`.
+
 **A note's group decides where `/arrange` puts it.** Notes are laid out by a pass of their own, after the
 components have their positions — they are not part of the layout algebra, having no ports and no dataflow, and
 they do not need to be. The rule needs no new field: a note **in a group** is that group's caption and goes
@@ -248,10 +273,13 @@ where it means to. The finding says so, and says to shorten the note instead.
 
 **`/preview` takes a group id or an object id, and `ids` for a list of either.** Three granularities from one
 verb: no id sweeps the document on the colour rule — only the outlets of the red and yellow groups keep
-drawing — a group id quiets that group on its own terms whatever colour it wears, and an object id quiets
-exactly that object. `on:true` gives any of them back. The answer carries a `groups` array and an `objects`
-array, each with what ended up drawing rather than what this call changed. Every id is checked before any
-flag moves, so a bad id in a list refuses the whole list and says which id it was.
+drawing, and objects in no group are quieted with the rest — a group id quiets that group on its own terms
+whatever colour it wears, and an object id quiets exactly that object. `on:true` gives any of them back. The
+answer carries a `groups` array and an `objects` array, each with what ended up drawing rather than what this
+call changed, and a sweep adds `ungrouped` with the same three counts. Every id is checked before any flag
+moves, so an id that is not on the canvas refuses the whole list and says which id it was. An object that
+draws nothing is skipped and listed under `skipped`, and the rest of the list goes ahead. On a canvas with no
+groups at all the sweep quiets everything.
 
 The object granularity was added because the group one could not reach the case that mattered: an
 intermediate component flooding the viewport while the rest of its group has to keep drawing. Reported from a
@@ -277,6 +305,21 @@ prompt unread.
 **Verify numerically.** `/peek` returns branch and item counts with paths; that is the specification. A
 screenshot tells you a definition looks plausible, which is not the same claim. `/canvas-image` and
 `/screenshot` exist for the human's half of the pairing.
+
+`/measure?id=` answers the sizes `/peek` does not: per item, a curve's length and, when it is closed and
+planar, its area; a brep's or mesh's area and, when closed, its volume. Totals and a bounding box follow. It
+reads a component's output unless `side=input`. With `against=` (and `againstSide`, `againstParam`) it
+compares every pair from the two sets: the area two closed planar curves share, the volume two solids share,
+which pairs overlap, and the nearest distance between curves or points. The same id and parameter twice
+compares a set with itself, each pair once. A call compares at most 2,500 pairs, because each boolean runs on
+Rhino's UI thread. The verb was added after a session measured overlaps between profiles with a script
+component it placed and deleted for every one of 64 variants.
+
+`/screenshot` redraws the view off screen at the requested size, and geometry a plug-in draws with its own
+display code is not always in that redraw. Two cases are on record: an off-thread volume preview came back as
+a cropped piece of an older frame, and a script component's curves were missing from four captures while
+they showed on the human's screen. When `/peek` reports the geometry and the capture does not show it,
+`/peek` is right.
 
 **But not for anything painted onto a control.** `/canvas-image` re-renders the document to a bitmap rather
 than photographing the window, so overlays drawn during the canvas paint do not appear in it. Their only

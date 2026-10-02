@@ -180,9 +180,14 @@ internal static class Objects
     {
         Guid id = Guid.Parse(Text(request, "id") ?? throw new ArgumentException("set needs 'id'."));
 
-        if (!request.TryGetProperty("value", out JsonElement value))
+        bool valued = request.TryGetProperty("value", out JsonElement value);
+        bool shaping = request.TryGetProperty("nickname", out _)
+            || request.TryGetProperty("width", out _)
+            || request.TryGetProperty("height", out _);
+
+        if (!valued && !shaping)
         {
-            throw new ArgumentException("set needs 'value'.");
+            throw new ArgumentException("set needs 'value', or 'nickname', 'width' or 'height'.");
         }
 
         {
@@ -191,9 +196,24 @@ internal static class Objects
 
             document.UndoUtil.RecordGenericObjectEvent("Phenome Link: set", thing);
 
+            if (shaping)
+            {
+                Shape(thing, request);
+            }
+
+            if (!valued)
+            {
+                return;
+            }
+
             // With 'param', the value goes into a component's own input - the way a human types a constant
             // straight into a socket instead of standing up a parameter and a wire for the number two.
-            if (Text(request, "param") is { } which && thing is IGH_Component)
+            // An index arrives as a number as often as a string, and a number used to be read as no 'param' at
+            // all: the value then went to the component itself, which "holds no value to set".
+            if (request.TryGetProperty("param", out JsonElement named)
+                && named.ValueKind is JsonValueKind.String or JsonValueKind.Number
+                && named.ToString() is { } which
+                && thing is IGH_Component)
             {
                 IGH_Param socket = LocateBy(thing, "input", which);
 
@@ -240,9 +260,7 @@ internal static class Objects
                     break;
 
                 case Grasshopper.Kernel.Special.GH_Panel panel:
-                    panel.UserText = value.ValueKind == JsonValueKind.String
-                        ? value.GetString()!
-                        : value.ToString();
+                    Word(panel, value);
                     break;
 
                 // Rewording a note that is already on the canvas, which is the repair path when the first
@@ -287,6 +305,71 @@ internal static class Objects
 
             thing.ExpireSolution(false);
         }
+    }
+
+    /// <summary>A parameter's name, and a panel's size: what <c>set</c> changes besides the value.</summary>
+    /// <remarks>
+    /// Both were done with a throwaway C# Script component, placed, run and deleted again, because nothing else
+    /// reached them. A new panel keeps Grasshopper's default box, which is large for a one-line label,
+    /// and ten of them made a canvas hard to read. A floating parameter's name is a group's port name once
+    /// <c>signature</c> has run, and it is what the reader of a group goes by.
+    /// <para>
+    /// Only parameters are renamed. A component keeps its name, because the name is how a reader recognises
+    /// which component it is.
+    /// </para>
+    /// </remarks>
+    private static void Shape(IGH_DocumentObject thing, JsonElement request)
+    {
+        if (request.TryGetProperty("nickname", out JsonElement named))
+        {
+            if (thing is not IGH_Param parameter)
+            {
+                throw new ArgumentException(
+                    $"{thing.Name} is a component, and a component keeps its name. 'nickname' renames a "
+                    + "parameter standing on its own, such as a group's inlet or outlet, a slider or a panel.");
+            }
+
+            string name = named.ValueKind == JsonValueKind.String ? named.GetString()!.Trim() : "";
+
+            if (name.Length == 0)
+            {
+                throw new ArgumentException("'nickname' was empty, and a parameter with no name reads as a mistake.");
+            }
+
+            parameter.NickName = name;
+            parameter.Attributes?.ExpireLayout();
+        }
+
+        bool wide = request.TryGetProperty("width", out JsonElement width);
+        bool tall = request.TryGetProperty("height", out JsonElement height);
+
+        if (!wide && !tall)
+        {
+            return;
+        }
+
+        if (thing is not Grasshopper.Kernel.Special.GH_Panel panel)
+        {
+            throw new ArgumentException(
+                $"{thing.Name} sizes itself to its content. 'width' and 'height' are for a Panel, the one "
+                + "object a person resizes by hand.");
+        }
+
+        System.Drawing.RectangleF box = panel.Attributes.Bounds;
+        float across = wide ? (float)AsDouble(width) : box.Width;
+        float down = tall ? (float)AsDouble(height) : box.Height;
+
+        // Below this a panel cannot show one line of its own text, and the box stops looking like a panel.
+        const float Least = 20;
+
+        if (across < Least || down < Least)
+        {
+            throw new ArgumentException(
+                $"A panel {across} by {down} is too small to read; width and height start at {Least}.");
+        }
+
+        panel.Attributes.Bounds = new System.Drawing.RectangleF(box.X, box.Y, across, down);
+        panel.Attributes.ExpireLayout();
     }
 
     internal static string Select(JsonDocument request)
@@ -830,7 +913,7 @@ internal static class Objects
         if (thing is Grasshopper.Kernel.Special.GH_Panel panel
             && spec.TryGetProperty("text", out JsonElement text))
         {
-            panel.UserText = text.GetString() ?? "";
+            Word(panel, text);
             return;
         }
 
@@ -860,6 +943,29 @@ internal static class Objects
         {
             Store(parameter, value);
         }
+    }
+
+    /// <summary>A panel's text: a string is written as it is, an array is one item per line.</summary>
+    /// <remarks>
+    /// A panel's Multiline Data flag decides how many items it sends, and the flag is on for every new panel,
+    /// including one dragged off the ribbon. With it on, "-3\n3\n3\n-3" leaves as a single text item and a
+    /// Construct Point fed by it fails to read a number. An array turns the flag off and writes one line per
+    /// element, and the panel then sends one item per line. A string leaves the flag alone: on a panel
+    /// somebody set by hand, rewording the text does not change what it sends.
+    /// </remarks>
+    private static void Word(Grasshopper.Kernel.Special.GH_Panel panel, JsonElement text)
+    {
+        static string Line(JsonElement one) =>
+            one.ValueKind == JsonValueKind.String ? one.GetString()! : one.ToString();
+
+        if (text.ValueKind == JsonValueKind.Array)
+        {
+            panel.Properties.Multiline = false;
+            panel.UserText = string.Join(Environment.NewLine, text.EnumerateArray().Select(Line));
+            return;
+        }
+
+        panel.UserText = Line(text);
     }
 
     /// <summary>One end of a wire: the object, and when it is a component, which of its parameters.</summary>
@@ -921,38 +1027,93 @@ internal static class Objects
     /// defaults are persistent data too. Setting 0 on a socket that already defaulted to 0 therefore left
     /// two zeroes, and a component fed two values emits two branches: a definition silently doubled its
     /// geometry. Found in the field by an agent, which is what the friction log is for.
+    /// <para>
+    /// An array stores one item per element, which is how a Point parameter holds the corners of a polyline:
+    /// ["0,0,0", "10.35,0,0"] or [[0,0,0], [10.35,0,0]]. It was refused three times in two days and then
+    /// reported, and the workarounds were a panel feeding text into the parameter or a script writing the
+    /// points in.
+    /// </para>
     /// </remarks>
     private static void Store(IGH_Param parameter, JsonElement value)
     {
-        parameter.GetType()
-            .GetMethod("Script_ClearPersistentData", Type.EmptyTypes)
-            ?.Invoke(parameter, null);
-
-        if (value.ValueKind == JsonValueKind.Null)
-        {
-            // A null is how a caller empties a socket - the only way back to "nothing stored here".
-            return;
-        }
-
-        object raw = value.ValueKind switch
-        {
-            JsonValueKind.Number => value.GetDouble(),
-            JsonValueKind.String => value.GetString()!,
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            _ => throw new ArgumentException("set takes a number, text, a flag, or null to empty the socket."),
-        };
-
         // SetPersistentData(params object[]) lives on GH_PersistentParam<T>; reflection reaches it on the
         // concrete type, and refusal by name beats silently doing nothing.
         System.Reflection.MethodInfo? set = parameter.GetType().GetMethod("SetPersistentData", [typeof(object[])]);
 
-        if (set is null)
+        object[] raw = value.ValueKind switch
+        {
+            JsonValueKind.Null => [],
+            JsonValueKind.Array => [.. value.EnumerateArray().Select(Item)],
+            _ => [Item(value)],
+        };
+
+        if (set is null && raw.Length > 0)
         {
             throw new ArgumentException($"{parameter.Name} does not store values.");
         }
 
-        set.Invoke(parameter, [new[] { raw }]);
+        // Grasshopper drops a value it cannot cast without a word: ["1,2,3", "not a point"] on a Point
+        // parameter stored one point and answered ok. So the values go into a blank parameter of the same type
+        // first and are counted there. Only the parameter knows what it can read, and trying it on a copy
+        // leaves the socket as it was when the answer is a refusal.
+        if (raw.Length > 0 && Blank(parameter) is { } trial)
+        {
+            set!.Invoke(trial, [raw]);
+
+            int read = trial.GetType().GetProperty("PersistentDataCount")?.GetValue(trial) as int? ?? raw.Length;
+
+            if (read < raw.Length)
+            {
+                throw new ArgumentException(
+                    $"{parameter.Name} reads {read} of {raw.Length} value(s) as {parameter.TypeName}, so nothing "
+                    + "was stored." + (parameter.TypeName == "Point" ? " A point is \"x,y,z\" or [x,y,z]." : ""));
+            }
+        }
+
+        parameter.GetType()
+            .GetMethod("Script_ClearPersistentData", Type.EmptyTypes)
+            ?.Invoke(parameter, null);
+
+        // A null, or an empty array, is how a caller empties a socket - the only way back to "nothing stored
+        // here".
+        if (raw.Length > 0)
+        {
+            set!.Invoke(parameter, [raw]);
+        }
+
+        // A parameter type with no parameterless constructor, such as one a script component makes for
+        // itself, is stored without the trial, as it always was.
+        static IGH_Param? Blank(IGH_Param like)
+        {
+            try
+            {
+                return Activator.CreateInstance(like.GetType()) as IGH_Param;
+            }
+            catch (MissingMethodException)
+            {
+                return null;
+            }
+        }
+
+        static object Item(JsonElement one) => one.ValueKind switch
+        {
+            JsonValueKind.Number => one.GetDouble(),
+            JsonValueKind.String => one.GetString()!,
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+
+            // Two or three numbers are a point; Grasshopper casts a point on to a vector or a plane's origin
+            // where the parameter wants one.
+            JsonValueKind.Array when one.GetArrayLength() is 2 or 3
+                && one.EnumerateArray().All(axis => axis.ValueKind == JsonValueKind.Number) =>
+                new Rhino.Geometry.Point3d(
+                    one[0].GetDouble(),
+                    one[1].GetDouble(),
+                    one.GetArrayLength() == 3 ? one[2].GetDouble() : 0),
+            _ => throw new ArgumentException(
+                "set takes a number, text, a flag, [x,y,z] for a point, an array of those for a list, or null "
+                + "to empty the socket."),
+        };
     }
 
     // ---- Plumbing --------------------------------------------------------------------------------------

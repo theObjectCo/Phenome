@@ -11,6 +11,121 @@ the code, do not tell somebody who installed the last version which six things t
 So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
 commit that made it, not here.
 
+## Unreleased
+
+### Changed
+
+- **`preview` with no id quiets objects in no group as well.** Only the outlets of red and yellow groups keep
+  drawing, which is what the verb always described. Objects outside every group were left drawing, and on a
+  canvas with no groups at all the sweep refused. The answer now carries an `ungrouped` block with the counts.
+
+- **`preview` skips an object that draws nothing and quiets the rest of the list.** A batch of 29 ids was
+  refused whole because one of them, an SDF Union, has no preview. Such objects are now listed under
+  `skipped`. An id that is not on the canvas still refuses the batch.
+
+- **The pairing notes tell a dropped server from a missing one.** They said that no `phenome` tool means no
+  server, and to go to plain HTTP without another thought. An agent whose server dropped overnight did that
+  and stayed on HTTP for a week after the tools came back. The notes now name three cases: deferred tools
+  that one `ToolSearch` loads, a server that dropped and needs reconnecting, and a host with no server. They
+  also say that a script suits a loop of `set` and `peek` over variants, while building the definition goes
+  through the tools. Run Teach Agents again to get them into a workspace.
+
+### Added
+
+- **`arrange` stacks sources in the order of the sockets they feed.** Whatever feeds a component's first
+  input stands above whatever feeds its second, and the groups feeding a group stand in the order of its
+  inlets. Until now a column of sources kept whatever order it started in, so a Point parameter feeding a
+  solver's first input could sit at the bottom of its group with its wire crossing everything above it.
+
+- **Prepared for Rhino 8 for Mac, untested.** The package has always been offered on a Mac, and nothing in it
+  had been made to run there. `launch` and `restart` now start Rhino for Mac with its own spelling of
+  `-runscript`, and `PHENOME_RHINO` points them at a Rhino installed elsewhere. Dialog handling is Win32, so on
+  a Mac `pulse` reports an open dialog as busy with `dialogsReadable: false`, and `dialog`, `dismiss` and
+  `escape` refuse instead of calling into a library that is not there. The VS Code extension finds the agent
+  and quotes its path for zsh. None of this has been run on a Mac. A report from anybody who can try it is
+  asked for in the README.
+
+- **`measure` gives the sizes of the geometry on a parameter.** Per item it answers a curve's length, and its
+  area when it is closed and planar, and a brep's or mesh's area and closed volume, with totals and a bounding
+  box. With `against` it compares two sets pair by pair: the area two closed planar curves share, the volume
+  two solids share, and the nearest distance between curves or points. Given the same parameter twice, it
+  checks a set against itself. A session that needed overlaps after each of 64 variants had been placing and
+  deleting a script component to get them.
+
+- **A parameter stores a list.** An array in `value` on `set` and `place` stores one item per element, and
+  `[x,y,z]` is a point, so a Point parameter takes the corners of a polyline directly. A value the parameter
+  cannot read refuses the entry instead of storing fewer items than were sent.
+
+- **`set` renames a parameter and sizes a panel.** `nickname` renames a parameter standing on its own, such as
+  a group's inlet or outlet, and is refused on a component. `width` and `height` size a Panel. Both used to need
+  a script component placed for the purpose and deleted afterwards.
+
+- **`launch` and `restart` take `packageDirs`.** The folders go to Rhino as `RHINO_PACKAGE_DIRS`, so a plug-in
+  that loads from its build folder can be started through the tool. `restart` keeps the folders of the last
+  launch.
+
+- **The first edit an author sends over plain HTTP carries a `door` field.** It names the MCP tools and says
+  that a script suits loops of `set`, `peek` and `measure`. The MCP server and the VS Code extension send
+  `X-Phenome-Client` and never see it. It is said once per author for the life of a Rhino.
+
+- **A panel can be a list source.** For a Panel, `text` on `place` and `value` on `set` accept an array of
+  strings. The array turns off Grasshopper's Multiline Data and the panel sends one item per line. A string
+  still leaves as a single item, as it does from every new panel, and `canvas` reports `multiline` per panel.
+
+### Fixed
+
+- **`arrange` is idempotent on groups with no wires between them and on groups that feed each other.**
+  Sixteen unconnected groups came out upside down on every run, about 160 objects moved each time, and
+  two groups feeding each other swapped columns on every run. Both orders came from the order of the
+  document's objects, which `arrange` itself reverses when it sends frames to the back. Columns now start
+  from where the blocks stand, and a cycle is walked in a fixed order. A second run answers `moved: 0`.
+
+- **The `preview` sweep keeps the product of a red or yellow group with no outlet.** Such a group went
+  wholly dark, its final component included. With no outlet, the members that nothing else in the group
+  reads keep drawing, and the answer says so under `kept`.
+
+- **`launch` says what it sees when Rhino does not answer in 90 seconds, and does not start a second
+  one.** Rhino sometimes shows a window before its main one, and one start took about three minutes
+  that way while `launch` blamed a missing plugin. The answer now begins `NOT UP YET`, gives the
+  window title where Windows can read it, and asks for the human to look. A second `launch` keeps
+  waiting for the same process, and a Rhino that dies on the way up is reported as that.
+
+- **`set` with `param` given as a number reaches the socket.** An index sent as `0` rather than `"0"` was read
+  as no `param`, and the value went to the component, which "holds no value to set".
+
+- **`review` no longer blocks a component that pairs two equal lists.** A Circle CNR fed 1500 centres and
+  1500 radii makes 1500 circles, and review called it blocking twice, once per input. A correct definition
+  could not reach a clean review. The check now counts runs the way Grasshopper pairs branches and items.
+  "multiplies" is blocking only when a component runs more than 100 times in one branch and more often in
+  total than its largest input has items. That means some data is being run again against every extra
+  branch of another input. A smaller product of that kind, such as a grafted input making a 20 by 20 grid,
+  is the polish finding "crosses". Two lists of different lengths in one branch are the polish finding
+  "uneven lists", and plain broadcasting stays polish with one finding per component.
+
+- **`canvas_image` says why it cannot draw a minimised canvas.** A minimised Grasshopper window shrinks the
+  canvas to 0 x 0 pixels, and the answer was GDI+'s "Parameter is not valid." It now gives the size and asks
+  for the window to be restored.
+
+- **The 403 for a missing JSON content type names the likely culprit.** A client older than 0.32.0 sends no
+  content type or Node's default `text/plain`, and the refusal for `text/plain` only repeated the header
+  name. The usual cause is a `.phenome/gh-mcp.js` planted by the previous extension, typically when Teach
+  Agents ran before the new extension was installed, and the refusal now says to update the extension and
+  run Teach Agents again.
+
+- **A colour given as four numbers keeps its alpha.** `set` on a Colour Swatch read "120,215,205,190" as an
+  opaque colour and dropped the fourth number without a warning. Text now goes through Grasshopper's own
+  parser, which reads four numbers as r,g,b,a with the alpha last, and `[r,g,b,a]` works as an array. Other
+  counts are refused with the accepted spellings. A word that is not a known colour name is refused too;
+  Grasshopper's parser on its own turned "not a colour" into transparent black.
+
+- **The first camera call after `launch` reaches the new Rhino.** The MCP server kept the Rhino-half port of
+  the previous session. After a crash or a closed window the first `camera`, `pulse` or `console` call failed
+  with "stopped answering", and after `launch fresh:true` with the old Rhino still open those calls went to
+  the old Rhino.
+
+- The `screenshot` description now says that geometry a plug-in draws with its own display code can be missing
+  from a capture while the screen shows it.
+
 ## 0.33.0
 
 ### Added

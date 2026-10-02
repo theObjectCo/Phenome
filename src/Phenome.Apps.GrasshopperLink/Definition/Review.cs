@@ -19,7 +19,7 @@ internal static class Review
 {
     private const int TooMany = 31;
 
-    /// <summary>Above this many items in a one-item socket, a broadcast stops looking deliberate.</summary>
+    /// <summary>Above this many runs in one branch, a product of two inputs stops looking deliberate.</summary>
     private const int Suspicious = 100;
 
     /// <summary>
@@ -300,43 +300,13 @@ internal static class Review
             }
         }
 
-        // Data matching, which is where a definition goes quietly wrong rather than red: a component whose
-        // input takes one item per branch, handed several, runs once per item and multiplies everything
-        // downstream. Nothing complains, the geometry just doubles.
-        foreach (IGH_DocumentObject thing in nodes.Where(thing => thing is IGH_Component))
+        // Data matching, which is where a definition goes quietly wrong rather than red. Nothing complains when
+        // a component is run against the same data twice; the geometry just doubles.
+        foreach (IGH_Component component in nodes.OfType<IGH_Component>())
         {
-            IGH_Component component = (IGH_Component)thing;
-
-            foreach (IGH_Param input in component.Params.Input)
+            if (Matching(component) is { } finding)
             {
-                if (input.Access != GH_ParamAccess.item || input.VolatileDataCount <= 1)
-                {
-                    continue;
-                }
-
-                int fattest = 0;
-
-                foreach (Grasshopper.Kernel.Data.GH_Path path in input.VolatileData.Paths)
-                {
-                    fattest = Math.Max(fattest, input.VolatileData.get_Branch(path).Count);
-                }
-
-                // Not a fault by itself: a component fed four shelf heights runs four times, which is how
-                // Grasshopper is meant to work. The fault is a count nobody intended, and no checker can
-                // read intent - so a modest count is said as something to confirm, and only an absurd one
-                // is called blocking. Calling four items a bug had an agent doubting a verified graph.
-                if (fattest > 1)
-                {
-                    findings.Add(Finding(
-                        fattest > Suspicious ? "multiplies" : "broadcast",
-                        $"{component.Name}'s '{input.Name}' takes one item but holds {fattest} in a branch, so "
-                        + $"it runs {fattest} times per branch. "
-                        + (fattest > Suspicious
-                            ? "That is far more than a definition usually intends - check for a lost tree "
-                            + "structure, or clear a socket whose default is doubling it (set with a null value)."
-                            : "Confirm with peek that this is the count you meant."),
-                        thing.InstanceGuid));
-                }
+                findings.Add(finding);
             }
         }
 
@@ -643,6 +613,122 @@ internal static class Review
         || (thing is GH_Panel panel
             && panel.SourceCount == 0
             && panel.Recipients.Count == 0);
+
+    /// <summary>What data matching makes of a component's inputs, when there is something to say.</summary>
+    /// <remarks>
+    /// Runs are counted the way <c>GH_Component</c> iterates. Branch <i>i</i> of every input is paired with
+    /// branch <i>i</i> of the others, and an input with fewer branches lends its last one. Inside a pair the
+    /// longest item list sets the count (the shortest, on a component set to shortest-list matching), and a
+    /// list input counts once per branch. Tree inputs are left out. A component set to cross reference is
+    /// skipped entirely: in both cases the author has decided the structure outright.
+    /// <para>
+    /// A component run more times than its largest input has items is running some data again against every
+    /// extra branch of another input. That is a product, and it is either a grid made on purpose (a grafted
+    /// input against a list) or a flatten upstream that turned 1500 points into 15,000 circles. Structure
+    /// cannot tell the two apart. The size decides: a product with more than <see cref="Suspicious"/> runs
+    /// in one branch is blocking, and a smaller one, a 20 by 20 grid for instance, is polish. A long list fed
+    /// alongside an equally long one is no product at all. 1500 centres with 1500 radii make 1500 circles, and calling that blocking left a correct
+    /// definition unable to reach a clean review.
+    /// </para>
+    /// </remarks>
+    private static string? Matching(IGH_Component component)
+    {
+        if (component is GH_Component { DataComparison: GH_DataComparison.CrossReference })
+        {
+            return null;
+        }
+
+        List<IGH_Param> fed = [.. component.Params.Input
+            .Where(input => input.Access != GH_ParamAccess.tree && input.VolatileDataCount > 0)];
+
+        if (fed.Count == 0)
+        {
+            return null;
+        }
+
+        bool shortest = component is GH_Component { DataComparison: GH_DataComparison.ShortestList };
+        int branches = fed.Max(input => input.VolatileData.PathCount);
+
+        int Count(IGH_Param input, int at) => input.Access == GH_ParamAccess.list
+            ? 1
+            : input.VolatileData.get_Branch(Math.Min(at, input.VolatileData.PathCount - 1))?.Count ?? 0;
+
+        long runs = 0;
+        int fattest = 0;
+        string? uneven = null;
+
+        for (int at = 0; at < branches; at++)
+        {
+            List<(IGH_Param Input, int Items)> here = [.. fed.Select(input => (input, Count(input, at)))];
+
+            int once = shortest ? here.Min(one => one.Items) : here.Max(one => one.Items);
+
+            runs += once;
+            fattest = Math.Max(fattest, once);
+
+            List<(IGH_Param Input, int Items)> lists = [.. here
+                .Where(one => one.Input.Access == GH_ParamAccess.item && one.Items > 1)
+                .OrderByDescending(one => one.Items)];
+
+            if (uneven is null && lists.Count > 1 && lists[0].Items != lists[^1].Items)
+            {
+                IGH_Param widest = fed.First(input => input.VolatileData.PathCount == branches);
+
+                uneven = $"{component.Name} pairs '{lists[0].Input.Name}' ({lists[0].Items} items) with "
+                    + $"'{lists[^1].Input.Name}' ({lists[^1].Items}) in branch {widest.VolatileData.Paths[at]}, "
+                    + (shortest
+                        ? "and shortest-list matching drops the items the shorter list has no partner for. "
+                        : "and the last item of the shorter list is repeated for the remaining runs. ")
+                    + "Confirm that is meant; Repeat Data or Shortest List on the canvas would say it where a "
+                    + "reader can see it.";
+            }
+        }
+
+        long most = fed.Max(input => input.Access == GH_ParamAccess.list
+            ? input.VolatileData.PathCount
+            : (long)input.VolatileDataCount);
+
+        if (runs > most)
+        {
+            string held = string.Join(", ", fed.Select(input =>
+                $"'{input.Name}' {input.VolatileData.PathCount} branch(es) of {input.VolatileDataCount} item(s)"));
+
+            string what = $"{component.Name} runs {runs} times, up to {fattest} in one branch, more than the "
+                + $"{most} items its largest input holds ({held}). Grasshopper pairs branches by index, and an input with fewer branches lends "
+                + "its last one to every extra branch. ";
+
+            return fattest > Suspicious
+                ? Finding(
+                    "multiplies",
+                    what + "Look upstream for a flatten or a lost tree structure. If every item of one input "
+                    + "really should meet every item of another, a Cross Reference component says so on the "
+                    + "canvas.",
+                    component.InstanceGuid)
+                : Finding(
+                    "crosses",
+                    what + "A grafted input against a list makes a grid this way. Confirm with peek that this "
+                    + "is the count you meant.",
+                    component.InstanceGuid);
+        }
+
+        if (uneven is not null)
+        {
+            return Finding("uneven lists", uneven, component.InstanceGuid);
+        }
+
+        List<string> several = [.. fed
+            .Where(input => input.Access == GH_ParamAccess.item
+                && Enumerable.Range(0, input.VolatileData.PathCount).Any(at => Count(input, at) > 1))
+            .Select(input => $"'{input.Name}'")];
+
+        return several.Count == 0
+            ? null
+            : Finding(
+                "broadcast",
+                $"{component.Name} runs {runs} times over {branches} branch(es), once per item of "
+                + $"{string.Join(" and ", several)}. Confirm with peek that this is the count you meant.",
+                component.InstanceGuid);
+    }
 
     private static string Finding(string kind, string what, Guid? id)
     {

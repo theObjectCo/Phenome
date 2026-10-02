@@ -16,7 +16,8 @@ namespace Phenome.Apps.GrasshopperLink.Definition;
 /// groups, and once interleaved, the frames <em>must</em> overlap however carefully anything is spaced.
 /// <para>
 /// Within a level: layers by longest path from the sources (so nothing stands left of what feeds it),
-/// barycenter sweeps to untangle, and sizes from the objects' real bounds. Groups get padding for their
+/// barycenter sweeps both ways to untangle, the last of them ordering every source by the socket it feeds,
+/// and sizes from the objects' real bounds. Groups get padding for their
 /// frame and the label above it, and mothers are pushed to the very back afterwards.
 /// </para>
 /// </remarks>
@@ -499,7 +500,10 @@ internal static class Arrange
             return layer[at] = deepest + 1;
         }
 
-        for (int i = 0; i < blocks.Count; i++)
+        // In guid order, not in the order the blocks arrived. In a cycle the block walked first lands right of
+        // the others, and the arrival order is document order, which Restack reverses on every run: two groups
+        // feeding each other swapped columns on every arrange, for ever.
+        foreach (int i in Enumerable.Range(0, blocks.Count).OrderBy(i => blocks[i].Key))
         {
             LayerOf(i);
         }
@@ -517,46 +521,99 @@ internal static class Arrange
             columns[layer[i]].Add(i);
         }
 
+        // Where each block stands now, top to bottom, is the order the sweeps start from.
+        //
+        // It used to be the order of document.Objects, and Restack rewrites that order on every run: it sends
+        // each group to the back in turn, which reverses them. A block with nothing wired to it keeps the place
+        // it starts from, so sixteen unconnected groups came out upside down on every arrange, for ever,
+        // reported as about 160 objects moved each time. A position is what this pass decides, so after one
+        // run the next starts from the same order and ends where it began. Ties fall to the guid, which no pass
+        // rewrites.
+        float[] top = new float[blocks.Count];
+
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            top[i] = blocks[i].Leaves.Count == 0
+                ? 0
+                : blocks[i].Leaves.Min(leaf => leaf.Attributes?.Bounds.Y ?? 0);
+        }
+
+        foreach (List<int> column in columns)
+        {
+            column.Sort((a, b) =>
+            {
+                int byTop = top[a].CompareTo(top[b]);
+
+                return byTop != 0 ? byTop : blocks[a].Key.CompareTo(blocks[b].Key);
+            });
+        }
+
+        // Every wire between two blocks, from the consuming side: which block reads, and how far down that block
+        // the socket it reads into sits, as a fraction of the block's height.
+        List<(int Reader, double Down)>[] readers = Readers(blocks, owner);
+
         double[] rank = new double[blocks.Count];
+
+        void Order(List<int> column)
+        {
+            // Ranked first, and where two blocks rank the same, ordered by identity.
+            //
+            // Two groups with no wire between them rank identically for ever, and List.Sort is not stable,
+            // so which came first was decided by the sort's internals and could differ between two runs on
+            // the same document. Measured: two unconnected groups swapping places on alternate arranges,
+            // for ever, each swap reported as seven objects moved. An instance guid is fixed for an object's
+            // life and no pass touches it.
+            column.Sort((a, b) =>
+            {
+                int byRank = rank[a].CompareTo(rank[b]);
+
+                return byRank != 0 ? byRank : blocks[a].Key.CompareTo(blocks[b].Key);
+            });
+        }
+
+        // A block's place in its column, or its own place when the column no longer knows it (a cycle).
+        int Place(int block, int fallback)
+        {
+            int at = columns[layer[block]].IndexOf(block);
+
+            return at < 0 ? fallback : at;
+        }
 
         for (int sweep = 0; sweep < Sweeps; sweep++)
         {
+            // Left to right: a block goes level with what feeds it.
             foreach (List<int> column in columns)
             {
                 for (int i = 0; i < column.Count; i++)
                 {
                     int block = column[i];
 
-                    // Feeders whose column no longer knows them (a cycle again) rank as themselves rather
-                    // than as -1, which would drag a whole column to the top for no reason.
                     rank[block] = feeders[block].Count == 0
                         ? i
-                        : feeders[block].Average(feeder =>
-                        {
-                            int at = columns[layer[feeder]].IndexOf(feeder);
-
-                            return at < 0 ? i : at;
-                        });
+                        : feeders[block].Average(feeder => Place(feeder, i));
                 }
 
-                // Ranked first, and where two blocks rank the same, ordered by identity.
-                //
-                // Two groups with no wire between them rank identically for ever, and List.Sort is not stable,
-                // so which came first was decided by the sort's internals and could differ between two runs on
-                // the same document. Measured: two unconnected groups swapping places on alternate arranges,
-                // for ever, each swap reported as seven objects moved.
-                //
-                // The tiebreak has to be something this pass does not itself change, which ruled out the first
-                // attempt: the block's index comes from the order of document.Objects, and Restack reorders that
-                // very list by calling ArrangeObject to push frames back and notes forward. Sorting by a key
-                // that arrange rewrites on every run is no tiebreak at all - it swapped exactly as before.
-                // An instance guid is fixed for an object's life and no pass touches it.
-                column.Sort((a, b) =>
-                {
-                    int byRank = rank[a].CompareTo(rank[b]);
+                Order(column);
+            }
 
-                    return byRank != 0 ? byRank : blocks[a].Key.CompareTo(blocks[b].Key);
-                });
+            // Right to left: a block goes level with the socket it feeds. This is what puts the source of a
+            // component's first input above the source of its second, and the inputs of a group in the order
+            // of its inlets. Without it nothing ever moved a column of sources, because a source has no feeders
+            // and so kept whatever place it started in. Run last, so the sources end in socket order.
+            for (int c = columns.Length - 1; c >= 0; c--)
+            {
+                List<int> column = columns[c];
+
+                for (int i = 0; i < column.Count; i++)
+                {
+                    int block = column[i];
+
+                    rank[block] = readers[block].Count == 0
+                        ? i
+                        : readers[block].Average(read => Place(read.Reader, i) + read.Down);
+                }
+
+                Order(column);
             }
         }
 
@@ -587,6 +644,74 @@ internal static class Arrange
         }
 
         return new SizeF(Math.Max(0, x - gapX), tallest);
+    }
+
+    /// <summary>
+    /// For each block, the blocks that read from it, each with how far down the reader the socket sits.
+    /// </summary>
+    /// <remarks>
+    /// The fraction is measured on the reading block as it was laid out inside: the leaf's own offset in its
+    /// block plus the socket's share of the leaf's height, over the block's height. A block of one component
+    /// gives its first input 0.5 / n and its last (n - 0.5) / n. A group gives the inlet near its top a small
+    /// number, so whatever feeds that inlet is ranked above whatever feeds one lower down.
+    /// </remarks>
+    private static List<(int Reader, double Down)>[] Readers(List<Block> blocks, Dictionary<IGH_DocumentObject, int> owner)
+    {
+        List<(int Reader, double Down)>[] readers = new List<(int, double)>[blocks.Count];
+
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            readers[i] = [];
+        }
+
+        for (int j = 0; j < blocks.Count; j++)
+        {
+            Block reader = blocks[j];
+            float height = Math.Max(1, reader.Size.Height);
+
+            foreach (IGH_DocumentObject leaf in reader.Leaves)
+            {
+                List<IGH_Param> inputs = [.. InputsOf(leaf)];
+                float offset = OffsetOf(reader, leaf);
+                float tall = leaf.Attributes?.Bounds.Height ?? 0;
+
+                for (int k = 0; k < inputs.Count; k++)
+                {
+                    double down = (offset + (tall * (k + 0.5) / inputs.Count)) / height;
+
+                    foreach (IGH_Param source in inputs[k].Sources)
+                    {
+                        IGH_DocumentObject from = source.Attributes?.GetTopLevel?.DocObject ?? source;
+
+                        if (owner.TryGetValue(from, out int i) && i != j)
+                        {
+                            readers[i].Add((j, Math.Clamp(down, 0, 0.999)));
+                        }
+                    }
+                }
+            }
+        }
+
+        return readers;
+    }
+
+    /// <summary>How far below a block's top edge one of its leaves was laid out.</summary>
+    private static float OffsetOf(Block block, IGH_DocumentObject leaf)
+    {
+        if (block.Node is not null)
+        {
+            return 0;
+        }
+
+        foreach (Block child in block.Children)
+        {
+            if (child.Leaves.Contains(leaf))
+            {
+                return GroupPad + GroupLabel + child.At.Y + OffsetOf(child, leaf);
+            }
+        }
+
+        return 0;
     }
 
     /// <summary>Relative positions become real pivots, a block and its contents at a time.</summary>

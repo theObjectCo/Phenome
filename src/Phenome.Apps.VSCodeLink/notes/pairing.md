@@ -6,12 +6,16 @@ search `components` before `add` when unsure of a name; prefer `place` over add/
 with `peek`, not `screenshot`, since the canvas carries positions and needs no picture; and use
 `launch` when there is no session rather than starting Rhino yourself.
 
-**If you cannot see any `phenome` tool at all, you are not on a stale session - your host has no MCP
-server wired up.** Restarting will not conjure one. Do not spend another thought on it: go straight to
-*Without the MCP tools* at the end of this file, which is the whole protocol over plain HTTP and includes
-the one thing you cannot otherwise work out - how to start a session when there is no `launch` verb to call.
-(If *some* tools are there and one you want is missing, that is the stale case, and restarting the session
-does fix it.)
+**If no `phenome` tool is in your list, work out which of three cases you are in before you pick a door.**
+In Claude Code the tools may be listed by name only, as deferred tools: one `ToolSearch` with
+`select:mcp__phenome__canvas,mcp__phenome__place,...` loads them, and that is not a missing server. Tools
+that were there earlier in this conversation and are gone now mean the server dropped. It does not come back
+by itself: ask the human to reconnect it (`/mcp` in Claude Code) and carry on with the tools once they are
+back. One session lost them overnight, went to HTTP the next morning and stayed there for a week, long
+after the tools had returned. Only a conversation that never had a `phenome` tool has no server wired up.
+Restarting will not conjure one, and *Without the MCP tools* at the end of this file is the whole protocol
+over plain HTTP, including how to start a session when there is no `launch` verb to call. (If *some* tools
+are there and one you want is missing, that is the stale case, and restarting the session does fix it.)
 
 **The components you will reach for, with their guids and their exact input names** - so you need not search
 for them. Pass the **guid**, not the name; the paragraph under the table says why, and it is not a style
@@ -236,8 +240,9 @@ abstraction layer.
      two differently-shaped trees: use **`Cross Reference`**, which pairs every A with every B and gives
      you M items inside each unit's branch. Getting this wrong is what silently produces 1806 of something.
    - **Verify with `peek`** after each group: branch count and item counts are the specification.
-     `review` flags an item-access input holding several items in a branch, which is this failure
-     exactly - and it reports every red or orange component, so bringing review to zero means the
+     `review` counts how many times each component runs and compares it with the items its inputs
+     hold. More runs than the largest input has items is this failure exactly, and it is blocking above
+     100 runs in one branch. It also reports every red or orange component, so bringing review to zero means the
      definition actually runs.
 8. **Build with components, not script.** A definition is made of components - that is what makes it
    readable and editable by whoever opens it next. Reach for a C# script component only when no
@@ -275,7 +280,17 @@ parameter. It is this verb.
 ## Without the MCP tools
 
 Everything above is the same protocol either way, so none of it is wasted - only the door changes. Read this
-if your host has no `phenome` tools, and stop reading it the moment it does.
+if your host has no `phenome` tools, and stop reading it the moment it does. Tools that appear later in the
+conversation are the moment: a script already written is not a reason to stay on HTTP.
+
+**A script is the right tool for a loop, even with the tools at hand.** Trying 64 variants of an input and
+measuring each one is a few hundred calls, and a loop over `set`, `peek` and `measure` in one script is
+quicker to write and to read back than that many tool calls. Building and changing the definition is not a
+loop: groups, `place`, `wire`, `signature`, `arrange`, `review`, `preview` and `save` go through the tools,
+because the workflow above lives there. Sizes and overlaps come from `measure`, and `set` renames a
+parameter (`nickname`) and sizes a panel (`width`, `height`). When the loop needs something no verb does,
+say so with `report`. Reaching into the canvas with a throwaway C# or Python script hides the gap, and two
+such scripts in one session left Rhino stuck in a modal exception dialog.
 
 **Starting a session is the part you cannot guess, so here it is exactly.** There is no verb for it: the
 server lives *inside* Grasshopper, so nothing can answer until Grasshopper is running, which is why `launch`
@@ -303,6 +318,11 @@ Get-ChildItem "$env:TEMP\phenome-link-*.port"
 #    else's canvas, which is the one failure worse than not starting at all.
 # 4. GET http://127.0.0.1:<that port>/ describes every verb, its arguments and its answers.
 ```
+
+On a Mac, which nobody has tried yet, the same steps read: the port files are in `$TMPDIR`, and Rhino starts
+with `"/Applications/Rhino 8.app/Contents/MacOS/Rhinoceros" -nosplash -runscript=_Grasshopper &`, with a
+dash and without the Windows quotes, which Rhino for Mac reads as the name of a file to open. If that is
+where you are, say in a `report` what worked.
 
 A `phenome-rhino-<pid>.port` appears too, on its own port: that is the Rhino half, and it answers about the
 process rather than the canvas - `GET /pulse` for whether Rhino is idle, busy or blocked, which works even

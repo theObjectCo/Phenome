@@ -64,34 +64,43 @@ internal static class Plumbing
         _ => throw new ArgumentException("Expected a flag."),
     };
 
-    /// <summary>A colour, however the client spelt it: [r,g,b], "255,60,60", or "#ff3c3c".</summary>
+    /// <summary>
+    /// A colour, spelt as Grasshopper spells one: [r,g,b] or [r,g,b,a], "255,60,60", "255,60,60,128",
+    /// "#ff3c3c", "#80ff3c3c" or a name.
+    /// </summary>
+    /// <remarks>
+    /// Text goes through Grasshopper's own parser and means what it would mean typed into a Panel wired to a
+    /// colour input. That parser reads four numbers as r,g,b,a with the alpha <em>last</em>. An array of four
+    /// is read in the same order. Any other count is refused, because dropping the fourth number made
+    /// "120,215,205,190" an opaque colour without a warning.
+    /// </remarks>
     internal static System.Drawing.Color AsColour(JsonElement value)
     {
-        if (value.ValueKind == JsonValueKind.Array && value.GetArrayLength() >= 3)
+        const string Spelling = "a colour is [r,g,b] or [r,g,b,a], or text: \"r,g,b\", \"r,g,b,a\" with the "
+            + "alpha last, \"#rrggbb\", \"#aarrggbb\" or a colour name.";
+
+        if (value.ValueKind == JsonValueKind.Array)
         {
-            return System.Drawing.Color.FromArgb(
-                (int)AsDouble(value[0]),
-                (int)AsDouble(value[1]),
-                (int)AsDouble(value[2]));
+            int[] channels = [.. value.EnumerateArray().Select(channel => (int)AsDouble(channel))];
+
+            return channels.Length switch
+            {
+                3 => System.Drawing.Color.FromArgb(channels[0], channels[1], channels[2]),
+                4 => System.Drawing.Color.FromArgb(channels[3], channels[0], channels[1], channels[2]),
+                _ => throw new ArgumentException($"{channels.Length} numbers are not a colour: {Spelling}"),
+            };
         }
 
-        if (value.ValueKind != JsonValueKind.String)
+        // The parser falls back to Color.FromName, which answers any word with a "named" transparent black,
+        // so "not a colour" parsed. Only a name the system actually knows passes.
+        if (value.ValueKind == JsonValueKind.String
+            && GH_Convert.ToColor(value.GetString()!.Trim(), out System.Drawing.Color colour, GH_Conversion.Secondary)
+            && (!colour.IsNamedColor || colour.IsKnownColor))
         {
-            throw new ArgumentException("a colour is [r,g,b], \"r,g,b\" or \"#rrggbb\".");
+            return colour;
         }
 
-        string said = value.GetString()!.Trim();
-
-        if (said.StartsWith('#'))
-        {
-            return System.Drawing.ColorTranslator.FromHtml(said);
-        }
-
-        string[] parts = said.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-
-        return parts.Length >= 3
-            ? System.Drawing.Color.FromArgb(int.Parse(parts[0]), int.Parse(parts[1]), int.Parse(parts[2]))
-            : System.Drawing.ColorTranslator.FromHtml(said);
+        throw new ArgumentException($"'{value}' is not a colour: {Spelling}");
     }
 
     /// <summary>A number, however the client spelt it - same story as <see cref="AsBool"/>.</summary>

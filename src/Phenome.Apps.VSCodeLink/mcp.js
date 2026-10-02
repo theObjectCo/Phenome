@@ -11,7 +11,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 
 let port = null;
 let rhinoPort = null;
@@ -36,8 +36,9 @@ async function ask(pathname, body) {
             method: body ? 'POST' : 'GET',
 
             // Required since 0.32.0, and the reason is the header rather than the body: a page cannot set
-            // this on a no-cors request, so demanding it is what keeps a website off this port.
-            headers: body ? { 'Content-Type': 'application/json' } : undefined,
+            // this on a no-cors request, so demanding it is what keeps a website off this port. The client
+            // header tells the link this edit came through the tools, so it does not point at them.
+            headers: body ? { 'Content-Type': 'application/json', 'X-Phenome-Client': 'mcp' } : undefined,
             body: body ? JSON.stringify({ author: 'claude', ...body }) : undefined,
         });
 
@@ -78,8 +79,9 @@ async function askRhino(pathname, body) {
             method: body ? 'POST' : 'GET',
 
             // Required since 0.32.0, and the reason is the header rather than the body: a page cannot set
-            // this on a no-cors request, so demanding it is what keeps a website off this port.
-            headers: body ? { 'Content-Type': 'application/json' } : undefined,
+            // this on a no-cors request, so demanding it is what keeps a website off this port. The client
+            // header tells the link this edit came through the tools, so it does not point at them.
+            headers: body ? { 'Content-Type': 'application/json', 'X-Phenome-Client': 'mcp' } : undefined,
             body: body ? JSON.stringify({ author: 'claude', ...body }) : undefined,
         });
 
@@ -235,50 +237,188 @@ async function discover() {
     port = live.length > 0 ? live[0].port : null;
 }
 
-async function launch(fresh, withGrasshopper = true) {
-    if (!withGrasshopper) {
-        return launchRhinoAlone(fresh);
+/// Folders handed to Rhino as RHINO_PACKAGE_DIRS by the last launch that named any, so that restart brings
+/// back the same plug-in build rather than the installed one.
+let packageDirs = [];
+
+/// The environment a new Rhino is started with: this server's own, plus RHINO_PACKAGE_DIRS when folders
+/// were given.
+///
+/// A plug-in under development loads from its build folder, and Rhino finds a folder like that only
+/// through RHINO_PACKAGE_DIRS. launch had no way to pass it, so an agent working on a plug-in started Rhino
+/// from its own shell and lost everything launch does: the right quoting of _Grasshopper, the wait for a
+/// new port file, and the pairing by pid.
+function rhinoEnvironment(dirs) {
+    if (dirs !== undefined) {
+        const missing = dirs.filter(dir => !fs.existsSync(dir));
+
+        if (missing.length > 0) {
+            throw new Error(`No folder at ${missing.join(', ')}; packageDirs takes folders that exist.`);
+        }
+
+        packageDirs = dirs;
     }
 
-    const before = (await sessions()).map(one => one.port);
+    if (packageDirs.length === 0) {
+        return process.env;
+    }
+
+    // path.delimiter: a semicolon on Windows and, by the same convention as PATH, a colon on macOS. The
+    // colon is an assumption nobody has checked on a Mac yet.
+    const already = process.env.RHINO_PACKAGE_DIRS ? process.env.RHINO_PACKAGE_DIRS.split(path.delimiter) : [];
+
+    return { ...process.env, RHINO_PACKAGE_DIRS: [...packageDirs, ...already].join(path.delimiter) };
+}
+
+/// The Rhino executable and the arguments that open it, with or without Grasshopper, on this system.
+///
+/// Windows wants the script argument as `/runscript="_Grasshopper"`, passed verbatim, because node's default
+/// quoting doubles the quotes and Rhino then runs no script at all. Rhino for Mac takes
+/// `-runscript=_Grasshopper` with a dash, as an argument of its own, and reads the Windows spelling as the name
+/// of a file to open. The macOS half follows McNeel's forum and has not been run on a Mac. PHENOME_RHINO
+/// overrides the path on either system, for a Rhino installed somewhere else.
+function rhinoStart(withGrasshopper) {
+    const mac = process.platform === 'darwin';
+    const exe = process.env.PHENOME_RHINO || (mac
+        ? '/Applications/Rhino 8.app/Contents/MacOS/Rhinoceros'
+        : 'C:\\Program Files\\Rhino 8\\System\\Rhino.exe');
+
+    if (!fs.existsSync(exe)) {
+        throw new Error(`Rhino 8 is not at ${exe}; start it by hand, or set PHENOME_RHINO to where it is.`);
+    }
+
+    const args = mac
+        ? ['-nosplash', ...(withGrasshopper ? ['-runscript=_Grasshopper'] : [])]
+        : ['/nosplash', ...(withGrasshopper ? ['/runscript="_Grasshopper"'] : [])];
+
+    return { exe, args, verbatim: !mac };
+}
+
+/// The Rhino this server started and has not yet seen answer: {pid, withGrasshopper, before, at}.
+///
+/// Kept so that a launch which ran out of time is not followed by a second Rhino. Rhino sometimes shows a
+/// window before its main one - a sign-in, a licence question, a crash report, an update - and loads no
+/// plug-in until somebody answers it. One start took about three minutes like that, launch gave up after 90
+/// seconds and blamed the plug-in, and the Rhino came up on its own afterwards.
+let starting = null;
+
+function alive(pid) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/// The title of a process's main window, or null where it cannot be read.
+///
+/// Windows only, through PowerShell, because the link inside Rhino is exactly the thing that has not loaded
+/// yet, so nothing in Rhino can be asked.
+function windowTitle(pid) {
+    if (process.platform !== 'win32') {
+        return null;
+    }
+
+    try {
+        return execFileSync(
+            'powershell',
+            ['-NoProfile', '-Command', `(Get-Process -Id ${pid} -ErrorAction Stop).MainWindowTitle`],
+            { encoding: 'utf8', timeout: 8000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+    } catch {
+        return null;
+    }
+}
+
+async function launch(fresh, withGrasshopper = true, dirs = undefined) {
+    const env = rhinoEnvironment(dirs);
+
+    // A Rhino this server started that has not answered yet is waited for again, not doubled. Checked before
+    // anything else, fresh:true included: that Rhino already is the fresh one.
+    if (starting !== null && alive(starting.pid)) {
+        return waitForBirth(starting);
+    }
+
+    starting = null;
+
+    const list = withGrasshopper ? sessions : rhinoSessions;
+    const before = (await list()).map(one => one.port);
 
     if (!fresh) {
-        await discover();
-
         // Refuse only for a session that is actually answering. A pin (PHENOME_GH_PORT) survives the
         // Rhino it named, so checking `port` alone would leave an agent whose canvas has died unable to
         // start another one - the one moment it most needs to.
-        if (port !== null && before.includes(port)) {
-            return `A session already runs on port ${port}.`;
+        if (withGrasshopper) {
+            await discover();
+
+            if (port !== null && before.includes(port)) {
+                return `A session already runs on port ${port}.`;
+            }
+
+            port = null;
+        } else {
+            await discoverRhino();
+
+            if (rhinoPort !== null && before.includes(rhinoPort)) {
+                return `A Rhino session already answers on port ${rhinoPort}.`;
+            }
+
+            rhinoPort = null;
         }
-
-        port = null;
     }
 
-    const rhino = 'C:\\Program Files\\Rhino 8\\System\\Rhino.exe';
+    // The plugin loads with Grasshopper, so no Grasshopper means no canvas link, ever. See rhinoStart for why
+    // the arguments are spelt the way they are.
+    const start = rhinoStart(withGrasshopper);
 
-    if (!fs.existsSync(rhino)) {
-        throw new Error(`Rhino 8 is not at ${rhino}; start it by hand and try again.`);
-    }
-
-    // Verbatim, because node's default quoting doubles the quotes _Grasshopper needs and Rhino then runs
-    // no script at all - the plugin loads with Grasshopper, so no Grasshopper means no link, ever.
-    spawn(rhino, ['/nosplash', '/runscript="_Grasshopper"'], {
+    const child = spawn(start.exe, start.args, {
         detached: true,
         stdio: 'ignore',
-        windowsVerbatimArguments: true,
-    }).unref();
+        windowsVerbatimArguments: start.verbatim,
+        env,
+    });
 
-    // Rhino takes its time; a port that was not there before is the sign of life. Waiting for *a* session
-    // would otherwise hand back the one already running and quietly put two agents on one canvas.
+    child.unref();
+
+    starting = { pid: child.pid, withGrasshopper, before, at: Date.now() };
+
+    return waitForBirth(starting);
+}
+
+/// Waits up to 90 seconds for the Rhino in `started` to answer, and says what it is doing if it does not.
+///
+/// The process is matched by the pid in its port file, and failing that by a port that was not there before.
+/// Waiting for *a* session would hand back the one already running and quietly put two agents on one canvas.
+/// 90 seconds per call, so that one tool call does not hold the agent for minutes; a later launch carries on
+/// waiting for the same process.
+async function waitForBirth(started) {
+    const list = started.withGrasshopper ? sessions : rhinoSessions;
+
     for (let waited = 0; waited < 90_000; waited += 3000) {
         await new Promise(rest => setTimeout(rest, 3000));
 
-        const now = await sessions();
-        const born = now.find(one => !before.includes(one.port));
+        const now = await list();
+        const born = now.find(one => one.pid === started.pid)
+            ?? now.find(one => !started.before.includes(one.port));
 
         if (born) {
+            starting = null;
+
+            if (!started.withGrasshopper) {
+                rhinoPort = born.port;
+
+                return `Rhino is up without Grasshopper; the Rhino link answers on port ${rhinoPort} `
+                    + `(process ${born.pid}). ${now.length} Rhino link(s) live on this machine. `
+                    + 'Canvas tools will not work here - launch again for one.';
+            }
+
             port = born.port;
+
+            // Forgotten here, and the next Rhino call pairs by pid with the canvas just born. The old value
+            // names the Rhino this server spoke to before. After a crash or a closed window that port is dead
+            // and the first camera call fails. After fresh:true it is alive and belongs to another Rhino, and
+            // the camera would turn in the wrong window.
+            rhinoPort = null;
 
             // A pin names this agent's canvas, and this is now that canvas. Left pointing at the Rhino
             // that died, the pin would win every later rediscovery and send the agent back to a port
@@ -288,55 +428,39 @@ async function launch(fresh, withGrasshopper = true) {
             }
 
             return `Rhino is up; the link answers on port ${port} (process ${born.pid}). `
-                + `${now.length} session(s) live on this machine.`;
+                + `${now.length} session(s) live on this machine.`
+                + (packageDirs.length > 0 ? ` RHINO_PACKAGE_DIRS: ${packageDirs.join(path.delimiter)}.` : '');
+        }
+
+        if (!alive(started.pid)) {
+            starting = null;
+
+            throw new Error(
+                `Rhino (process ${started.pid}) ended ${Math.round((Date.now() - started.at) / 1000)} s after it `
+                + 'was started, before the link answered. It crashed or somebody closed it.');
         }
     }
 
-    throw new Error('Rhino started but the link never answered - is the Phenome Link plugin installed?');
-}
+    const seconds = Math.round((Date.now() - started.at) / 1000);
+    const title = windowTitle(started.pid);
+    const again = 'Call launch again to keep waiting: it waits for this same process instead of starting another.';
 
-/// Rhino on its own: no Grasshopper, no canvas, and nothing waiting on one.
-///
-/// Worth having as its own door because most of what an agent does to Rhino - open a file, select, run a
-/// command, export - has nothing to do with a definition. Starting Grasshopper for that costs a slower
-/// launch and a second plugin that can fail to load, in exchange for a canvas nobody looks at.
-async function launchRhinoAlone(fresh) {
-    const before = (await rhinoSessions()).map(one => one.port);
-
-    if (!fresh) {
-        await discoverRhino();
-
-        if (rhinoPort !== null && before.includes(rhinoPort)) {
-            return `A Rhino session already answers on port ${rhinoPort}.`;
-        }
-
-        rhinoPort = null;
+    // A main window carries Rhino's name or the document in its title; anything else at this stage is the
+    // small window Rhino shows before its main one.
+    if (title !== null && /Rhino 8|Untitled|\.3dm/i.test(title)) {
+        return `NOT UP YET. Rhino (process ${started.pid}) has its main window open ("${title}"), but the link `
+            + `has not answered after ${seconds} s. `
+            + (started.withGrasshopper
+                ? 'Grasshopper may still be loading, or the plugin did not load. '
+                : 'The Rhino plug-in may still be loading, or it did not load. ')
+            + `${again} If it stays like this, the human can check Rhino's command line.`;
     }
 
-    const rhino = 'C:\\Program Files\\Rhino 8\\System\\Rhino.exe';
-
-    if (!fs.existsSync(rhino)) {
-        throw new Error(`Rhino 8 is not at ${rhino}; start it by hand and try again.`);
-    }
-
-    spawn(rhino, ['/nosplash'], { detached: true, stdio: 'ignore', windowsVerbatimArguments: true }).unref();
-
-    for (let waited = 0; waited < 90_000; waited += 3000) {
-        await new Promise(rest => setTimeout(rest, 3000));
-
-        const now = await rhinoSessions();
-        const born = now.find(one => !before.includes(one.port));
-
-        if (born) {
-            rhinoPort = born.port;
-
-            return `Rhino is up without Grasshopper; the Rhino link answers on port ${rhinoPort} `
-                + `(process ${born.pid}). ${now.length} Rhino link(s) live on this machine. `
-                + 'Canvas tools will not work here - launch again for one.';
-        }
-    }
-
-    throw new Error('Rhino started but the Rhino link never answered - is the Phenome Link plugin installed?');
+    return `NOT UP YET. Rhino (process ${started.pid}) is running, but the link has not answered after `
+        + `${seconds} s` + (title !== null ? ` and its only window is titled "${title}"` : '') + '. '
+        + 'That is usually a dialog Rhino shows before its main window - sign-in, licence, a crash report or '
+        + 'an update - and nothing loads until somebody answers it. Ask the human to look at the screen. '
+        + again;
 }
 
 /// Everything a restart would throw away, named rather than counted.
@@ -382,19 +506,21 @@ async function unsaved() {
 /// The process is ended outright, which is what makes the unsaved check part of the verb rather than
 /// advice next to it: there is no save prompt to answer on the way out, so work that has not been written
 /// is simply gone. Named destruction again - 'discard' is how you say you meant it.
-async function restart(discard, withGrasshopper) {
+async function restart(discard, withGrasshopper, dirs = undefined) {
     const canvas = await sessions();
     const rhinos = await rhinoSessions();
 
     // This agent's process, not every Rhino on the machine: a human with two open should lose only the one
     // the agent was working in.
-    const mine = canvas.find(one => one.port === port)
+    // A Rhino still on its way up is this agent's too, and the likeliest one to need ending.
+    const mine = (starting !== null && alive(starting.pid) ? { pid: starting.pid } : null)
+        ?? canvas.find(one => one.port === port)
         ?? rhinos.find(one => one.port === rhinoPort)
         ?? canvas[0]
         ?? rhinos[0];
 
     if (!mine) {
-        return `Nothing was running, so this is a start rather than a restart. ${await launch(false, withGrasshopper)}`;
+        return `Nothing was running, so this is a start rather than a restart. ${await launch(false, withGrasshopper, dirs)}`;
     }
 
     if (!discard) {
@@ -429,8 +555,9 @@ async function restart(discard, withGrasshopper) {
     port = null;
     rhinoPort = null;
     chosen = null;
+    starting = null;
 
-    return `Ended process ${mine.pid}. ${await launch(false, withGrasshopper)}`;
+    return `Ended process ${mine.pid}. ${await launch(false, withGrasshopper, dirs)}`;
 }
 
 // ------------------------------------------------------------------------------------------------ tools
@@ -539,25 +666,28 @@ const TOOLS = [
     },
     {
         name: 'set',
-        description: "Values into objects. PASS THEM ALL AT ONCE in 'values'; a single one at the root works for a one-off. A slider takes bounds and precision, or a string like '0<50<100' for all three. With 'param', the value replaces a component input's stored constant - no standalone parameter and wire for the number two - and a null value empties that socket, which is the only way back to nothing stored. On a note - a Scribble or a Panel - the value is its wording, which makes this the way to reword a note you already placed rather than deleting and rebuilding it; empty or whitespace is refused, because a blank note looks exactly like one whose text went missing.",
+        description: "Values into objects. PASS THEM ALL AT ONCE in 'values'; a single one at the root works for a one-off. A slider takes bounds and precision, or a string like '0<50<100' for all three. With 'param', the value replaces a component input's stored constant - no standalone parameter and wire for the number two - and a null value empties that socket, which is the only way back to nothing stored. On a note - a Scribble or a Panel - the value is its wording, which makes this the way to reword a note you already placed rather than deleting and rebuilding it; empty or whitespace is refused, because a blank note looks exactly like one whose text went missing. A PANEL SENDS ITS WHOLE TEXT AS ONE ITEM, however many lines it has, because Grasshopper's Multiline Data is on for every new panel: pass an array (['-3','3','3','-3']) to make it a list source, one item per element. A Colour Swatch takes [r,g,b] or [r,g,b,a], or text as Grasshopper reads it: 'r,g,b', 'r,g,b,a' with the alpha LAST, '#rrggbb', '#aarrggbb' or a colour name. On any other parameter an array stores one item per element, and [x,y,z] is a point, so a Point parameter takes [[0,0,0],[10,0,0]] or ['0,0,0','10,0,0']; a value the parameter cannot read refuses the whole entry instead of storing less. 'nickname' renames a parameter standing on its own - a group's inlet or outlet, a slider, a panel - and is refused on a component, which keeps its name. 'width' and 'height' size a Panel, so a one-line panel need not keep the default box. With nickname, width or height, 'value' can be left out.",
         inputSchema: object({
             values: {
                 type: 'array',
-                description: 'Every value to set: [{id, value, param?, minimum?, maximum?, decimals?}]',
+                description: 'Every value to set: [{id, value?, param?, minimum?, maximum?, decimals?, nickname?, width?, height?}]',
                 items: { type: 'object' },
             },
             id: str('Object id.'),
-            value: { description: "Number, text or flag. For sliders, a string '<min><<value><<max>' sets the whole domain." },
+            value: { description: "Number, text, flag, [x,y,z] for a point, or an array of those for a list. For sliders, a string '<min><<value><<max>' sets the whole domain. For a Panel, an array of lines makes it send one item per line." },
             param: str("A component input's name or index - the value becomes that input's stored constant."),
             minimum: { type: 'number', description: 'Slider lower bound.' },
             maximum: { type: 'number', description: 'Slider upper bound.' },
             decimals: { type: 'number', description: 'Slider decimal places; 0 makes it an integer slider.' },
+            nickname: str('New name for a parameter standing on its own. Refused on a component.'),
+            width: { type: 'number', description: 'Panel width in canvas units.' },
+            height: { type: 'number', description: 'Panel height in canvas units.' },
         }),
         run: args => ask('/set', args),
     },
     {
         name: 'arrange',
-        description: "Lay the whole document out in layers, mermaid-style: sources left, few crossings, even spacing. Groups are laid out as whole blocks, so their frames never overlap. Notes are placed too, by their group: a note in a group becomes that group's caption and goes above its other members, a note in no group becomes the document's title and goes above everything - so you never position one yourself, you just say which group it is about when you place it. Idempotent: running it on a settled document answers moved:0 and changes no coordinates, so call it as often as you like. Run it after building or editing, and after grouping - never place anything by hand.",
+        description: "Lay the whole document out in layers, mermaid-style: sources left, few crossings, even spacing. Within a column, whatever feeds a component or group stands in the order of the sockets it feeds: the source of the first input on top. Groups are laid out as whole blocks, so their frames never overlap. Notes are placed too, by their group: a note in a group becomes that group's caption and goes above its other members, a note in no group becomes the document's title and goes above everything - so you never position one yourself, you just say which group it is about when you place it. Idempotent: running it on a settled document answers moved:0 and changes no coordinates, so call it as often as you like. Run it after building or editing, and after grouping - never place anything by hand.",
         inputSchema: object({}),
         run: () => ask('/arrange', {}),
     },
@@ -569,7 +699,7 @@ const TOOLS = [
     },
     {
         name: 'preview',
-        description: "Turns a preview off, so the viewport shows the product instead of every step that made it - the cutting boxes, the construction curves, the 23,000 point markers from an intermediate interpolation. USE THIS DURING THE BUILD, not only at the end: the moment an intermediate output floods the viewport, name that component here and it stops drawing. Takes a group id OR a single object id, and 'ids' for a batch of either. With no id at all it sweeps the whole document - only the outlets of the RED and YELLOW groups keep drawing - which is the finishing move, run after review and before save. on:true gives the preview back when you want to look inside again.",
+        description: "Turns a preview off, so the viewport shows the product instead of every step that made it - the cutting boxes, the construction curves, the 23,000 point markers from an intermediate interpolation. USE THIS DURING THE BUILD, not only at the end: the moment an intermediate output floods the viewport, name that component here and it stops drawing. Takes a group id OR a single object id, and 'ids' for a batch of either; an object named here that draws nothing is skipped and listed under 'skipped', and only an id that is not on the canvas refuses the batch. With no id at all it sweeps the whole document - only the outlets of the RED and YELLOW groups keep drawing, and objects in no group are quieted too, so on a canvas with no groups everything goes quiet - which is the finishing move, run after review and before save. on:true gives the preview back when you want to look inside again.",
         inputSchema: object({
             id: str('A group id or a single object id. Omit entirely to sweep the document, leaving only red and yellow groups\' outlets drawing.'),
             ids: { type: 'array', items: { type: 'string' }, description: 'Several ids at once, groups or objects, mixed freely. Use this instead of one call each.' },
@@ -579,7 +709,7 @@ const TOOLS = [
     },
     {
         name: 'review',
-        description: "Lints the definition. Every finding carries a severity: 'blocking' means the definition does not run or does the wrong thing - red components, an item input holding several items, an object in two groups, a hidden flatten/graft or simplify, a group with no signature - and those must all be fixed. 'polish' means manners: group sizes, input banks, unnamed groups, ungrouped objects. Fix the blocking ones first and never abandon a working graph to chase polish.",
+        description: "Lints the definition. Every finding carries a severity: 'blocking' means the definition does not run or does the wrong thing - red components, a component run more than 100 times in one branch against data it has already used (branches of unequal count multiplying each other; equal lists paired item by item are fine), an object in two groups, a hidden flatten/graft or simplify, a group with no signature - and those must all be fixed. 'polish' means manners: group sizes, input banks, unnamed groups, ungrouped objects. Fix the blocking ones first and never abandon a working graph to chase polish.",
         inputSchema: object({}),
         run: () => ask('/review'),
     },
@@ -745,12 +875,13 @@ const TOOLS = [
     },
     {
         name: 'launch',
-        description: "Start Rhino with Grasshopper and wait for the link to answer. Use when there is no session. With fresh:true it starts another Rhino even though one is already running and works with that one - which is how two agents each get a canvas of their own instead of editing the same one. With grasshopper:false it starts Rhino alone - faster, and enough for anything that is about the document rather than a definition: open, select, run commands, export. USE grasshopper:false FOR PLUG-IN WORK: building, installing and loading a Rhino plug-in needs no canvas, and starting Grasshopper for it costs a slower launch and one more thing that can fail to load. The plugins, rhino_load, rhino_command, rhino_doc, pulse, dismiss, escape and console verbs all answer in a Rhino that never opened Grasshopper.",
+        description: "Start Rhino with Grasshopper and wait for the link to answer. Use when there is no session. With fresh:true it starts another Rhino even though one is already running and works with that one - which is how two agents each get a canvas of their own instead of editing the same one. With grasshopper:false it starts Rhino alone - faster, and enough for anything that is about the document rather than a definition: open, select, run commands, export. USE grasshopper:false FOR PLUG-IN WORK: building, installing and loading a Rhino plug-in needs no canvas, and starting Grasshopper for it costs a slower launch and one more thing that can fail to load. The plugins, rhino_load, rhino_command, rhino_doc, pulse, dismiss, escape and console verbs all answer in a Rhino that never opened Grasshopper. For a plug-in that loads from its build folder, pass that folder in packageDirs: Rhino reads RHINO_PACKAGE_DIRS only when it starts, and restart keeps the folders, so the agent never has to start Rhino from its own shell. One call waits 90 seconds. An answer beginning NOT UP YET means the Rhino it started is alive and the link is not answering yet - most often a dialog Rhino shows before its main window, so ask the human to look - and calling launch again keeps waiting for that same process rather than starting another.",
         inputSchema: object({
             fresh: flag('Start another Rhino and use it, even if a session exists.'),
             grasshopper: flag('False starts Rhino without Grasshopper; canvas tools then have nothing to talk to.'),
+            packageDirs: ids('Folders Rhino searches for plug-in packages (RHINO_PACKAGE_DIRS), such as a debug build folder. Kept for later restarts; [] clears them.'),
         }),
-        run: args => launch(args.fresh === true, args.grasshopper !== false),
+        run: args => launch(args.fresh === true, args.grasshopper !== false, args.packageDirs),
     },
     {
         name: 'sessions',
@@ -802,7 +933,7 @@ const TOOLS = [
     },
     {
         name: 'screenshot',
-        description: 'The active Rhino viewport as an image - low resolution by default, on purpose, and framed on the geometry for the capture (the camera goes back where the human left it). Use to see what got built; for canvas layout, read canvas positions instead.',
+        description: "The active Rhino viewport as an image - low resolution by default, on purpose, and framed on the geometry for the capture (the camera goes back where the human left it). Use to see what got built; for canvas layout, read canvas positions instead. The capture redraws the view off screen at its own size, so geometry a plug-in draws with its own display code can be missing, stale or cropped while the screen shows it correctly - seen with an off-thread volume preview and with a script component's outputs. When peek reports the geometry and the picture does not show it, trust peek and ask the human to look before calling the component broken.",
         inputSchema: object({
             width: { type: 'number', description: 'Pixels across; default 640.' },
             zoomExtents: { type: 'boolean', description: "False captures the human's current framing instead." },
@@ -857,8 +988,9 @@ const TOOLS = [
         inputSchema: object({
             discard: flag('Restart even though unsaved work would be lost.'),
             grasshopper: flag('False brings Rhino back without Grasshopper - faster, and enough for plug-in work.'),
+            packageDirs: ids('Folders for RHINO_PACKAGE_DIRS. Omitted, the folders from the last launch are used again.'),
         }),
-        run: args => restart(args.discard === true, args.grasshopper !== false),
+        run: args => restart(args.discard === true, args.grasshopper !== false, args.packageDirs),
     },
     {
         name: 'camera',
@@ -892,7 +1024,7 @@ const TOOLS = [
     },
     {
         name: 'place',
-        description: "A whole group's body in one call: objects with local ids, wired to each other, to the group's inlet and outlet ids, and to anything already on the canvas. Each object: {id?, name|guid, nickname?, pivot?:[x,y], slider?:{value,minimum,maximum,decimals}, text?, value?, inputs?:[{param?, sources?:[{id, output?}], value?}]} - an input takes 'sources' for wires OR 'value' for a constant typed straight into that socket, and 'param' is a name or an index. Pass 'group' and everything placed joins that group. Answers the local-id to canvas-id map. Always prefer this over add/wire loops. 'text' is the wording of a note and works on both a Scribble and a Panel; it is refused when empty rather than becoming a placeholder, and 'describe' reads it back with the note's position so you can check what you wrote without asking anybody to look at the screen. PREFER 'guid' OVER 'name': a ComponentGuid is what a .gh file stores, so it cannot change, while a display name can be renamed by a plugin author and collides between plugins - the guid also skips the ambiguity refusal entirely. A recipe is all-or-nothing: if any entry cannot be resolved NOTHING is placed and the canvas is untouched, and the refusal names EVERY bad entry by your own local id, so fix them all in one pass and send the whole recipe again rather than probing one at a time.",
+        description: "A whole group's body in one call: objects with local ids, wired to each other, to the group's inlet and outlet ids, and to anything already on the canvas. Each object: {id?, name|guid, nickname?, pivot?:[x,y], slider?:{value,minimum,maximum,decimals}, text?, value?, inputs?:[{param?, sources?:[{id, output?}], value?}]} - an input takes 'sources' for wires OR 'value' for a constant typed straight into that socket, and 'param' is a name or an index. Pass 'group' and everything placed joins that group. Answers the local-id to canvas-id map. Always prefer this over add/wire loops. 'text' is the wording of a note and works on both a Scribble and a Panel; it is refused when empty rather than becoming a placeholder. A Panel sends a string as ONE item whatever its line breaks, so give 'text' as an array of lines when the panel is a list source, and 'describe' reads it back with the note's position so you can check what you wrote without asking anybody to look at the screen. PREFER 'guid' OVER 'name': a ComponentGuid is what a .gh file stores, so it cannot change, while a display name can be renamed by a plugin author and collides between plugins - the guid also skips the ambiguity refusal entirely. A recipe is all-or-nothing: if any entry cannot be resolved NOTHING is placed and the canvas is untouched, and the refusal names EVERY bad entry by your own local id, so fix them all in one pass and send the whole recipe again rather than probing one at a time.",
         inputSchema: object({
             objects: { type: 'array', items: { type: 'object' }, description: 'The recipe, in dataflow order.' },
             group: str("The group this body belongs to - everything placed joins it."),
@@ -908,6 +1040,29 @@ const TOOLS = [
             param: str('Parameter name or index; omit when there is only one.'),
         }, ['id']),
         run: args => ask(`/peek?id=${args.id}${args.side ? `&side=${args.side}` : ''}${args.param !== undefined ? `&param=${encodeURIComponent(args.param)}` : ''}`),
+    },
+    {
+        name: 'measure',
+        description: "Lengths, areas and volumes of the geometry on one parameter - a component's OUTPUT unless side:'input' - item by item with tree paths, plus totals and a bounding box. Curves give length, and area when closed and planar; breps and meshes give area, and volume when closed. Pass 'against' with a second object (and againstParam/againstSide) to compare every pair from the two sets: the area two closed planar curves share, the volume two solids share, the pairs that overlap, and the nearest distance between curves or points. Give the same id and parameter twice to compare a set with itself, each pair once - 'do any of these sections overlap'. At most 2500 pairs per call. Read-only and computed on the data already there, so it belongs in a loop of set and measure; never stand up a script component to measure.",
+        inputSchema: object({
+            id: str('Object id.'),
+            side: { type: 'string', enum: ['input', 'output'] },
+            param: str('Parameter name or index; omit when there is only one.'),
+            against: str('A second object id to compare with.'),
+            againstSide: { type: 'string', enum: ['input', 'output'] },
+            againstParam: str("The second object's parameter name or index."),
+        }, ['id']),
+        run: args => {
+            const query = new URLSearchParams({ id: args.id });
+
+            for (const key of ['side', 'param', 'against', 'againstSide', 'againstParam']) {
+                if (args[key] !== undefined) {
+                    query.set(key, String(args[key]));
+                }
+            }
+
+            return ask(`/measure?${query}`);
+        },
     },
     {
         name: 'save',
@@ -980,8 +1135,9 @@ function instructions() {
         '    treat polish as optional. Then `preview` with no id, which leaves only the outlets of the red',
         '    and yellow groups drawing and darkens the scaffolding - then `save`.',
         '',
-        'Verify numerically with `peek` (branch and item counts are the specification) and look at your',
-        'layout with `canvas_image`. When a tool fights you, say so with `report`.',
+        'Verify numerically with `peek` (branch and item counts are the specification), measure lengths,',
+        'areas and overlaps with `measure`, and look at your layout with `canvas_image`. When a tool fights',
+        'you, say so with `report` rather than working round it with a throwaway script component.',
     ].join('\n');
 }
 

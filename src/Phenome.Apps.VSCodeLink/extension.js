@@ -42,7 +42,7 @@ async function linkFetch(pathname, body) {
             method: body ? 'POST' : 'GET',
 
             // Required since 0.32.0: a page cannot set this on a no-cors request, so the link demands it.
-            headers: body ? { 'Content-Type': 'application/json' } : undefined,
+            headers: body ? { 'Content-Type': 'application/json', 'X-Phenome-Client': 'vscode' } : undefined,
             body: body ? JSON.stringify({ author: 'vscode', ...body }) : undefined,
             signal: controller.signal,
         });
@@ -739,7 +739,8 @@ function agentCommand() {
             .filter(name => /^anthropic\.claude-code-/.test(name))
             .sort()
             .reverse()
-            .map(name => path.join(extensions, name, 'resources', 'native-binary', 'claude.exe'))
+            .map(name => path.join(
+                extensions, name, 'resources', 'native-binary', process.platform === 'win32' ? 'claude.exe' : 'claude'))
             .find(candidate => fs.existsSync(candidate));
 
         if (bundled) {
@@ -773,10 +774,18 @@ function handleUri(uri) {
     // must learn, the server itself teaches: GET / is the protocol.
     const where = port
         ? `http://127.0.0.1:${port}`
-        : 'the port in %TEMP%\\phenome-link-*.port (a stale file has a dead pid)';
+        : process.platform === 'win32'
+            ? 'the port in %TEMP%\\phenome-link-*.port (a stale file has a dead pid)'
+            : 'the port in $TMPDIR/phenome-link-*.port (a stale file has a dead pid)';
 
     const agent = agentCommand();
-    const invoke = /[\\/]/.test(agent) ? `& '${agent.replace(/'/g, "''")}'` : agent;
+    // A path is quoted for the shell the terminal runs: PowerShell needs the call operator, and zsh or bash
+    // on a Mac need the path in single quotes, with any quote inside it closed and reopened. Untested on a Mac.
+    const invoke = !/[\\/]/.test(agent)
+        ? agent
+        : process.platform === 'win32'
+            ? `& '${agent.replace(/'/g, "''")}'`
+            : `'${agent.replace(/'/g, "'\\''")}'`;
 
     // The port travels into the session's environment, so the agent's MCP server binds to the canvas whose
     // button was pressed rather than to whichever session happens to answer first. With several Rhinos up -

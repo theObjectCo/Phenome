@@ -86,14 +86,14 @@ internal static class LinkServer
             "POST /saveandclose": "{author, id?, path?} - write the document, then close it. Without 'path' it saves where it already lives, and refuses if it has never been saved rather than inventing a location",
             "POST /add": "{author, name|guid, pivot?:[x,y], nickname?} - put a component or parameter on the canvas; answers its id",
             "POST /wire": "{author, wires:[{from:{id, param?}, to:{id, param?}, disconnect?}]} - all the wires in one call, one solution at the end. A single {from, to} at the root still works",
-            "POST /set": "{author, values:[{id, value, param?, minimum?, maximum?, decimals?}]} - all the values in one call. A single one at the root still works. A slider takes bounds and precision (or a string like '0<50<100' for all three), a panel text, a toggle a flag; with 'param' the value replaces a component input's stored constant, and a null value empties it",
+            "POST /set": "{author, values:[{id, value?, param?, minimum?, maximum?, decimals?, nickname?, width?, height?}]} - all the values in one call. A single one at the root still works. A slider takes bounds and precision (or a string like '0<50<100' for all three), a panel text, a toggle a flag; with 'param' the value replaces a component input's stored constant, and a null value empties it. An array stores one item per element, and [x,y,z] is a point. 'nickname' renames a parameter standing on its own (never a component), and 'width' and 'height' size a panel; with any of those, 'value' may be left out",
             "POST /select": "{author, ids:[guid], add?} - select those objects, replacing the selection unless add",
             "POST /delete": "{author, ids:[guid], force?} - remove those objects. Refuses and names the wires first if this would cut connections to objects that stay; force:true means you meant it",
             "GET /wires": "every wire in the document, from and to, with names and parameters - the whole picture no per-input peek adds up to",
             "GET /describe?id=guid": "one placed object's parameters: names, nicknames, types, item/list access, how many wires and items each holds - so a placed component needs no catalogue search",
             "POST /undo": "{author} - one step back through Grasshopper's own undo stack; every verb records into it",
             "POST /redo": "{author} - one step forward again",
-            "POST /arrange": "{author} - lay the whole document out in layers, mermaid-style: sources left, few crossings, even air; groups are laid out as whole blocks, so their frames never overlap",
+            "POST /arrange": "{author} - lay the whole document out in layers, mermaid-style: sources left, few crossings, even air, and whatever feeds a component or group stacked in the order of the sockets it feeds; groups are laid out as whole blocks, so their frames never overlap",
             "POST /signature": "{author, id?} - give a group (or every group) named floating parameters at its edges and re-land the crossing wires on them, so it reads as a virtual component",
             "POST /preview": "{author, id?, on?} - quiet the preview. With no id it sweeps the document: only the outlets of the red and yellow groups keep drawing - the geometry those colours promised - and everything else goes dark, machinery and intermediates alike. Name a group instead and that one is quieted on its own terms, whatever colour it wears; on:true gives a group its whole preview back",
             "GET /review": "the document against the composition rules: overlapping or unnamed groups, groups doing two jobs, bare boundary crossings, ungrouped objects",
@@ -109,6 +109,7 @@ internal static class LinkServer
             "GET /camera": "where the active viewport is looking: projection, camera location, target, up, 35mm lens length and the viewport's pixel size",
             "POST /camera": "{author, location?:[x,y,z], target?:[x,y,z], up?:[x,y,z], lens?, projection?:'perspective'|'parallel'} - aim the active viewport. Only what you pass changes. This is how to frame a particular view: the Zoom command is interactive and a scripted one waits for a pick that never comes, which hangs the UI thread and takes every other verb down with it",
             "GET /peek?id=guid&side=input|output&param=nameOrIndex": "the full data on one parameter, branch by branch with tree paths. Give a group's id instead and it answers that group's signature as it stands: every inlet and outlet with its type, branch and item counts, and a few values off each outlet",
+            "GET /measure?id=guid&side=output&param=nameOrIndex&against=guid&againstSide=&againstParam=": "lengths, areas and volumes of the geometry on one parameter (an output unless side=input), item by item with tree paths, and their totals and bounding box. With 'against' every pair from the two sets is compared: the area two closed planar curves share, the volume two solids share, and the nearest distance between curves or points. The same id and parameter twice compares the set with itself, each pair once",
             "GET /rhino": "the Rhino document: name, layers, object count",
             "GET /plugins": "what is loaded: Grasshopper libraries and loaded Rhino plug-ins, each with version and the file it came from. For when the suspect named in the console is a plug-in rather than a component",
             "POST /place": "{author, group?, objects:[{id?, name|guid, nickname?, pivot?, slider?, text?, value?, inputs?:[{param?, sources:[{id, output?}]}]}]} - a whole recipe in one call; local ids wire to each other and to existing canvas guids, 'group' puts everything placed into that group; answers the id map",
@@ -259,6 +260,7 @@ internal static class LinkServer
                 ("POST", "/camera") => View.AimCamera(Read(payload)),
                 ("GET", "/canvas-image") => View.CanvasImage(context.Request),
                 ("GET", "/peek") => Reading.Peek(context.Request),
+                ("GET", "/measure") => Measure.Answer(context.Request),
                 ("GET", "/rhino") => OnUi(Reading.RhinoSummary),
                 ("GET", "/plugins") => OnUi(Reading.Plugins),
                 ("POST", "/place") => Objects.Place(Read(payload)),
@@ -279,7 +281,7 @@ internal static class LinkServer
             };
 
             Echo(method, path, ok: true, said: null, clock);
-            Send(context.Response, 200, body);
+            Send(context.Response, 200, Door(context.Request, method, path, payload, body));
         }
         catch (KeyNotFoundException missing)
         {
@@ -289,6 +291,69 @@ internal static class LinkServer
         {
             Refuse(context, 500, method, path, payload, failure, clock);
         }
+    }
+
+    /// <summary>The authors already told that the MCP tools exist.</summary>
+    private static readonly HashSet<string> Told = [];
+
+    /// <summary>
+    /// Verbs that change nothing on the canvas, so a script sending them is no reason to say anything.
+    /// </summary>
+    private static readonly HashSet<string> Talk =
+        ["/say", "/report", "/feedback", "/dialog", "/dismiss", "/escape", "/select", "/zoom"];
+
+    /// <summary>
+    /// The first edit an author sends over plain HTTP gets one sentence pointing at the MCP tools.
+    /// </summary>
+    /// <remarks>
+    /// One agent lost its <c>phenome</c> tools overnight, drove the canvas from Python scripts the next
+    /// morning, and kept doing so for a week after the tools came back. It built groups, moved them by hand
+    /// and skipped <c>review</c>, and nothing it sent was ever answered differently from the same verb
+    /// through MCP. The two clients this repository ships say who they are in <c>X-Phenome-Client</c>, so a
+    /// request without the header comes from a script, curl or another machine.
+    /// <para>
+    /// Once per author for the life of this Rhino, and only on a verb that changes the canvas. A loop of
+    /// <c>set</c> over variants is a fair use of a script, and a sentence on every answer would bury it.
+    /// </para>
+    /// </remarks>
+    private static string Door(HttpListenerRequest request, string method, string path, string payload, string body)
+    {
+        if (method != "POST"
+            || !string.IsNullOrEmpty(request.Headers["X-Phenome-Client"])
+            || Talk.Contains(path)
+            || body.Length < 3
+            || body[0] != '{'
+            || body[^1] != '}')
+        {
+            return body;
+        }
+
+        string author;
+
+        try
+        {
+            author = Author(Read(payload));
+        }
+        catch (JsonException)
+        {
+            author = "unnamed";
+        }
+
+        lock (Told)
+        {
+            if (!Told.Add(author))
+            {
+                return body;
+            }
+        }
+
+        const string Sentence =
+            "This edit came over plain HTTP rather than through the phenome MCP tools. If your host lists tools "
+            + "named mcp__phenome__* (Claude Code may list them as deferred, and one ToolSearch loads them), "
+            + "build and change the definition through them. A script suits a loop of set, peek and measure. "
+            + "Said once per author.";
+
+        return body[..^1] + ",\"door\":" + Json.Quote(Sentence) + "}";
     }
 
     /// <summary>Records a refusal, says it, and sends it.</summary>

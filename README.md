@@ -309,12 +309,34 @@ to find it.
 
 ## Installing
 
-You need **Rhino 8** on Windows, **VS Code**, **Node.js**, and an **agent that speaks MCP** — Claude Code,
-or whatever you already use.
+You need **Rhino 8** on Windows (a Mac is untested, see below), **VS Code**, **Node.js**, and an **agent that
+speaks MCP** — Claude Code, or whatever you already use.
 
 No account anywhere, and nothing leaves the machine: the server listens on loopback only.
 
 Install both halves. They are built to work as a pair.
+
+### On a Mac: untested
+
+The package is built for any platform, so the Rhino package manager offers it on a Mac too, but nobody has
+run it there yet. The code is prepared for macOS without having been tried:
+
+- `launch` and `restart` start `/Applications/Rhino 8.app/Contents/MacOS/Rhinoceros` with
+  `-runscript=_Grasshopper`, the spelling McNeel's forum gives for Rhino for Mac. `PHENOME_RHINO` points them
+  at a Rhino installed elsewhere, on either system.
+- Port files are written to `$TMPDIR` rather than `%TEMP%`, which is where both the plugin and the MCP server
+  look on a Mac. The friction log goes to .NET's local application data folder, which on .NET 8 is
+  `~/Library/Application Support/Phenome/`, and `GET /friction` answers with the exact path.
+- Dialogs cannot be read. Finding and answering them is Win32, so on a Mac `pulse` tells idle from busy but
+  reports an open dialog as busy and carries `dialogsReadable: false`, and `dialog`, `dismiss` and `escape`
+  refuse with a sentence asking for the human.
+- `screenshot` and `canvas_image` draw through `System.Drawing`, which Rhino for Mac implements differently.
+  They are the likeliest to misbehave.
+
+**If you have a Mac with Rhino 8 and an hour, a report is very welcome.** Install the package, start Rhino
+with Grasshopper, and try `pulse`, `canvas`, `place`, `measure`, `screenshot` and `canvas_image`. Send what
+each one answered, or what it refused, to [hi+phenomelogs@object.pl](mailto:hi+phenomelogs@object.pl), or
+open an issue. A refusal is as useful as a success.
 
 ### From the release (recommended)
 

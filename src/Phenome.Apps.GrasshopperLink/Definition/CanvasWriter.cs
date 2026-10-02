@@ -361,6 +361,9 @@ internal static class CanvasWriter
             case GH_Panel panel:
                 into.Append(",\"text\":").Append(Json.Quote(panel.UserText));
 
+                // Whether the text leaves as one item or one per line - the text alone cannot say which.
+                into.Append(",\"multiline\":").Append(panel.Properties.Multiline ? "true" : "false");
+
                 // A wired panel shows what flows through it, not its typed text - write both.
                 if (panel.SourceCount > 0)
                 {

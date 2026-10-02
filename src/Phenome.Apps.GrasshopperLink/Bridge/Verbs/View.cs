@@ -43,6 +43,17 @@ internal static class View
             Grasshopper.GUI.Canvas.GH_Canvas canvas = global::Grasshopper.Instances.ActiveCanvas
                 ?? throw new InvalidOperationException("There is no canvas - a headless session has no view.");
 
+            // A minimised editor shrinks the canvas to nothing, and GDI+ answers a bitmap of no size with
+            // "Parameter is not valid." - six times in a row in the friction log, with no hint of the cause.
+            // The window is the human's, so it is not restored from here.
+            if (canvas.Width < 1 || canvas.Height < 1)
+            {
+                throw new InvalidOperationException(
+                    $"The canvas is {canvas.Width} x {canvas.Height} pixels, which is what a minimised "
+                    + "Grasshopper window gives, so there is nothing to draw. Ask the human to restore the "
+                    + "Grasshopper window, then ask again.");
+            }
+
             float keptZoom = canvas.Viewport.Zoom;
             System.Drawing.PointF keptMid = canvas.Viewport.MidPoint;
 
@@ -272,6 +283,17 @@ internal static class View
     /// before it could ask - having to know something the server can simply look up. What differs between a
     /// group and an object here is only the policy over its members, and only the sweep has a policy at all.
     /// </para>
+    /// <para>
+    /// <b>The sweep takes objects in no group too.</b> An object outside every group is nobody's outlet, and
+    /// the colour rule leaves only the outlets of red and yellow groups drawing. On a canvas with no groups
+    /// at all, a scratch definition, the sweep quiets everything.
+    /// </para>
+    /// <para>
+    /// <b>A named object that draws nothing is skipped.</b> The answer lists it under <c>skipped</c> and the
+    /// rest of the list goes ahead; a batch of 29 was once refused whole over one SDF Union with no preview.
+    /// An id that is not on the canvas still refuses the whole list, because a missing id means the caller's
+    /// list is stale.
+    /// </para>
     /// </remarks>
     internal static string Quiet(JsonDocument request)
     {
@@ -298,21 +320,25 @@ internal static class View
 
             List<Grasshopper.Kernel.Special.GH_Group> groups = [];
             List<IGH_PreviewObject> singles = [];
+            List<IGH_PreviewObject> ungrouped = [];
+            List<IGH_DocumentObject> skipped = [];
 
             if (asked.Count == 0)
             {
                 groups = [.. document.Objects.OfType<Grasshopper.Kernel.Special.GH_Group>()];
 
-                if (groups.Count == 0)
-                {
-                    throw new KeyNotFoundException("There are no groups on the canvas.");
-                }
+                HashSet<Guid> grouped = [.. groups.SelectMany(group => Signature.Members(document, group))];
+
+                ungrouped = [.. document.Objects
+                    .Where(thing => !grouped.Contains(thing.InstanceGuid))
+                    .OfType<IGH_PreviewObject>()
+                    .Where(thing => thing.IsPreviewCapable)];
             }
             else
             {
-                // Every id checked before any flag moves, and every bad one named in one answer. A caller
+                // Every id checked before any flag moves, and every missing one named in one answer. A caller
                 // holding a list wants to fix the whole list once, not discover it an id at a time.
-                List<string> refused = [];
+                List<string> missing = [];
 
                 foreach (Guid id in asked)
                 {
@@ -327,20 +353,20 @@ internal static class View
                             break;
 
                         case { } other:
-                            refused.Add($"{other.Name} ({id}) draws nothing, so it has no preview to quiet");
+                            skipped.Add(other);
                             break;
 
                         default:
-                            refused.Add($"nothing on the canvas has id {id}");
+                            missing.Add(id.ToString());
                             break;
                     }
                 }
 
-                if (refused.Count > 0)
+                if (missing.Count > 0)
                 {
                     throw new KeyNotFoundException(
-                        $"{refused.Count} of {asked.Count} id(s) cannot be quieted, so none were: "
-                        + string.Join("; ", refused));
+                        $"{missing.Count} of {asked.Count} id(s) are not on the canvas, so nothing was quieted: "
+                        + string.Join(", ", missing));
                 }
             }
 
@@ -364,6 +390,16 @@ internal static class View
                 HashSet<Guid> drawing = shows
                     ? [.. outlets.Select(outlet => outlet.InstanceGuid)]
                     : [];
+
+                // A group with no outlet still has a product: whatever it computes last. Without this a red
+                // group whose answer is its final component, with no port after it, went wholly dark, and the
+                // product had to be switched back on by id.
+                bool byEnd = shows && outlets.Count == 0;
+
+                if (byEnd)
+                {
+                    drawing = Ends(document, group);
+                }
 
                 int quieted = 0;
                 int showing = 0;
@@ -412,7 +448,14 @@ internal static class View
                 json.Append(",\"name\":").Append(Json.Quote(group.NickName ?? ""));
                 json.Append(",\"hidden\":").Append(Json.Number(quieted));
                 json.Append(",\"drawing\":").Append(Json.Number(showing));
-                json.Append(",\"changed\":").Append(Json.Number(changed)).Append('}');
+                json.Append(",\"changed\":").Append(Json.Number(changed));
+
+                if (byEnd && !on)
+                {
+                    json.Append(",\"kept\":\"no outlet, so the members nothing else in the group reads\"");
+                }
+
+                json.Append('}');
 
                 flipped += changed;
             }
@@ -446,6 +489,52 @@ internal static class View
                 json.Append(",\"drawing\":").Append(on ? "true" : "false").Append('}');
             }
 
+            json.Append(']');
+
+            // The ungrouped objects are counted and not listed: on a scratch definition they are every object
+            // in the document, and a list would repeat the caller's own request back at length.
+            if (asked.Count == 0)
+            {
+                int changed = 0;
+
+                foreach (IGH_PreviewObject thing in ungrouped)
+                {
+                    if (thing.Hidden != !on)
+                    {
+                        thing.Hidden = !on;
+                        changed++;
+                    }
+                }
+
+                json.Append(",\"ungrouped\":{\"hidden\":").Append(Json.Number(on ? 0 : ungrouped.Count));
+                json.Append(",\"drawing\":").Append(Json.Number(on ? ungrouped.Count : 0));
+                json.Append(",\"changed\":").Append(Json.Number(changed)).Append('}');
+
+                flipped += changed;
+            }
+
+            if (skipped.Count > 0)
+            {
+                json.Append(",\"skipped\":[");
+                first = true;
+
+                foreach (IGH_DocumentObject other in skipped)
+                {
+                    if (!first)
+                    {
+                        json.Append(',');
+                    }
+
+                    first = false;
+
+                    json.Append("{\"id\":").Append(Json.Quote(other.InstanceGuid.ToString()));
+                    json.Append(",\"name\":").Append(Json.Quote(other.NickName ?? other.Name ?? ""));
+                    json.Append(",\"why\":\"draws nothing, so there is no preview to quiet\"}");
+                }
+
+                json.Append(']');
+            }
+
             if (flipped > 0)
             {
                 Changed(document);
@@ -456,12 +545,40 @@ internal static class View
             global::Grasshopper.Instances.ActiveCanvas?.Refresh();
             Rhino.RhinoDoc.ActiveDoc?.Views.Redraw();
 
-            return json.Append("]}").ToString();
+            return json.Append('}').ToString();
         });
 
         Journal.Append(author, "preview", $",\"on\":{(on ? "true" : "false")}");
 
         return answer;
+    }
+
+    /// <summary>
+    /// The members of a group whose output no other member reads: what the group computes last.
+    /// </summary>
+    private static HashSet<Guid> Ends(GH_Document document, Grasshopper.Kernel.Special.GH_Group group)
+    {
+        HashSet<Guid> inside = Signature.Members(document, group);
+        HashSet<Guid> ends = [];
+
+        foreach (Guid member in inside)
+        {
+            if (document.FindObject(member, topLevelOnly: true) is not IGH_PreviewObject { IsPreviewCapable: true } thing)
+            {
+                continue;
+            }
+
+            bool readInside = OutputsOf((IGH_DocumentObject)thing)
+                .SelectMany(output => output.Recipients)
+                .Any(reader => inside.Contains((reader.Attributes?.GetTopLevel?.DocObject ?? reader).InstanceGuid));
+
+            if (!readInside)
+            {
+                ends.Add(member);
+            }
+        }
+
+        return ends;
     }
 
     /// <summary>

@@ -1,6 +1,6 @@
 # Every verb, and which half answers it
 
-As of 0.31.0. Fifty-two tools over two HTTP servers and one client.
+As of 0.31.0, plus `measure`. Fifty-three tools over two HTTP servers and one client.
 
 The MCP server is registered as `phenome`, so a host presents these as `mcp__phenome__<name>`. The prefix
 comes from the registration key the pairing writes, not from the name the server reports in its handshake.
@@ -33,7 +33,7 @@ Start with `launch grasshopper:false` for all of these.
 | `screenshot` | `GET /screenshot` | the active viewport as PNG, framed for the capture and the camera put back *(also on `.gha`)* |
 | `camera` | `GET`/`POST /camera` | read or aim the active viewport; only what you pass changes *(also on `.gha`)* |
 
-## GrasshopperLink — 38 verbs about the canvas
+## GrasshopperLink — 39 verbs about the canvas
 
 ### Reading
 
@@ -43,6 +43,7 @@ Start with `launch grasshopper:false` for all of these.
 | `canvas_image` | `GET /canvas-image` | the canvas as a picture, fitted to the document |
 | `describe` | `GET /describe` | one object's parameters, types, access, wire and item counts; a note's text and box |
 | `peek` | `GET /peek` | one parameter's full data with tree paths — or a group's whole signature |
+| `measure` | `GET /measure` | lengths, areas and volumes on one parameter; with `against`, overlaps and nearest distance between two sets |
 | `wires` | `GET /wires` | every wire in the document, from and to |
 | `review` | `GET /review` | the document against the composition rules |
 | `components` | `GET /components` | search the installed catalogue by name or description |
@@ -57,7 +58,7 @@ Start with `launch grasshopper:false` for all of these.
 | `place` | `POST /place` | a whole group body in one call: objects, local ids, wires, constants. Prefer this over add/wire loops |
 | `add` | `POST /add` | one component or parameter by name or guid |
 | `wire` | `POST /wire` | every wire in one call; `disconnect` takes one back |
-| `set` | `POST /set` | every value in one call: slider domains, panel text, a constant into a socket |
+| `set` | `POST /set` | every value in one call: slider domains, panel text, a constant or a list into a socket; also a parameter's name and a panel's size |
 | `param` | `POST /param` | data mapping on one parameter: flatten, graft, simplify, reverse |
 | `group` | `POST /group` | a named group, declared signature-first with inlets and outlets |
 | `ungroup` | `POST /ungroup` | dissolve a group, keeping its members |
@@ -105,7 +106,7 @@ exist precisely when nothing is running.
 
 | verb | what it does |
 |---|---|
-| `launch` | start Rhino and wait for the link. `fresh` starts a second one; `grasshopper:false` starts Rhino alone |
+| `launch` | start Rhino and wait for the link. `fresh` starts a second one; `grasshopper:false` starts Rhino alone; `packageDirs` sets RHINO_PACKAGE_DIRS for a plug-in loading from its build folder, and `restart` keeps it |
 | `sessions` | every live session on the machine, canvas and Rhino; `use` pins one so later verbs mean it |
 | `restart` | end this agent's Rhino and bring a fresh one up — the only way a rebuilt assembly reaches a running Rhino, since a .NET plug-in cannot be unloaded. Refuses while either half holds unsaved work |
 

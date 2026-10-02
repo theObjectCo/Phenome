@@ -30,6 +30,11 @@ namespace Phenome.Apps;
 /// <see cref="Report"/> were each implemented on the canvas side and missing on the Rhino side, while both
 /// halves' protocol text advertised them. See the README beside this file.
 /// </para>
+/// <para>
+/// The dialog half is Win32 and nothing else, so on macOS it is switched off rather than called: the idle
+/// stamp and the command events still tell idle from busy, a dialog reads as busy, and answering one is
+/// refused with a sentence. Untested on a Mac.
+/// </para>
 /// </remarks>
 internal static class Pulse
 {
@@ -114,6 +119,12 @@ internal static class Pulse
         json.Append("{\"ok\":true");
         json.Append(",\"state\":").Append(Json.Quote(verdict));
         json.Append(",\"uiFree\":").Append(free ? "true" : "false");
+
+        // Said, so that "busy" on a Mac is not read as proof that no dialog is open.
+        if (!Readable)
+        {
+            json.Append(",\"dialogsReadable\":false");
+        }
 
         if (since != TimeSpan.MaxValue)
         {
@@ -201,10 +212,17 @@ internal static class Pulse
         "blocked" => string.IsNullOrEmpty(dialog.Title)
             ? "A dialog is open. Nothing will answer until somebody clicks it."
             : $"The dialog \"{dialog.Title}\" is open. Nothing will answer until somebody clicks it.",
-        _ => command is null
+        _ => (command is null
             ? "The UI thread is working on something unnamed. Wait and ask again."
-            : $"{command} is running. Wait and ask again.",
+            : $"{command} is running. Wait and ask again.")
+            + (Readable ? "" : " Dialogs cannot be read on this system, so if this lasts, ask the human to look."),
     };
+
+    /// <summary>Whether open dialogs can be found and answered here: on Windows only, so far.</summary>
+    private static bool Readable => OperatingSystem.IsWindows();
+
+    private static InvalidOperationException Unreadable() => new(
+        "Answering a dialog works on Windows only so far. Ask the human to answer it.");
 
     private readonly record struct Dialog(bool Present, string? Title, IntPtr Handle = default);
 
@@ -274,6 +292,11 @@ internal static class Pulse
 
     private static string Act(string? button, string? key, bool close, string? expect)
     {
+        if (!Readable)
+        {
+            throw Unreadable();
+        }
+
         Dialog dialog = ModalDialog();
 
         if (!dialog.Present || dialog.Handle == IntPtr.Zero)
@@ -365,6 +388,11 @@ internal static class Pulse
     /// </remarks>
     internal static string Escape(int times)
     {
+        if (!Readable)
+        {
+            throw Unreadable();
+        }
+
         times = Math.Clamp(times, 1, 5);
 
         using Process self = Process.GetCurrentProcess();
@@ -455,6 +483,11 @@ internal static class Pulse
     /// </remarks>
     private static Dialog ModalDialog()
     {
+        if (!Readable)
+        {
+            return new Dialog(false, null);
+        }
+
         try
         {
             using Process self = Process.GetCurrentProcess();

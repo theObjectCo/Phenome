@@ -34,13 +34,9 @@ namespace Phenome.Apps;
 /// that insists on being addressed as loopback refuses it.
 /// </para>
 /// <para>
-/// What is deliberately <em>not</em> here yet: requiring <c>Content-Type: application/json</c>, which a
-/// <c>no-cors</c> request cannot set and which would therefore close the same door a second time. It is a
-/// better check than any of the above, and it is absent because our own clients do not send the header
-/// either - Node's fetch defaults to <c>text/plain</c> when handed a string body. Requiring it before the
-/// clients send it would break every existing installation the moment a plugin is updated ahead of its
-/// extension, which on someone else's machine is the normal state. It goes in the version after this one,
-/// with the clients.
+/// A POST must also carry <c>Content-Type: application/json</c>, which a <c>no-cors</c> request cannot set.
+/// That closes the same door a second time and is the better check of the two. The clients send it from
+/// 0.32.0; older ones send none or Node's default <c>text/plain</c>, and the refusal says which.
 /// </para>
 /// </remarks>
 internal static class Browser
@@ -95,13 +91,20 @@ internal static class Browser
 
             if (!kind.StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
             {
-                // Named for the likeliest cause rather than the literal fault: from 0.32.0 the clients
-                // send this header, so a POST without it is almost always an extension that was not
-                // updated alongside the plugin, and the person reading this needs to be told that rather
-                // than left with a header name.
-                return kind.Length == 0
-                    ? "POST needs Content-Type: application/json. A client that does not send it is "
-                      + "older than this plugin - update the VS Code extension to match."
+                // Named for the likeliest cause rather than the literal fault. From 0.32.0 the clients send
+                // this header. Before that they sent none, or text/plain, which is what Node's fetch puts on
+                // a string body. A browser is refused on the headers above and never gets this far, which
+                // leaves an old client as the usual sender of either. The one seen in the field was a workspace's
+                // .phenome/gh-mcp.js planted by the previous extension: Teach Agents had been run minutes
+                // before the new extension was installed, and every GET kept working.
+                bool old = kind.Length == 0 || kind.StartsWith("text/plain", StringComparison.OrdinalIgnoreCase);
+
+                return old
+                    ? $"POST needs Content-Type: application/json, and this request carried "
+                      + $"{(kind.Length == 0 ? "none" : $"'{kind}'")}, which is what clients older than 0.32.0 "
+                      + "send. Most often that is a workspace's .phenome/gh-mcp.js planted by an older "
+                      + "extension: update the VS Code extension, then run 'Phenome Link: Teach Agents in "
+                      + "This Workspace' again and restart the agent so it loads the new copy."
                     : $"POST needs Content-Type: application/json, not '{kind}'.";
             }
         }
