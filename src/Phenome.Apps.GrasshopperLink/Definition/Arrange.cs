@@ -31,6 +31,9 @@ internal static class Arrange
     private const float GroupLabel = 26;
     private const int Sweeps = 4;
 
+    /// <summary>How close to its place an object may be and count as there. See Place.</summary>
+    private const float Settled = 1.5f;
+
     /// <summary>One box in the layout: a single object, or a group with boxes of its own inside.</summary>
     private sealed class Block
     {
@@ -120,7 +123,7 @@ internal static class Arrange
         {
             if (!owner.ContainsKey(thing.InstanceGuid))
             {
-                roots.Add(new Block { Node = thing, Leaves = [thing], Size = thing.Attributes!.Bounds.Size });
+                roots.Add(new Block { Node = thing, Leaves = [thing], Size = Pixels(thing.Attributes!.Bounds.Size) });
             }
         }
 
@@ -149,53 +152,53 @@ internal static class Arrange
             }
         }
 
+        // Every pivot is planned before any is written, so the anchor correction below can be folded into the
+        // plan rather than applied as a second move.
+        Dictionary<IGH_DocumentObject, PointF> wants = [];
+
         foreach (Block root in roots)
         {
-            Apply(document, root, origin.X, origin.Y);
+            Plan(root, origin.X, origin.Y, wants);
         }
-
-        Captions(document, groups, blockOfGroup);
 
         // And now the correction that makes running this twice mean the same as running it once.
         //
-        // The anchor above is the top-left of where the objects *were*, but the layout does not put its first
-        // object at its own top-left: inside a group it is inset by the frame's padding and the room the label
-        // needs. So the result sat down and to the right of the anchor by that inset, the next run took the new
+        // The anchor is the top-left of where the objects *were*, but the layout does not put its first object
+        // at its own top-left: inside a group it is inset by the frame's padding and the room the label needs.
+        // So the result sat down and to the right of the anchor by that inset, the next run took the new
         // positions as its anchor and added the inset again, and the whole definition walked across the canvas
-        // a group's padding at a time - measured at 26 by 52 pixels per run, for ever.
+        // a group's padding at a time - measured at 26 by 52 pixels per run, for ever. Translating the plan
+        // back onto the anchor fixes it whatever the inset happens to be.
         //
-        // It only bit when the top-left-most object was inside a group, which is why arrange looked idempotent
-        // when tested on loose objects and was not. Translating the finished layout back onto the anchor fixes
-        // it whatever the inset happens to be, without the layout needing to know about padding at all.
-        // Measured on pivots rather than on bounds, and that is not a detail: Attributes.Bounds is computed
-        // during a layout pass and cached, so reading it straight after writing a pivot gives the position the
-        // object used to have. The first attempt at this correction measured bounds, found no difference
-        // because it was comparing an old number with itself, and the drift carried on exactly as before.
-        // A pivot is the thing that was just written, so it is the thing that can be read back.
+        // In the plan, not afterwards. It was a second move over objects the layout had just written, and
+        // with the layout's origin read from bounds, which Grasshopper rounds against the pivot, the two moves
+        // did not cancel: a real definition moved 46 objects by one pixel on its second arrange.
         PointF anchor = nodes
             .Select(thing => before[thing])
             .Aggregate((kept, next) => new PointF(Math.Min(kept.X, next.X), Math.Min(kept.Y, next.Y)));
 
         PointF landed = nodes
-            .Select(thing => thing.Attributes!.Pivot)
+            .Where(wants.ContainsKey)
+            .Select(thing => wants[thing])
+            .DefaultIfEmpty(anchor)
             .Aggregate((kept, next) => new PointF(Math.Min(kept.X, next.X), Math.Min(kept.Y, next.Y)));
 
-        PointF drift = new(anchor.X - landed.X, anchor.Y - landed.Y);
+        PointF drift = new(MathF.Round(anchor.X - landed.X), MathF.Round(anchor.Y - landed.Y));
 
-        if (Math.Abs(drift.X) > 0.5f || Math.Abs(drift.Y) > 0.5f)
+        foreach ((IGH_DocumentObject node, PointF want) in wants)
         {
-            foreach (IGH_DocumentObject thing in document.Objects)
-            {
-                if (thing is GH_Group || thing.Attributes is not { } attributes)
-                {
-                    continue;
-                }
+            Place(document, node, new PointF(want.X + drift.X, want.Y + drift.Y));
+        }
 
-                attributes.Pivot = new PointF(attributes.Pivot.X + drift.X, attributes.Pivot.Y + drift.Y);
-                attributes.ExpireLayout();
-                attributes.PerformLayout();
+        foreach (Block block in blockOfGroup.Values)
+        {
+            if (block.Base is { } reserved)
+            {
+                block.Base = new PointF(reserved.X + drift.X, reserved.Y + drift.Y);
             }
         }
+
+        Captions(document, groups, blockOfGroup);
 
         // Counted from where things ended up against where they started, which is the only measure a caller can
         // check: a settled document answers zero however much was written on the way there.
@@ -379,7 +382,7 @@ internal static class Arrange
     {
         PointF pivot = note.Attributes!.Pivot;
 
-        if (Math.Abs(pivot.X - want.X) < 0.5f && Math.Abs(pivot.Y - want.Y) < 0.5f)
+        if (Math.Abs(pivot.X - want.X) < Settled && Math.Abs(pivot.Y - want.Y) < Settled)
         {
             return 0;
         }
@@ -417,7 +420,7 @@ internal static class Arrange
             }
             else if (nodeById.TryGetValue(member, out IGH_DocumentObject? node))
             {
-                block.Children.Add(new Block { Node = node, Leaves = [node], Size = node.Attributes!.Bounds.Size });
+                block.Children.Add(new Block { Node = node, Leaves = [node], Size = Pixels(node.Attributes!.Bounds.Size) });
             }
         }
 
@@ -429,7 +432,7 @@ internal static class Arrange
     {
         if (block.Node is { } node)
         {
-            block.Size = node.Attributes!.Bounds.Size;
+            block.Size = Pixels(node.Attributes!.Bounds.Size);
             block.Leaves = [node];
             return;
         }
@@ -539,6 +542,21 @@ internal static class Arrange
             LayerOf(i);
         }
 
+        // Every wire between two blocks, from the consuming side: which block reads, and how far down that block
+        // the socket it reads into sits, as a fraction of the block's height.
+        List<(int Reader, double Down)>[] readers = Readers(blocks, owner);
+
+        // A block nothing feeds stands just left of what reads it, not at the far left. Longest path from the
+        // sources put every source in the first column, so the groups feeding a component three columns along
+        // stood among the groups feeding the first one, and their wires crossed all of them on the way.
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            if (feeders[i].Count == 0 && readers[i].Count > 0)
+            {
+                layer[i] = Math.Max(layer[i], readers[i].Min(read => layer[read.Reader]) - 1);
+            }
+        }
+
         int layers = layer.Max() + 1;
         List<int>[] columns = new List<int>[layers];
 
@@ -578,10 +596,6 @@ internal static class Arrange
                 return byTop != 0 ? byTop : blocks[a].Key.CompareTo(blocks[b].Key);
             });
         }
-
-        // Every wire between two blocks, from the consuming side: which block reads, and how far down that block
-        // the socket it reads into sits, as a fraction of the block's height.
-        List<(int Reader, double Down)>[] readers = Readers(blocks, owner);
 
         double[] rank = new double[blocks.Count];
 
@@ -745,7 +759,7 @@ internal static class Arrange
         return 0;
     }
 
-    /// <summary>A caption's size in whole pixels, the unit Captions stacks them in.</summary>
+    /// <summary>A size in whole pixels, the unit every block is measured and stacked in.</summary>
     /// <remarks>
     /// A note's bounds come from text measurement and are fractional, and Grasshopper rounds them against the
     /// pivot, so the same note measured a pixel taller or shorter depending on where it last stood. The band
@@ -767,8 +781,8 @@ internal static class Arrange
             .Select(thing => Pixels(thing!.Attributes.Bounds.Size))];
     }
 
-    /// <summary>Relative positions become real pivots, a block and its contents at a time.</summary>
-    private static int Apply(GH_Document document, Block block, float dx, float dy)
+    /// <summary>Relative positions become planned pivots, a block and its contents at a time.</summary>
+    private static void Plan(Block block, float dx, float dy, Dictionary<IGH_DocumentObject, PointF> wants)
     {
         float x = block.At.X + dx;
         float y = block.At.Y + dy;
@@ -779,51 +793,54 @@ internal static class Arrange
             PointF pivot = node.Attributes.Pivot;
 
             // The pivot sits at its own offset inside the bounds; keeping that offset lands the object's
-            // top-left exactly where the layout said.
-            PointF want = new(
-                x + (pivot.X - bounds.X),
-                y + (pivot.Y - bounds.Y));
+            // top-left exactly where the layout said. On whole pixels, because Grasshopper rounds an object's
+            // bounds against its pivot, so a fractional pivot measures differently next time.
+            wants[node] = new PointF(
+                MathF.Round(x + (pivot.X - bounds.X)),
+                MathF.Round(y + (pivot.Y - bounds.Y)));
 
-            // An object already where the layout wants it is not moved, and saying otherwise costs twice:
-            // the answer's count stops meaning anything on a settled document, and every rerun pushes an
-            // undo step per object that undoes nothing. Arranging twice is a normal thing to do - it is the
-            // finishing move - so the second run should report nothing and record nothing.
-            //
-            // Half a pixel, not equality: the layout is deterministic from the same inputs, but bounds come
-            // from text measurement, and half a pixel is below anything a canvas can show anyway.
-            if (Math.Abs(pivot.X - want.X) < 0.5f && Math.Abs(pivot.Y - want.Y) < 0.5f)
-            {
-                return 0;
-            }
-
-            document.UndoUtil.RecordGenericObjectEvent("Phenome Link: arrange", node);
-
-            node.Attributes.Pivot = want;
-
-            // Expire *and* recompute, rather than expiring and hoping. Bounds is worked out during a layout
-            // pass and cached, so between a pivot being written and the next pass, Bounds and Pivot disagree -
-            // and the sum three lines up converts between exactly those two. One write per object per arrange
-            // hid it, because Grasshopper repainted in between; anything that moves an object twice in one pass
-            // reads a stale offset the second time and lands the object somewhere else again. That is how two
-            // groups came to swap places on alternate runs. Recomputing here costs a layout per moved object
-            // and removes the whole class of fault.
-            node.Attributes.ExpireLayout();
-            node.Attributes.PerformLayout();
-
-            return 1;
+            return;
         }
 
-        int moved = 0;
         float body = y + GroupPad + GroupLabel + block.Band;
 
         block.Base = new PointF(x + GroupPad, body);
 
         foreach (Block child in block.Children)
         {
-            moved += Apply(document, child, x + GroupPad, body);
+            Plan(child, x + GroupPad, body, wants);
+        }
+    }
+
+    /// <summary>Writes one planned pivot, unless the object already stands there.</summary>
+    private static void Place(GH_Document document, IGH_DocumentObject node, PointF want)
+    {
+        PointF pivot = node.Attributes!.Pivot;
+
+        // An object already where the layout wants it is not moved, and saying otherwise costs twice:
+        // the answer's count stops meaning anything on a settled document, and every rerun pushes an
+        // undo step per object that undoes nothing. Arranging twice is a normal thing to do - it is the
+        // finishing move - so the second run should report nothing and record nothing.
+        //
+        // Within a pixel, not equality. Grasshopper rounds an object's bounds against its pivot, so a
+        // parameter fifty and a fraction pixels wide measures fifty at one position and fifty-one at the
+        // next, and everything laid out after it lands a pixel along. A pixel is below anything a canvas
+        // shows, so a want that close is where the object already is.
+        if (Math.Abs(pivot.X - want.X) < Settled && Math.Abs(pivot.Y - want.Y) < Settled)
+        {
+            return;
         }
 
-        return moved;
+        document.UndoUtil.RecordGenericObjectEvent("Phenome Link: arrange", node);
+
+        node.Attributes.Pivot = want;
+
+        // Expire *and* recompute, rather than expiring and hoping. Bounds is worked out during a layout
+        // pass and cached, so until the next pass Bounds and Pivot disagree, and anything that reads one to
+        // convert to the other gets the old position. That is how two groups once came to swap places on
+        // alternate runs. Recomputing here costs a layout per moved object and removes the class of fault.
+        node.Attributes.ExpireLayout();
+        node.Attributes.PerformLayout();
     }
 
     /// <summary>Groups behind their contents, mothers behind their children, every frame recomputed.</summary>

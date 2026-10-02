@@ -35,7 +35,10 @@ commit that made it, not here.
 - **`arrange` stacks sources in the order of the sockets they feed.** Whatever feeds a component's first
   input stands above whatever feeds its second, and the groups feeding a group stand in the order of its
   inlets. Until now a column of sources kept whatever order it started in, so a Point parameter feeding a
-  solver's first input could sit at the bottom of its group with its wire crossing everything above it.
+  solver's first input could sit at the bottom of its group with its wire crossing everything above it. A
+  group that nothing feeds now stands in the column just left of the group it feeds rather than in the
+  first column, so the four groups feeding a layout three columns along no longer stand among the six
+  feeding the first, with their wires crossing all of them.
 
 - **Prepared for Rhino 8 for Mac, untested.** The package has always been offered on a Mac, and nothing in it
   had been made to run there. `launch` and `restart` now start Rhino for Mac with its own spelling of
@@ -96,7 +99,9 @@ commit that made it, not here.
   Sixteen unconnected groups came out upside down on every run, about 160 objects moved each time, and
   two groups feeding each other swapped columns on every run. Both orders came from the order of the
   document's objects, which `arrange` itself reverses when it sends frames to the back. Columns now start
-  from where the blocks stand, and a cycle is walked in a fixed order. A second run answers `moved: 0`.
+  from where the blocks stand, and a cycle is walked in a fixed order. A second run answers `moved: 0`,
+  also on a 93-object definition where it used to move 31 objects by a pixel: every pivot is planned in
+  whole pixels and placed once, and an object within a pixel of its place is left there.
 
 - **The `preview` sweep keeps the product of a red or yellow group with no outlet.** Such a group went
   wholly dark, its final component included. With no outlet, the members that nothing else in the group
