@@ -250,6 +250,24 @@ internal static class Plumbing
         return made;
     }
 
+    /// <summary>A new solution, on a document Grasshopper may have switched off.</summary>
+    /// <remarks>
+    /// Hiding the editor (<c>-_Grasshopper _Window _Hide</c>) turns off the document it was showing, and a
+    /// document that is off takes every edit and computes nothing: <c>place</c> answered ok, the wires were
+    /// there, and <c>peek</c> found no data. Showing the editor again turns the document back on but does not
+    /// solve what was placed in the meantime. Three friction reports on 0.24.0 and a measurement on 0.33.0
+    /// say the same. An agent that edits a document wants it solved, so the document is turned back on first.
+    /// </remarks>
+    internal static void Solve(GH_Document document)
+    {
+        if (!document.Enabled)
+        {
+            document.Enabled = true;
+        }
+
+        document.NewSolution(false);
+    }
+
     internal static string Named(IGH_DocumentObject thing) =>
         string.IsNullOrWhiteSpace(thing.NickName) ? thing.Name : thing.NickName;
 

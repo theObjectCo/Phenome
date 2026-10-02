@@ -41,6 +41,14 @@ internal static class Arrange
         internal SizeF Size;
         internal PointF At;
 
+        /// <summary>The height reserved above the members for the group's own captions.</summary>
+        internal float Band;
+
+        /// <summary>
+        /// Where the group's captions stack up from, once the block is applied: the body's top-left corner.
+        /// </summary>
+        internal PointF? Base;
+
         /// <summary>
         /// What this block is, for ordering two of them that the dataflow cannot separate.
         /// </summary>
@@ -54,8 +62,10 @@ internal static class Arrange
     /// <summary>Arranges the whole document. Returns how many objects moved.</summary>
     internal static int Whole(GH_Document document)
     {
+        // Notes are laid out by Captions afterwards. An unwired panel is one, and it used to be a node here
+        // as well, so the layout moved it and then the caption pass moved it again.
         List<IGH_DocumentObject> nodes = [.. document.Objects
-            .Where(thing => thing is IGH_Component or IGH_Param && thing.Attributes is not null)];
+            .Where(thing => thing is IGH_Component or IGH_Param && thing.Attributes is not null && !IsNote(thing))];
 
         if (nodes.Count == 0)
         {
@@ -144,7 +154,7 @@ internal static class Arrange
             Apply(document, root, origin.X, origin.Y);
         }
 
-        Captions(document, groups);
+        Captions(document, groups, blockOfGroup);
 
         // And now the correction that makes running this twice mean the same as running it once.
         //
@@ -227,7 +237,7 @@ internal static class Arrange
     /// notes is stable, which is what makes running arrange three times give the same answer three times.
     /// </para>
     /// </remarks>
-    private static int Captions(GH_Document document, List<GH_Group> groups)
+    private static int Captions(GH_Document document, List<GH_Group> groups, Dictionary<Guid, Block> blockOfGroup)
     {
         int moved = 0;
         HashSet<Guid> spoken = [];
@@ -269,6 +279,15 @@ internal static class Arrange
                 any = true;
             }
 
+            // The layout reserved a band for these above the body, and says where the body starts. Measuring
+            // the members instead put a mother's caption against her child groups' pivots, which a group does
+            // not keep up to date, and it landed on a component inside.
+            if (blockOfGroup.GetValueOrDefault(group.InstanceGuid)?.Base is { } reserved)
+            {
+                corner = reserved;
+                any = true;
+            }
+
             if (!any)
             {
                 continue;
@@ -276,7 +295,7 @@ internal static class Arrange
 
             // Stacked upwards from just above the body, in the order the group holds them, so two captions do
             // not land on each other.
-            float above = corner.Y - CaptionGap;
+            float above = MathF.Round(corner.Y) - CaptionGap;
 
             foreach (IGH_DocumentObject note in notes)
             {
@@ -285,8 +304,8 @@ internal static class Arrange
                     continue;
                 }
 
-                above -= note.Attributes!.Bounds.Height;
-                moved += Put(note, new PointF(corner.X, above));
+                above -= Pixels(note.Attributes!.Bounds.Size).Height;
+                moved += Put(note, new PointF(MathF.Round(corner.X), above));
                 ceiling = Math.Min(ceiling, above);
                 above -= CaptionGap / 2;
             }
@@ -429,9 +448,21 @@ internal static class Arrange
             nested ? BlockGapX : NodeGapX,
             nested ? BlockGapY : NodeGapY);
 
+        // Room for the group's captions, in the block's own size, so the box the layout reserves is the box
+        // the frame is drawn around. A caption is one unwrapped line and was often wider than what it
+        // captioned, so the frame grew past the reserved width and touched the next group along: a 503 px
+        // caption over a block at x=100 reached x=603, and the neighbour started at 579. Stacked the way
+        // Captions stacks them, so the topmost caption ends exactly at the top of the band.
+        List<SizeF> captions = Notes(block.Group!);
+        float widest = captions.Count == 0 ? 0 : captions.Max(caption => caption.Width);
+
+        block.Band = captions.Count == 0
+            ? 0
+            : CaptionGap + captions.Sum(caption => caption.Height) + ((captions.Count - 1) * CaptionGap / 2);
+
         block.Size = new SizeF(
-            inner.Width + (2 * GroupPad),
-            inner.Height + (2 * GroupPad) + GroupLabel);
+            Math.Max(inner.Width, widest) + (2 * GroupPad),
+            inner.Height + (2 * GroupPad) + GroupLabel + block.Band);
     }
 
     /// <summary>One level of boxes: layered left to right, untangled, stacked. Returns the space used.</summary>
@@ -714,6 +745,28 @@ internal static class Arrange
         return 0;
     }
 
+    /// <summary>A caption's size in whole pixels, the unit Captions stacks them in.</summary>
+    /// <remarks>
+    /// A note's bounds come from text measurement and are fractional, and Grasshopper rounds them against the
+    /// pivot, so the same note measured a pixel taller or shorter depending on where it last stood. The band
+    /// reserved for it changed with it, and a second arrange moved the body under it by one pixel.
+    /// </remarks>
+    private static SizeF Pixels(SizeF size) => new(MathF.Ceiling(size.Width), MathF.Ceiling(size.Height));
+
+    /// <summary>The sizes of a group's own captions, the notes it holds directly.</summary>
+    private static List<SizeF> Notes(GH_Group group)
+    {
+        if (group.OnPingDocument() is not { } document)
+        {
+            return [];
+        }
+
+        return [.. group.ObjectIDs
+            .Select(id => document.FindObject(id, topLevelOnly: true))
+            .Where(thing => thing is not null && IsNote(thing) && thing.Attributes is not null)
+            .Select(thing => Pixels(thing!.Attributes.Bounds.Size))];
+    }
+
     /// <summary>Relative positions become real pivots, a block and its contents at a time.</summary>
     private static int Apply(GH_Document document, Block block, float dx, float dy)
     {
@@ -761,10 +814,13 @@ internal static class Arrange
         }
 
         int moved = 0;
+        float body = y + GroupPad + GroupLabel + block.Band;
+
+        block.Base = new PointF(x + GroupPad, body);
 
         foreach (Block child in block.Children)
         {
-            moved += Apply(document, child, x + GroupPad, y + GroupPad + GroupLabel);
+            moved += Apply(document, child, x + GroupPad, body);
         }
 
         return moved;

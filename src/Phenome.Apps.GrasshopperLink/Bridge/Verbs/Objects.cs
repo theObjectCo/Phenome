@@ -74,7 +74,7 @@ internal static class Objects
 
             document.AddObject(thing, update: false);
             document.UndoUtil.RecordAddObjectEvent("Phenome Link: add", thing);
-            document.NewSolution(false);
+            Solve(document);
             Changed(document);
 
             return thing.InstanceGuid;
@@ -130,7 +130,7 @@ internal static class Objects
                 count++;
             }
 
-            document.NewSolution(false);
+            Solve(document);
             Changed(document);
 
             return count;
@@ -165,7 +165,7 @@ internal static class Objects
                 count++;
             }
 
-            document.NewSolution(false);
+            Solve(document);
             Changed(document);
 
             return count;
@@ -489,7 +489,7 @@ internal static class Objects
                 }
             }
 
-            document.NewSolution(false);
+            Solve(document);
             Changed(document);
 
             return $"{{\"ok\":true,\"removed\":{Json.Number(gone)},\"severed\":{Json.Number(severed.Count)}}}";
@@ -670,7 +670,7 @@ internal static class Objects
                 host.ExpireCaches();
             }
 
-            document.NewSolution(false);
+            Solve(document);
             Changed(document);
 
             System.Text.StringBuilder json = new("{\"ok\":true,\"placed\":{");
@@ -710,7 +710,7 @@ internal static class Objects
 
                 if (added.Count > 0)
                 {
-                    document.NewSolution(false);
+                    Solve(document);
                 }
 
                 throw;
@@ -1182,7 +1182,7 @@ internal static class Objects
                 owner.ExpireSolution(false);
             }
 
-            document.NewSolution(false);
+            Solve(document);
             Changed(document);
 
             return true;

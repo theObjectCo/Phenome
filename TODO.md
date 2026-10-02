@@ -88,7 +88,14 @@ without its *why* gets re-litigated or quietly dropped.
       are finishing moves people run more than once, and a save prompt for having run one twice teaches
       callers to distrust the prompt.
 
-- [ ] **Confirm that edits made while the editor is hidden still solve.** On 0.24.0 (2026-08-23 and
+- [x] **Confirmed 2026-10-02 that edits made while the editor is hidden did not solve, and fixed.** Hiding the
+      editor turns off the document it was showing (`Enabled` false), and an edit to a document that is off
+      computes nothing. Showing the editor turns it back on without solving what was placed meanwhile.
+      Every verb now solves through `Plumbing.Solve`, which turns the document back on first, and `canvas`
+      reports `enabled`. Measured on 0.34.0-dev: `place` of a Construct Point with the editor hidden, then
+      `peek`, gives one point. The original entry:
+
+      **Confirm that edits made while the editor is hidden still solve.** On 0.24.0 (2026-08-23 and
       2026-08-24, three friction reports) objects placed while the Grasshopper editor was hidden
       (`-_Grasshopper _W _H`) were created and wired but never solved. A `set` after reopening a saved
       document behaved the same way. Showing the editor and expiring the object woke it. A retest on
@@ -422,7 +429,13 @@ two `signature` calls in a row still add nothing.
 
 ## 5. Known, and left for later on purpose
 
-- [ ] **`arrange` does not reserve room for a caption, so a long note can push two group frames together.**
+- [x] **Done 2026-10-02: `arrange` reserves room for captions.** A group block's size carries a band for its
+      own captions and the width of the widest one, the body is applied below the band, and Captions stacks
+      the notes into it in whole pixels. Measured: three mothers with captions at every level, and a caption
+      wider than its group beside a neighbour, both went from overlapping frames to none, and arrange run
+      three times answers 17, 0, 0. The original entry:
+
+      **`arrange` does not reserve room for a caption, so a long note can push two group frames together.**
       Found 2026-08-20, while checking that captions land where they should — they do, and this is the other
       half of the same feature request: *"it must reserve space so an annotation's bbox never intersects
       another object's."* Idempotence is done and proven; reservation is not.

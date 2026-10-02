@@ -224,8 +224,11 @@ internal static class Review
                 continue;
             }
 
-            GH_Group? mine = groups.FirstOrDefault(group => Members(document, group).Contains(thing.InstanceGuid));
-            GH_Group? theirs = groups.FirstOrDefault(group => Members(document, group).Contains(feeder.InstanceGuid));
+            // The group holding each end directly, not any group containing it. Through nesting, a mother holds
+            // both ends of every outlet-to-inlet wire between her children, and this called the signature
+            // working between two sibling groups a chained pair.
+            GH_Group? mine = groups.FirstOrDefault(group => group.ObjectIDs.Contains(thing.InstanceGuid));
+            GH_Group? theirs = groups.FirstOrDefault(group => group.ObjectIDs.Contains(feeder.InstanceGuid));
 
             if (mine is not null && ReferenceEquals(mine, theirs))
             {

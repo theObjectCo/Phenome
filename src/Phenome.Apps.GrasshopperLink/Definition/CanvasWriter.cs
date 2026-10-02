@@ -47,6 +47,10 @@ internal static class CanvasWriter
         json.Append(",\"path\":").Append(Json.Quote(document.FilePath ?? ""));
 
         json.Append(",\"solverEnabled\":").Append(GH_Document.EnableSolutions ? "true" : "false");
+
+        // The document's own switch, apart from the global one above: Grasshopper turns it off for a document
+        // it is not showing, and a disabled document takes edits and computes nothing.
+        json.Append(",\"enabled\":").Append(document.Enabled ? "true" : "false");
         json.Append(",\"objectCount\":").Append(Json.Number(document.ObjectCount));
         json.Append("},\"objects\":[");
 

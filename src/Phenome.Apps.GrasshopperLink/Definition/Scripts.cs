@@ -88,7 +88,7 @@ internal static class Scripts
         }
 
         thing.ExpireSolution(false);
-        document!.NewSolution(false);
+        Bridge.Verbs.Plumbing.Solve(document!);
 
         // The push's whole feedback: what the component itself says after compiling and running the new
         // source - the same words its balloon would show, delivered to whoever cannot see the balloon.

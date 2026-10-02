@@ -314,7 +314,7 @@ internal static class Documents
                 document.UndoServer.PerformUndo();
             }
 
-            document.NewSolution(false);
+            Solve(document);
             Changed(document);
 
             global::Grasshopper.Instances.ActiveCanvas?.Refresh();
@@ -353,7 +353,10 @@ internal static class Documents
 
             if (enabled)
             {
-                ActiveDocument()?.NewSolution(false);
+                if (ActiveDocument() is { } shown)
+                {
+                    Solve(shown);
+                }
             }
 
             return true;

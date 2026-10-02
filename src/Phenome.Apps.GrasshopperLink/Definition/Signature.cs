@@ -173,7 +173,7 @@ internal static class Signature
             json.Append(",\"outlets\":").Append(Json.Number(outlets)).Append('}');
         }
 
-        document.NewSolution(false);
+        Bridge.Verbs.Plumbing.Solve(document);
 
         return json.Append("]}").ToString();
     }
@@ -316,12 +316,16 @@ internal static class Signature
         {
             foreach (IGH_Param output in OutputsOf(member))
             {
-                // A port reading this output is the signature already working - mine or another group's -
-                // so it is not a crossing to fix. Without this, ports beget ports.
+                // Readers outside the group, ports of other groups included. Another group's inlet reading
+                // this output straight from a member is a wire that crosses this group's edge with no outlet
+                // on it, and it is what every producer was left with when its consumer happened to be signed
+                // first: the consumer's inlet took the wire, this group then counted that inlet as "the
+                // signature already working", and five producing groups ended with no outlets at all, run
+                // after run. Ports do not beget ports here, because an outlet of this group is inside it and
+                // never in this list, and once the outlet stands the other group's inlet reads the outlet.
                 List<IGH_Param> readers = [.. output.Recipients
                     .Where(reader => !inside.Contains(
-                        (reader.Attributes?.GetTopLevel?.DocObject ?? reader).InstanceGuid))
-                    .Where(reader => !IsPort(reader))];
+                        (reader.Attributes?.GetTopLevel?.DocObject ?? reader).InstanceGuid))];
 
                 if (readers.Count == 0)
                 {

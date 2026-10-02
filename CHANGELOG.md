@@ -74,6 +74,24 @@ commit that made it, not here.
 
 ### Fixed
 
+- **Edits made while the Grasshopper editor is hidden solve.** Hiding the editor turns off the document it
+  was showing, and `place`, `wire` or `set` on it answered ok and computed nothing. Every verb now turns the
+  document back on before it solves, and `canvas` reports the document's `enabled` flag.
+
+- **`signature` gives a producing group its outlet whichever group it signs first.** When the consuming
+  group came first, its inlet took the wire straight from the producer's member, and the producer then
+  counted that inlet as its signature already working. Five groups in one report ended with no outlets,
+  run after run.
+
+- **`arrange` keeps captions clear of the components and of the neighbouring groups.** A group's block now
+  reserves the height of its captions and the width of the widest one, and the captions stack into that
+  band. A mother's caption had been placed against her child groups' frames and landed on a component, and
+  a caption wider than its group pushed the frame into the next group. An unwired panel is laid out as a
+  caption only, rather than first as a node and then as a caption.
+
+- **`review` no longer calls an outlet feeding a sibling group's inlet a chained pair.** Inside a mother group
+  it judged both ends by the mother, which holds both.
+
 - **`arrange` is idempotent on groups with no wires between them and on groups that feed each other.**
   Sixteen unconnected groups came out upside down on every run, about 160 objects moved each time, and
   two groups feeding each other swapped columns on every run. Both orders came from the order of the
