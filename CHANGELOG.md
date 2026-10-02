@@ -11,7 +11,7 @@ the code, do not tell somebody who installed the last version which six things t
 So: user-visible changes only, one block per release. Implementation that nobody outside sees belongs in the
 commit that made it, not here.
 
-## Unreleased
+## 0.34.0
 
 ### Changed
 
