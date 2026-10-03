@@ -27,7 +27,7 @@ jobs:
       security: ${{ steps.wersje.outputs.security }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # One SDK is installed. The plugin targets net7.0 but is only built here, never *run*, and a modern SDK
       # builds an old target by fetching its reference pack from NuGet. The pack is a few megabytes; a second
@@ -35,13 +35,13 @@ jobs:
       #
       # The kernel's workflow keeps both on purpose: it runs tests on net7.0, and running needs a runtime
       # that no reference pack provides.
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
 
       # The plugin references no Phenome library on purpose, and this builds from a clean clone with no feed
       # and no secret. That property is the reason this repository is public.
@@ -150,7 +150,7 @@ jobs:
           "  security: $security"
           "security=$security" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: phenome-link
           path: dist/*
@@ -181,7 +181,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: phenome-link
           path: dist
@@ -269,12 +269,12 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: phenome-link
           path: dist
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           # The title carries the warning, visible before anything is opened. A release that should not be
           # skipped and a release with six small improvements look identical on a list of tags, and the person
