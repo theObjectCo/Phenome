@@ -3,31 +3,29 @@
   <!--
     The half of the link that never opens Rhino.
 
-    The other two plugins live inside a running Rhino and answer for it. This one is the reverse: it starts
-    a Rhino core in its own process, headless and without a window, so an agent can work on documents with
-    nobody watching a splash screen. Rhino.Inside does the loading; what this assembly adds is the small
-    amount of ceremony that loading needs to survive - the native opennurbs directory, the resolver, and the
-    rule that no RhinoCommon type may be named in the method that starts it.
+    The other two plugins live inside a running Rhino and report on it. This one starts a Rhino core in its
+    own process, headless and without a window, and an agent can work on documents with no splash screen on
+    screen. Rhino.Inside does the loading. This assembly adds the setup the loading needs to survive: the
+    native opennurbs directory, the resolver, and the rule that no RhinoCommon type may be named in the
+    method that starts it.
 
-    What it is meant to become: the same thing as Phenome.Apps.RhinoLink, for a Rhino that was never opened.
-    Plain HTTP on 127.0.0.1, one JSON out, an ephemeral port in a discovery file - the same conventions, so
-    the same clients work against it. That server is not written yet, which is why there is no OutputType
-    here: hosting the core is the half that exists, and a stub Main pretending otherwise would be worse than
-    its absence.
+    The interface matches Phenome.Apps.RhinoLink, adapted to a Rhino that was never opened: plain HTTP on
+    127.0.0.1, one JSON response per request, and an ephemeral port in a discovery file. Clients use the same
+    discovery and calling conventions, with a smaller verb set because a windowless core cannot run Rhino
+    commands.
 
-    Document tooling that used to live here - explode, rename, normalize, silhouette, info - has left for a
-    repository of its own. It was never part of the link: it is specific to one pipeline, and this repository
-    ships publicly to anyone with Rhino.
+    Document tooling (explode, rename, normalize, silhouette, info) lives in a repository of its own. It is
+    not part of the link: it is specific to one pipeline, and this repository ships publicly to all Rhino
+    users.
 
-    That tooling needs a headless core too, and takes it from here by ProjectReference rather than by carrying
-    a copy of HeadlessRhino - decided on 2026-08-19, on the grounds that the two always travel together
-    anyway. So HeadlessRhino is public surface with a consumer outside this repository: Start, Prepare,
-    SystemDirectory, Invoke, Serve, Stop. Renaming any of them, or making the type internal, breaks a build
-    that is not in this solution and will not tell you here.
+    That tooling needs a headless core too. It takes HeadlessRhino from here by ProjectReference and carries
+    no copy of its own, because the two always travel together (decided on 2026-08-19). HeadlessRhino is
+    therefore public surface with a consumer outside this repository: Start, Prepare, SystemDirectory, Invoke,
+    Serve, Stop. Renaming any of them, or making the type internal, breaks a build that is not in this
+    solution and reports nothing here.
 
-    Referencing an Exe project is deliberate and works: the SDK produces a .dll beside the .exe and a
-    reference picks that up. Making this a library instead would mean losing the server, which is the point
-    of it.
+    Referencing an Exe project is deliberate and works: the SDK produces a .dll beside the .exe, and a
+    consumer can use HeadlessRhino while this project keeps its own server entry point.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -44,9 +42,9 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>false</IsPackable>
     <!--
-      NU1701: the Rhino packages are still .NET Framework ones. NU1608: Rhino.Inside pins RhinoCommon to
-      the version it shipped against, and we reference a newer one deliberately - at run time neither is
-      loaded, because the resolver hands both over to the Rhino that is actually installed.
+      NU1701: the Rhino packages are still .NET Framework ones. NU1608: Rhino.Inside pins RhinoCommon to the
+      version it shipped against, while a newer one is referenced deliberately. At run time neither loads,
+      because the resolver passes both to the Rhino that is actually installed.
     -->
     <NoWarn>NU1701;NU1608</NoWarn>
   </PropertyGroup>
@@ -57,10 +55,10 @@
   </ItemGroup>
 
   <!--
-    The same shared source the other two links compile in, less Pulse. Pulse decides everything from Rhino's
-    main window and its idle events, and a windowless core has neither: MainWindowHandle answers zero, so it
-    would report "no dialog" forever. Measured, and worth naming rather than quietly excluding - a dialog can
-    still appear here, it just cannot be found that way. Documents.cs suppresses the one that was observed.
+    The same shared source the other two links compile, without Pulse. Pulse determines everything from Rhino's
+    main window and its idle events, and a windowless core has neither: MainWindowHandle returns zero, and Pulse
+    would report "no dialog" forever. The exclusion is written out explicitly. A dialog can still appear here,
+    and it cannot be found this way; Documents.cs suppresses the one that has been observed.
   -->
   <ItemGroup>
     <Compile Include="..\Phenome.Apps.Shared\**\*.cs"

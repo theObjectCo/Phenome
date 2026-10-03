@@ -1,67 +1,67 @@
-# Working on your canvas from somewhere else
+# Working on the canvas from another place
 
-Rhino stays on the machine it is on. You go to the machine rather than bringing the canvas to you, and the
-link never crosses a network at all.
+Rhino stays on the machine it is on. The editor goes to that machine over a VS Code tunnel, and the link
+itself never crosses a network.
 
-That is the whole idea, and it is why this needs nothing from us. The link binds `127.0.0.1`, the agent runs
-beside Rhino, and the only thing that travels is your editor window.
+The setup needs nothing from Phenome. The link binds `127.0.0.1`, the agent runs beside Rhino, and the only
+thing that travels is the editor window.
 
-## What to do
+## Steps
 
 **On the machine Rhino is on**, in VS Code, open the Command Palette and run
-**Remote Tunnels: Turn on Remote Tunnel Access…**. It asks you to sign in with a GitHub or Microsoft account
-and to name the machine. That name is the whole address from then on.
+**Remote Tunnels: Turn on Remote Tunnel Access…**. It asks for a sign-in with a GitHub or Microsoft account
+and for a name for the machine. That name is the whole address from then on.
 
-**From anywhere else**, open `https://vscode.dev/tunnel/<that name>` and sign in with the same account. You
-get VS Code running against that machine: its files, its terminal, and its extensions.
+**From anywhere else**, open `https://vscode.dev/tunnel/<that name>` and sign in with the same account. The
+browser shows VS Code running against that machine, with its files, its terminal and its extensions.
 
-**Then pair as usual.** The Phenome extension and the MCP server are running on the Rhino machine, so
-everything below them is exactly as it is when you sit at it.
+**Then pair as usual.** The Phenome extension and the MCP server run on the Rhino machine, and everything
+below them behaves exactly as it does for someone sitting at that machine.
 
-Nothing here is ours. It is a feature of VS Code, it costs nothing, and it works the same whether you have
-this plugin or not.
+The tunnel is a feature of VS Code. It costs nothing and works the same with or without this plugin.
 
-## What you actually get
+## The result
 
-An agent that sees the canvas, the Rhino document and the journal, on a machine you are not sitting at, from
-a browser that needs nothing installed. A phone will do at a push, though you will not enjoy it.
+An agent sees the canvas, the Rhino document and the journal on a machine nobody is sitting at, driven from a
+browser that needs nothing installed. A phone works, though it is not comfortable.
 
-Extensions run **on the remote machine**, which is the part people trip on: install Claude Code, Kilo or
-whatever you drive the tools with **there**, not in the browser. The browser is a screen, not a computer.
+Extensions run **on the remote machine**. Install Claude Code, Kilo or whichever client drives the tools
+**there**, not in the browser, which is only a display.
 
-Install them **from inside the tunnel session** - the Extensions view, or `Install from VSIX…` in its `…`
-menu. A tunnel keeps its own extension directory, separate from the one the VS Code you double-click uses,
-and the two do not see each other. This bites hardest with our own `.vsix`, because it comes as a file
-rather than from the marketplace: install it by sitting at the machine, or over SSH with
-`code --install-extension`, and the tunnel session will not have it and will give no hint why. The command
-line can reach the right directory, but only if told which one:
+Install them **from inside the tunnel session**, through the Extensions view or `Install from VSIX…` in its
+`…` menu. A tunnel keeps its own extension directory, separate from the one the double-clicked VS Code uses,
+and neither sees the other. The Phenome `.vsix` is the extension most likely to run into this, because it
+comes as a file and not from the marketplace. Installed at the machine, or over SSH with
+`code --install-extension`, it is missing from the tunnel session and nothing says why. The command line can
+reach the right directory, but only when told which one:
 `code --extensions-dir "%USERPROFILE%\.vscode-server\extensions" --install-extension phenome-link-<version>.vsix`.
 
-## What it does not do, and would be unkind not to say
+## Limitations
 
-**The machine has to be awake, logged in, and left that way.** Rhino needs a desktop session, so a machine
-that sleeps takes the tunnel and the canvas with it. Wake-on-LAN brings the machine back but not the login;
-a session that is logged in and merely *disconnected* survives sleep and is the state you want. Switch sleep
-off, or leave yourself logged in and disconnected.
+**The machine has to be awake, logged in, and left that way.** Rhino needs a desktop session, and a machine
+that sleeps takes the tunnel and the canvas down with it. Wake-on-LAN brings the machine back but not the
+login. A session that is logged in and merely *disconnected* survives sleep, and that is the state to leave
+it in. Switch sleep off, or stay logged in and disconnect.
 
-**The traffic goes through Microsoft's tunnel service.** Not to us, and not directly to you either. That is
-the same trade as any hosted remote-desktop or tunnel product, and it is worth knowing rather than assuming.
+**The traffic goes through Microsoft's tunnel service.** It does not go to the authors of the link, and it
+does not go directly between the browser and the machine. Any hosted remote-desktop or tunnel product makes
+the same trade-off.
 
-**It is tied to your own account.** This is a way to reach your own machine, not a way to give a colleague
-access to it. There is no sharing, no groups, and no audit beyond what your account already carries.
+**It is tied to one account.** The tunnel reaches the account holder's own machine and gives a colleague no
+access to it. There is no sharing, no groups, and no audit beyond what the account already carries.
 
-**The pair button on the canvas will not reach you.** It opens a `vscode://` link, which wakes the VS Code
-installed on the *Rhino* machine rather than the browser you are looking at. Working remotely, pair from the
+**The pair button on the canvas does not reach the browser.** It opens a `vscode://` link, which wakes the
+VS Code installed on the *Rhino* machine and not the browser in use. When working remotely, pair from the
 editor side instead: the extension finds the session on its own, and `sessions` lists them if there are
 several.
 
-**Starting Rhino is still a thing somebody has to do.** The `launch` tool will do it from the agent once you
-are in, and if you ever start Rhino yourself with a command line, the argument form matters more than it
-looks - see `docs/protocol.md`, where the three ways of writing it are measured and only one opens a canvas.
+**Starting Rhino is still a separate step.** The `launch` tool does it from the agent once the tunnel session
+is open. When Rhino is started by hand from a command line, the form of the argument matters more than it
+looks: `docs/protocol.md` measures the three ways of writing it, and only one of them opens a canvas.
 
-## What this is not
+## What this page does not cover
 
-This is the case where **the agent and Rhino are on the same machine**, which is how most people run it. The
-other case - an agent on one machine driving a Rhino on another - is a different problem with a different
-answer, and it is not solved by any of the above. Notes on that are in
-[link-over-the-network.md](link-over-the-network.md); nothing of it ships yet.
+This page covers **an agent and Rhino on the same machine**, which is how most people run it. An agent on
+one machine driving a Rhino on another is a different problem with a different answer, and nothing above
+solves it. Notes on that case are in [link-over-the-network.md](link-over-the-network.md); none of it ships
+yet.

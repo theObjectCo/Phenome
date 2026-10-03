@@ -12,9 +12,8 @@ namespace Phenome.Apps.GrasshopperLink.Bridge.Verbs;
 
 /// <summary>Objects, the wires between them, and the values on them.</summary>
 /// <remarks>
-/// The write half of the protocol: this is where a request turns into something on the canvas, so this
-/// is where atomicity lives - a verb that adds several objects and then finds the seventh wire misspelt
-/// has to leave nothing behind.
+/// These verbs modify the canvas. Only <c>place</c> rolls a partially applied request back; <c>wire</c> and
+/// <c>set</c> apply their elements in order, and a later failure leaves the earlier elements in place.
 /// </remarks>
 internal static class Objects
 {
@@ -26,7 +25,7 @@ internal static class Objects
 
         if (name is null && guid is null)
         {
-            throw new ArgumentException("add needs 'name' or 'guid' - which component to put down.");
+            throw new ArgumentException("add needs 'name' or 'guid': which component to put down.");
         }
 
         Guid id = OnUi(() =>
@@ -48,13 +47,9 @@ internal static class Objects
                 thing.NickName = nickname;
             }
 
-            // Only when the constructor left none. A component's own constructor already made attributes
-            // and parented every parameter's linked attributes to that object; a second CreateAttributes
-            // swaps the component's attributes but not the parameters' parents, which leaves the wires
-            // resolving selection through an orphan nothing can reach. Clicking near a socket wrote
-            // Selected into that orphan, the wires lit as if the component were selected, and no deselect
-            // - Grasshopper's or ours - could put it out, because both walk the document's objects and
-            // the orphan is not one of them.
+            // Create attributes only when the component constructor did not. Calling CreateAttributes again
+            // replaces the component's attributes while leaving parameters parented to the old object. Their
+            // wires then resolve selection through an unreachable orphan, which can remain visually selected.
             if (thing.Attributes is null)
             {
                 thing.CreateAttributes();
@@ -64,10 +59,9 @@ internal static class Objects
 
             EnsureAutosave(document);
 
-            // A pivot if one was asked for, and otherwise clear of what is already there. CreateAttributes
-            // leaves an object on the origin, so `add` without a pivot used to stack every component on the
-            // same spot - which is one half of the pile reported from the field, `place` without a group being
-            // the other. Neither caller should have to know a coordinate to avoid it.
+            // Use the requested pivot, or place the object where it will not overlap existing objects.
+            // CreateAttributes defaults to the origin, and objects placed without coordinates would otherwise
+            // stack there.
             thing.Attributes!.Pivot = request.RootElement.TryGetProperty("pivot", out JsonElement pivot)
                 ? new System.Drawing.PointF((float)pivot[0].GetDouble(), (float)pivot[1].GetDouble())
                 : FreeLane(document);
@@ -89,9 +83,8 @@ internal static class Objects
     /// One wire, or all of them: a 'wires' array is applied in one pass with a single solution at the end.
     /// </summary>
     /// <remarks>
-    /// The batch is the point rather than a convenience. A definition is mostly wires, and one call per
-    /// wire means one round trip, one permission thought and one solution each - the agent spends its
-    /// afternoon on plumbing, and the human watches the canvas flicker forty times.
+    /// Batch input avoids repeated solutions: definitions contain many wires, and solving after each one creates
+    /// unnecessary round trips and repeated canvas updates. A single wire without the array remains valid.
     /// </remarks>
     internal static string Wire(JsonDocument request)
     {
@@ -206,10 +199,8 @@ internal static class Objects
                 return;
             }
 
-            // With 'param', the value goes into a component's own input - the way a human types a constant
-            // straight into a socket instead of standing up a parameter and a wire for the number two.
-            // An index arrives as a number as often as a string, and a number used to be read as no 'param' at
-            // all: the value then went to the component itself, which "holds no value to set".
+            // With 'param', store the value in the named input. This avoids creating a separate parameter and
+            // wire for a constant. The index may arrive as a JSON number or string.
             if (request.TryGetProperty("param", out JsonElement named)
                 && named.ValueKind is JsonValueKind.String or JsonValueKind.Number
                 && named.ToString() is { } which
@@ -226,8 +217,8 @@ internal static class Objects
             switch (thing)
             {
                 case Grasshopper.Kernel.Special.GH_NumberSlider slider:
-                    // Bounds before value, so the value is clamped against where the slider is going, not
-                    // where it was. A string value is GH's own init notation - "0<50<100" says all three.
+                    // Apply bounds before the value so it is clamped against the new range. A string containing
+                    // '<' uses Grasshopper's initialization notation, such as "0<50<100".
                     if (request.TryGetProperty("minimum", out JsonElement minimum))
                     {
                         slider.Slider.Minimum = (decimal)AsDouble(minimum);
@@ -246,8 +237,8 @@ internal static class Objects
                             : Grasshopper.GUI.Base.GH_SliderAccuracy.Float;
                     }
 
-                    // Only a domain expression goes through the init code; "42" spelt as a string is a
-                    // number a client was too casual about, not a domain.
+                    // A string is treated as a domain only when it contains '<'. A numeric string such as "42"
+                    // is treated as a value.
                     if (value.ValueKind == JsonValueKind.String && value.GetString()!.Contains('<'))
                     {
                         slider.SetInitCode(value.GetString());
@@ -263,10 +254,8 @@ internal static class Objects
                     Word(panel, value);
                     break;
 
-                // Rewording a note that is already on the canvas, which is the repair path when the first
-                // wording was wrong - and there was none: this answered "Scribble holds no value to set", so a
-                // note could be created and never corrected. An empty string is refused for the same reason it
-                // is on create: a blank scribble is indistinguishable from a dropped one.
+                // Allow an existing note's wording to be replaced. Empty text is rejected because a blank note
+                // is indistinguishable from one whose text failed to be assigned.
                 case Grasshopper.Kernel.Special.GH_Scribble scribble:
                 {
                     string said = value.ValueKind == JsonValueKind.String
@@ -276,7 +265,7 @@ internal static class Objects
                     if (string.IsNullOrWhiteSpace(said))
                     {
                         throw new ArgumentException(
-                            "A note needs something to say - the value was empty. Delete the note if it is " +
+                            "A note needs something to say, and the value was empty. Delete the note if it is " +
                             "no longer wanted; an empty one only looks like a mistake.");
                     }
 
@@ -288,9 +277,8 @@ internal static class Objects
                     toggle.Value = AsBool(value);
                     break;
 
-                // A swatch keeps its colour in a property of its own rather than as parameter data, so the
-                // generic path refused it - and a definition whose whole point is four coloured shelf edges
-                // could not be coloured.
+                // A colour swatch stores its value in SwatchColour, not in parameter data, and is assigned
+                // directly.
                 case Grasshopper.Kernel.Special.GH_ColourSwatch swatch:
                     swatch.SwatchColour = AsColour(value);
                     break;
@@ -309,13 +297,11 @@ internal static class Objects
 
     /// <summary>A parameter's name, and a panel's size: what <c>set</c> changes besides the value.</summary>
     /// <remarks>
-    /// Both were done with a throwaway C# Script component, placed, run and deleted again, because nothing else
-    /// reached them. A new panel keeps Grasshopper's default box, which is large for a one-line label,
-    /// and ten of them made a canvas hard to read. A floating parameter's name is a group's port name once
-    /// <c>signature</c> has run, and it is what the reader of a group goes by.
+    /// Without this, renaming a floating parameter or sizing a panel takes a script. A new panel uses a large
+    /// default box, which makes label-heavy definitions hard to read. A floating parameter's
+    /// nickname also becomes the group port name used by <c>signature</c>.
     /// <para>
-    /// Only parameters are renamed. A component keeps its name, because the name is how a reader recognises
-    /// which component it is.
+    /// Only parameters can be renamed. Components retain their original names so readers can identify them.
     /// </para>
     /// </remarks>
     private static void Shape(IGH_DocumentObject thing, JsonElement request)
@@ -416,12 +402,12 @@ internal static class Objects
     }
 
     /// <summary>
-    /// Removes objects - and refuses, unless forced, when that would cut a wire to something staying.
+    /// Removes objects, and refuses unless forced when that would cut a wire to something staying.
     /// </summary>
     /// <remarks>
-    /// A bulk delete of "unused" objects severed a live definition in the field: the objects looked idle
-    /// but fed things that stayed, and the damage arrived all at once with nothing to point at. So the
-    /// wires that would be cut are counted first and named back to the caller; force says you meant it.
+    /// Deleting an object can sever wires to objects that remain. Potentially severed wires are identified and
+    /// returned before any change is made. A bulk deletion can otherwise damage a definition while the targeted
+    /// objects appear unused. <c>force:true</c> explicitly accepts those losses.
     /// </remarks>
     internal static string Delete(JsonDocument request)
     {
@@ -472,7 +458,7 @@ internal static class Objects
 
                 return $"{{\"ok\":false,\"removed\":0,\"wouldSever\":{Json.Number(severed.Count)},"
                     + $"\"wires\":[{cuts}],\"error\":\"Deleting these would cut {severed.Count} wire(s) to "
-                    + "objects that stay. Check the list, then pass force:true if you mean it.\"}";
+                    + "objects that stay. Check the list, then pass force:true to delete them anyway.\"}";
             }
 
             EnsureAutosave(document);
@@ -515,9 +501,8 @@ internal static class Objects
 
             EnsureAutosave(document);
 
-            // Where a body goes when the recipe does not say: inside its own group's lane, in rows. Without
-            // this every object lands on the origin in one unreadable pile, which is no use to a human
-            // watching the build and hoping to intervene before it is finished.
+            // Without an explicit pivot, place objects in the host group's layout lane or in a free area, where
+            // generated objects stay legible while a build is in progress.
             Grasshopper.Kernel.Special.GH_Group? host =
                 Field(request, "group") is { } intoGroup
                     ? document.FindObject(Guid.Parse(intoGroup), topLevelOnly: true)
@@ -531,16 +516,9 @@ internal static class Objects
 
             int laid = 0;
 
-            // Every proxy resolved before a single object is added: a recipe either lands whole or leaves
-            // the canvas exactly as it was.
-            //
-            // Every entry resolved before the first refusal is reported, too, which is a different promise
-            // and the one that costs a caller real work. Throwing on the first bad name told an author one
-            // thing about a recipe that had six things wrong with it, so a thirteen-object block came back
-            // six times, each time for one more collision - reported in those words. Atomicity is right and
-            // stays: what was wrong was refusing with less than the server already knew. Now one answer
-            // carries every entry that could not be resolved, keyed by the recipe's own local id, so the
-            // whole batch is fixable in one pass and resent once.
+            // Resolve every proxy before placement; the recipe is then atomic. Report every resolution failure
+            // in the first response, keyed by the caller's local id. The caller corrects the entire recipe and
+            // resends it in one pass.
             List<(IGH_ObjectProxy Proxy, JsonElement Spec)> recipe = [];
             List<string> unresolved = [];
 
@@ -560,19 +538,15 @@ internal static class Objects
             {
                 throw new ArgumentException(
                     $"{unresolved.Count} of {unresolved.Count + recipe.Count} entries could not be resolved, "
-                    + "so nothing was placed and the canvas is untouched. Fix all of these and send the recipe "
-                    + $"again -- {string.Join(" || ", unresolved)}");
+                    + "and nothing was placed; the canvas is untouched. Fix all of these and send the recipe "
+                    + $"again: {string.Join(" || ", unresolved)}");
             }
 
-            // First pass: everything stands, configured, and the recipe's local ids learn their real ones.
+            // First pass: every object is created and configured, and each local id is mapped to its real one.
             Dictionary<string, IGH_DocumentObject> made = [];
 
-            // Resolving the proxies up front makes an unknown *component* atomic, but not an unknown
-            // parameter name: that is discovered in the wiring pass, by which time every object has been
-            // added. A misspelt input therefore used to leave the whole recipe standing on the canvas,
-            // unwired and unnamed - seven orphans, in the case that prompted this - for the caller to find
-            // and delete by hand. Rolling back covers the wiring pass and every other way a recipe can fail
-            // partway, which pre-validating names alone would not.
+            // Proxy resolution covers unknown components, but wiring can still fail when a parameter name is
+            // wrong. Roll back all objects added by this recipe so partial results never remain on the canvas.
             List<IGH_DocumentObject> added = [];
 
             try
@@ -594,8 +568,8 @@ internal static class Objects
                     : thing.InstanceGuid.ToString()] = thing;
             }
 
-            // Second pass: the wires, now that both ends exist. A source id is a recipe-local key first
-            // and an existing canvas guid second, so a recipe can graft onto what is already there.
+            // Second pass: the wires, now that both ends exist. A source id is looked up as a recipe-local key
+            // first and as an existing canvas guid second; a recipe can graft onto what is already there.
             foreach (JsonElement spec in objects.EnumerateArray())
             {
                 if (!spec.TryGetProperty("inputs", out JsonElement inputs))
@@ -618,9 +592,8 @@ internal static class Objects
                     string? which = input.TryGetProperty("param", out JsonElement named) ? named.ToString() : null;
                     IGH_Param sink = LocateBy(target, "input", which);
 
-                    // A constant typed straight into the socket, which is what a caller means by a value
-                    // on an input and what this refused - with a dictionary's error message, no less,
-                    // because a missing 'sources' was read as a missing key rather than a shape it knows.
+                    // Accept a constant value directly on an input as an alternative to sources. This is a
+                    // documented input shape, and a missing value/source pair is reported clearly.
                     if (input.TryGetProperty("value", out JsonElement constant))
                     {
                         Store(sink, constant);
@@ -657,9 +630,8 @@ internal static class Objects
                 }
             }
 
-            // Placed straight into the group that asked for them: in a signature-first build, the body
-            // belongs to the function whose signature it fills, and saying so here saves an extra call
-            // and the "ungrouped objects" the review would otherwise, rightly, complain about.
+            // Add placed objects directly to the requested group. In a signature-first build, the implementation
+            // belongs to the function it fills and should not appear as ungrouped.
             if (host is not null)
             {
                 foreach (IGH_DocumentObject thing in made.Values)
@@ -691,10 +663,9 @@ internal static class Objects
             }
             catch (Exception)
             {
-                // Taken back in reverse, so a source is never removed before the object that cites it. The
-                // undo entries recorded on the way in are left behind: they refer to objects that no longer
-                // exist, which Grasshopper tolerates, and the alternative - unwinding the undo stack from
-                // here - risks eating a step the human put there.
+                // Remove objects in reverse creation order: consumers go before the sources they use.
+                // Undo entries recorded during placement are left intact; unwinding them here could discard an
+                // undo step made by the user.
                 for (int i = added.Count - 1; i >= 0; i--)
                 {
                     try
@@ -703,8 +674,8 @@ internal static class Objects
                     }
                     catch (Exception)
                     {
-                        // Best effort: one object that will not come off must not stop the rest coming off,
-                        // and the exception being reported is the one worth reporting.
+                        // Continue removing the remaining objects even if one removal fails. The original
+                        // exception is the one reported.
                     }
                 }
 
@@ -723,14 +694,12 @@ internal static class Objects
     }
 
     /// <summary>
-    /// The proxy a recipe entry names - by guid, or by a name that must mean exactly one thing.
+    /// The proxy a recipe entry names, by guid or by a name that must mean exactly one thing.
     /// </summary>
     /// <remarks>
-    /// Resolved for the whole recipe before anything is added to the document, so a name nobody recognises
-    /// fails on an untouched canvas instead of leaving twenty objects standing and the twenty-first missing.
-    /// An ambiguous name is refused with the candidates rather than silently picking one: "Merge" is two
-    /// different components with different parameter names, and guessing between them is not this server's
-    /// business.
+    /// Resolution happens before any object is added, and an unknown or ambiguous name fails without modifying
+    /// the document. Ambiguous names return candidate guids instead of choosing one, because a display name may
+    /// match multiple components with different parameter layouts.
     /// </remarks>
     private static IGH_ObjectProxy Resolve(JsonElement spec)
     {
@@ -759,19 +728,15 @@ internal static class Objects
 
         if (found.Count > 1)
         {
-            // Handed back as something to paste rather than something to transcribe. The candidates were
-            // already listed here, as prose - "Merge [Sets › Tree] 3cadddef-..." - and an author reading that
-            // still had to take the guid out of the sentence and build the object literal itself. Worse, the
-            // category is not always the discriminator: both Merges live in Sets › Tree and differ only by
-            // guid, so a reader picking by the label alone cannot tell them apart at all. The literal carries
-            // the one key that is guaranteed stable - ComponentGuid is what a .gh file stores to find a
-            // component again, so it cannot drift the way a display name, a nickname or a ribbon category can.
+            // Return candidates as ready-to-copy JSON object literals. The guid is the discriminator because
+            // category and display name can be identical; ComponentGuid is what a .gh file stores and is the
+            // stable identifier.
             string candidates = string.Join(", ", found.Select(one =>
                 $"{{\"name\":\"{one.Desc.Name}\",\"guid\":\"{one.Guid}\"}} in {one.Desc.Category} › "
                 + $"{one.Desc.SubCategory}{Hint(one)}"));
 
             throw new ArgumentException(
-                $"'{asked}' names {found.Count} different components - copy the one you meant, guid and all: "
+                $"'{asked}' names {found.Count} different components. Copy the intended one, guid and all: "
                 + candidates);
         }
 
@@ -792,10 +757,9 @@ internal static class Objects
     /// Which entry of a recipe a complaint is about, said the way the caller wrote it.
     /// </summary>
     /// <remarks>
-    /// The recipe's own local id if it has one, because that is the handle the caller is holding and the one
-    /// it will edit; the name it asked for otherwise, and the position as a last resort. Naming the entry is
-    /// most of the value of reporting several at once - "6 entries could not be resolved" is only actionable
-    /// if the reader can tell which six.
+    /// Identify a recipe entry by its caller-supplied local id when present; otherwise use the requested component
+    /// name and finally the entry position. A message such as '6 entries could not be resolved' is actionable only
+    /// when each of the six entries is identified.
     /// </remarks>
     private static string Which(JsonElement spec)
     {
@@ -813,20 +777,15 @@ internal static class Objects
     }
 
     /// <summary>
-    /// Somewhere to put objects that nobody positioned: clear of everything already on the canvas.
+    /// Places an unpositioned object below the existing document bounds, clear of them.
     /// </summary>
     /// <remarks>
-    /// A definition is built before it is grouped - components first, groups after, wires after that, and
-    /// <c>arrange</c> last - so most of what is placed arrives with no group to belong to and no position
-    /// asked for. The old answer stepped down by four pixels per object already on the canvas, which for
-    /// objects fifty pixels tall means each batch lands almost exactly on the last one. That is the pile
-    /// reported from the field, and it is at its worst in the case that matters: a human watching an agent
-    /// work, wanting to read the canvas while there is still time to intervene.
+    /// Definitions are typically built before grouping and layout, so many objects arrive without a group or
+    /// requested position. Placing each new object only a few pixels from the previous one causes dense overlap.
+    /// A separate staging position keeps a build readable while work is in progress.
     /// <para>
-    /// Below everything, not beside it, because a definition grows left to right: below leaves the dataflow
-    /// direction free for <c>arrange</c> to use, and a new batch never has to be hunted for - it is at the
-    /// bottom. This is a staging area and nothing more; <c>arrange</c> is what decides where things end up,
-    /// which is why no caller should be computing coordinates of its own.
+    /// Objects are placed below existing content, not beside it, because dataflow usually advances left to
+    /// right. <c>arrange</c> later determines final positions, and callers should not calculate coordinates.
     /// </para>
     /// </remarks>
     private static System.Drawing.PointF FreeLane(GH_Document document)
@@ -843,7 +802,7 @@ internal static class Objects
             }
         }
 
-        // A clear gap, so the eye reads the new batch as a new batch rather than as part of what was there.
+        // Leave a vertical gap so a new batch is visually distinct from existing objects.
         return any
             ? new System.Drawing.PointF(100, bottom + 120)
             : new System.Drawing.PointF(100, 100);
@@ -863,9 +822,8 @@ internal static class Objects
             thing.NickName = nickname.GetString() ?? thing.NickName;
         }
 
-        // Only when the constructor left none - a second CreateAttributes orphans the parameters'
-        // parent attributes and their wires render a selection nothing can clear. The long version
-        // is on `add`.
+        // Create attributes only when absent. See the comment in `add` for why a second call orphans
+        // parameter attribute parents and breaks selection handling.
         if (thing.Attributes is null)
         {
             thing.CreateAttributes();
@@ -917,21 +875,18 @@ internal static class Objects
             return;
         }
 
-        // A scribble takes text too, and used not to: the field was read for a panel and ignored for a
-        // scribble, so `place` answered ok and the note on the canvas said "Doubleclick Me!". Reported from the
-        // field by an agent who found out only because a human sent it a screenshot - silent success on a
-        // dropped field is the worst of the available outcomes, worse than refusing.
+        // Scribbles use the same 'text' field as panels, applied explicitly here. Ignored, the field would leave
+        // a note with its default text ("Doubleclick Me!") while the request reported success.
         if (thing is Grasshopper.Kernel.Special.GH_Scribble scribble
             && spec.TryGetProperty("text", out JsonElement wording))
         {
             string said = wording.GetString() ?? "";
 
-            // Whitespace is refused rather than written, because an empty scribble is indistinguishable on
-            // the canvas from one that was never given its text - which is the confusion being fixed here.
+            // Reject whitespace-only text because an empty note is indistinguishable from a failed assignment.
             if (string.IsNullOrWhiteSpace(said))
             {
                 throw new ArgumentException(
-                    "A note needs something to say - 'text' was empty. An empty scribble looks exactly like " +
+                    "A note needs something to say, and 'text' was empty. An empty scribble looks exactly like " +
                     "one whose text was dropped, which is the fault this refusal exists to prevent.");
             }
 
@@ -947,11 +902,10 @@ internal static class Objects
 
     /// <summary>A panel's text: a string is written as it is, an array is one item per line.</summary>
     /// <remarks>
-    /// A panel's Multiline Data flag decides how many items it sends, and the flag is on for every new panel,
-    /// including one dragged off the ribbon. With it on, "-3\n3\n3\n-3" leaves as a single text item and a
-    /// Construct Point fed by it fails to read a number. An array turns the flag off and writes one line per
-    /// element, and the panel then sends one item per line. A string leaves the flag alone: on a panel
-    /// somebody set by hand, rewording the text does not change what it sends.
+    /// A new panel has Multiline Data enabled by default, including panels added from the ribbon. With that flag
+    /// enabled, a multi-line string such as "-3\n3\n3\n-3" is sent as one text item; feeding it to Construct Point
+    /// then fails to parse numbers. An array disables the flag and writes one item per element. A string leaves the
+    /// flag unchanged, and replacing text on a manually configured panel does not alter its output shape.
     /// </remarks>
     private static void Word(Grasshopper.Kernel.Special.GH_Panel panel, JsonElement text)
     {
@@ -998,10 +952,10 @@ internal static class Objects
             return side.Count == 1
                 ? side[0]
                 : throw new ArgumentException(
-                    $"{component.Name} has {side.Count} on that side - say which with 'param'.");
+                    $"{component.Name} has {side.Count} on that side; say which with 'param'.");
         }
 
-        // "0" is an index whether the client sent a number or a string of one - MCP clients do both.
+        // "0" is an index whether the client sent a number or a string of one: MCP clients do both.
         string asked = param.ValueKind == JsonValueKind.Number
             ? param.GetRawText()
             : param.GetString()!;
@@ -1023,21 +977,18 @@ internal static class Objects
     /// A value into a parameter's own storage, replacing whatever was there. A null empties it.
     /// </summary>
     /// <remarks>
-    /// Cleared first, because <c>SetPersistentData</c> appends despite its name - and Grasshopper's own
-    /// defaults are persistent data too. Setting 0 on a socket that already defaulted to 0 therefore left
-    /// two zeroes, and a component fed two values emits two branches: a definition silently doubled its
-    /// geometry. Found in the field by an agent, which is what the friction log is for.
+    /// Existing persistent data is cleared before assignment because <c>SetPersistentData</c> appends despite its
+    /// name. Defaults are also persistent data. Without the clear, setting <c>0</c> on a socket whose default is
+    /// already <c>0</c> leaves two zeroes, and a component emits two branches and duplicated geometry.
     /// <para>
-    /// An array stores one item per element, which is how a Point parameter holds the corners of a polyline:
-    /// ["0,0,0", "10.35,0,0"] or [[0,0,0], [10.35,0,0]]. It was refused three times in two days and then
-    /// reported, and the workarounds were a panel feeding text into the parameter or a script writing the
-    /// points in.
+    /// An array stores one item per element. A Point parameter can be supplied as <c>["0,0,0", "10.35,0,0"]</c>
+    /// or <c>[[0,0,0], [10.35,0,0]]</c>, with no intermediate panel or script.
     /// </para>
     /// </remarks>
     private static void Store(IGH_Param parameter, JsonElement value)
     {
         // SetPersistentData(params object[]) lives on GH_PersistentParam<T>; reflection reaches it on the
-        // concrete type, and refusal by name beats silently doing nothing.
+        // concrete type. A parameter without it is refused by name instead of silently doing nothing.
         System.Reflection.MethodInfo? set = parameter.GetType().GetMethod("SetPersistentData", [typeof(object[])]);
 
         object[] raw = value.ValueKind switch
@@ -1052,10 +1003,8 @@ internal static class Objects
             throw new ArgumentException($"{parameter.Name} does not store values.");
         }
 
-        // Grasshopper drops a value it cannot cast without a word: ["1,2,3", "not a point"] on a Point
-        // parameter stored one point and answered ok. So the values go into a blank parameter of the same type
-        // first and are counted there. Only the parameter knows what it can read, and trying it on a copy
-        // leaves the socket as it was when the answer is a refusal.
+        // Grasshopper can silently ignore values that cannot be cast to the parameter type. Test assignment on a
+        // temporary parameter first: an invalid array leaves the original socket unchanged and can be reported.
         if (raw.Length > 0 && Blank(parameter) is { } trial)
         {
             set!.Invoke(trial, [raw]);
@@ -1065,7 +1014,7 @@ internal static class Objects
             if (read < raw.Length)
             {
                 throw new ArgumentException(
-                    $"{parameter.Name} reads {read} of {raw.Length} value(s) as {parameter.TypeName}, so nothing "
+                    $"{parameter.Name} reads {read} of {raw.Length} value(s) as {parameter.TypeName}, and nothing "
                     + "was stored." + (parameter.TypeName == "Point" ? " A point is \"x,y,z\" or [x,y,z]." : ""));
             }
         }
@@ -1074,15 +1023,14 @@ internal static class Objects
             .GetMethod("Script_ClearPersistentData", Type.EmptyTypes)
             ?.Invoke(parameter, null);
 
-        // A null, or an empty array, is how a caller empties a socket - the only way back to "nothing stored
-        // here".
+        // A null or empty array clears the parameter's stored value.
         if (raw.Length > 0)
         {
             set!.Invoke(parameter, [raw]);
         }
 
-        // A parameter type with no parameterless constructor, such as one a script component makes for
-        // itself, is stored without the trial, as it always was.
+        // Parameters without a parameterless constructor, including some generated by script components, skip
+        // validation on a temporary instance.
         static IGH_Param? Blank(IGH_Param like)
         {
             try
@@ -1102,8 +1050,8 @@ internal static class Objects
             JsonValueKind.True => true,
             JsonValueKind.False => false,
 
-            // Two or three numbers are a point; Grasshopper casts a point on to a vector or a plane's origin
-            // where the parameter wants one.
+            // Convert a two- or three-number array to a point. Grasshopper converts the point as needed for
+            // vector and plane-origin parameters.
             JsonValueKind.Array when one.GetArrayLength() is 2 or 3
                 && one.EnumerateArray().All(axis => axis.ValueKind == JsonValueKind.Number) =>
                 new Rhino.Geometry.Point3d(
@@ -1157,23 +1105,18 @@ internal static class Objects
                 parameter.Reverse = AsBool(reverse);
             }
 
-            // Both the parameter and the object that owns it, because a data mapping needs two different
-            // things to happen and each side of a component needs a different one.
+            // Expire both the parameter and its owning component. They handle different parts of mapping.
             //
-            // Expiring only the parameter was what shipped, and it left an output mapping dead: clearing an
-            // output's data does not make its component look out of date, so the next solution finds nothing
-            // to do and the output stays empty for good. Measured - after a graft, peek answered count 0
-            // twice running, and only a later edit to the component's own input brought the grafted tree
-            // through.
+            // Expiring only the parameter clears an output's data, but the owning component is not marked
+            // stale, and a later solution can leave that output empty. A graft measured that way returned zero
+            // items until the component itself was changed.
             //
-            // Expiring only the owner fixes that and breaks the other side. An input keeps the volatile data
-            // it already collected, so the mapping is stored and never applied: the component recomputes over
-            // the ungrafted tree it is still holding. Measured too - the input answered one branch of four
-            // items with graft set on it.
+            // Expiring only the owner preserves the input's existing volatile data. The new mapping is stored
+            // but not applied: an input with graft enabled was measured to retain one branch of four items.
             //
-            // So: the parameter, so it collects again and applies the mapping on the way in, and the owner, so
-            // it computes again over what arrived. A floating parameter is its own top-level object and the
-            // second call is skipped.
+            // Expiring the parameter makes it collect and map its data again, and expiring the owner makes the
+            // component recompute with that data. A floating parameter is its own top-level object, and the
+            // second call is skipped for it.
             parameter.ExpireSolution(false);
 
             if ((parameter.Attributes?.GetTopLevel?.DocObject ?? parameter) is IGH_ActiveObject owner

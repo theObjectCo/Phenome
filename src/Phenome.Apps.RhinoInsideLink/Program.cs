@@ -1,7 +1,7 @@
 using Phenome.Apps.RhinoInsideLink;
 
-// Nothing in this file may name a RhinoCommon type: the resolver has to run before the runtime is asked to
-// find one, and the runtime asks when it compiles the method, not when it reaches the line.
+// Nothing in this file may name a RhinoCommon type: the resolver must run before the runtime searches for one,
+// and the runtime searches when it compiles the method, not when it reaches the line.
 return Serve(args);
 
 static int Serve(string[] args)
@@ -34,15 +34,15 @@ static int Serve(string[] args)
             Console.WriteLine("  GET / describes the protocol; POST /quit ends this.");
         }
 
-        // Ctrl-C should end it the same way /quit does, so the port file goes away either road.
+        // Ctrl-C ends the process the same way /quit does, and the port file is removed either way.
         Console.CancelKeyPress += (_, cancelling) =>
         {
             cancelling.Cancel = true;
             rhino.Stop();
         };
 
-        // And here the main thread becomes Rhino's: it serves the queue that every request marshals onto, and
-        // returns when something calls Stop. Requests are answered on worker threads meanwhile.
+        // The main thread becomes Rhino's: it serves the queue that requests marshal onto and returns when
+        // Stop is called. Requests are handled on worker threads meanwhile.
         rhino.Serve();
 
         InsideServer.Stop();

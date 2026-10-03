@@ -8,23 +8,20 @@ using Grasshopper.Kernel.Types;
 namespace Phenome.Apps.GrasshopperLink.Definition;
 
 /// <summary>
-/// Writes a document down as JSON: the recipe, plus the state a pair of eyes would have.
+/// Serializes a document as JSON, including both its structure and interactive state.
 /// </summary>
 /// <remarks>
-/// The shape is the transcriber's recipe - every object, its wires, its typed-in values - extended with what
-/// an agent cannot infer from structure: which objects are selected, which are disabled, which draw their
-/// preview in the viewport, how each parameter maps its data (flatten, graft, simplify, reverse), and
-/// whether the solver is running at all. The recipe half answers "what is built"; the state half answers
-/// "what is the human looking at and touching right now".
+/// The structural data includes objects, wires, and typed values. State data includes selection, enablement,
+/// preview visibility, data mapping, and whether the solver is enabled. The structure records what is built, and
+/// the state records the current canvas view.
 /// <para>
-/// This plugin references no Phenome library on purpose, but when the components plugin happens to be
-/// loaded, its components are recognised by reflection and enriched with the exact operation signature -
-/// the same field the transcriber writes. Alone, the canvas is still complete; together, it is exact.
+/// This plugin does not reference the Phenome components library. When that library is loaded, reflection detects
+/// its components and adds exact operation signatures. Without it, the output is complete but less specific.
 /// </para>
 /// </remarks>
 internal static class CanvasWriter
 {
-    /// <summary>The whole document, as one JSON object.</summary>
+    /// <summary>Writes the whole document as one JSON object.</summary>
     internal static string Write(GH_Document? document)
     {
         if (document is null)
@@ -36,20 +33,19 @@ internal static class CanvasWriter
 
         json.Append("\"name\":").Append(Json.Quote(document.DisplayName ?? "unsaved"));
 
-        // Stated outright rather than left to be read off the end of the name. Grasshopper appends an
-        // asterisk to DisplayName for some edits and not others -- moving a slider through /set does
-        // not earn one -- so a caller pattern-matching the name gets a confident wrong answer. Anyone
-        // deciding whether it is safe to close Rhino needs the flag itself.
+        // Expose IsModified directly. Grasshopper adds an asterisk to DisplayName only for some edits, and
+        // modifying a slider through /set does not add one. Matching the name for an asterisk can give the wrong
+        // answer, and a caller deciding whether closing is safe needs the actual flag.
         json.Append(",\"modified\":").Append(document.IsModified ? "true" : "false");
 
-        // The path, because "is it safe to close" is usually followed by "then save it", and a
-        // document that has never been saved has nowhere to go.
+        // Include the path for a caller that saves after determining that closing is safe. An unsaved document has
+        // no target path.
         json.Append(",\"path\":").Append(Json.Quote(document.FilePath ?? ""));
 
         json.Append(",\"solverEnabled\":").Append(GH_Document.EnableSolutions ? "true" : "false");
 
-        // The document's own switch, apart from the global one above: Grasshopper turns it off for a document
-        // it is not showing, and a disabled document takes edits and computes nothing.
+        // Report the document's own enablement separately. Grasshopper disables documents it is not displaying, and
+        // a disabled document accepts edits without solving them.
         json.Append(",\"enabled\":").Append(document.Enabled ? "true" : "false");
         json.Append(",\"objectCount\":").Append(Json.Number(document.ObjectCount));
         json.Append("},\"objects\":[");
@@ -76,8 +72,7 @@ internal static class CanvasWriter
                     break;
 
                 case Grasshopper.Kernel.Special.GH_Group group:
-                    // A group's name is the abstraction: a reader takes in a canvas group by group before
-                    // any component, so the name and the membership are the point, not decoration.
+                    // A group's name and membership are the primary information needed to understand its role.
                     json.Append("{\"kind\":\"group\",\"id\":").Append(Json.Quote(group.InstanceGuid.ToString()));
                     json.Append(",\"name\":").Append(Json.Quote(group.NickName));
 
@@ -111,11 +106,8 @@ internal static class CanvasWriter
                     json.Append("]}");
                     break;
 
-                // A note carried its text and nothing else, which made it the one object on the canvas whose
-                // *placement* an agent could not read back - and placement is what goes wrong with notes,
-                // because they sit outside the layout pass and land on top of things. Reported from the field
-                // in those terms: "I only learned my note was wrong because a human sent me a screenshot."
-                // Position and box, then, on the same terms as everything else.
+                // Include the note's text, its position and its bounding box. The caption pass places notes, and a
+                // note can overlap other objects; the box makes that visible to the caller.
                 case Grasshopper.Kernel.Special.GH_Scribble scribble:
                     json.Append("{\"kind\":\"note\",\"id\":").Append(Json.Quote(scribble.InstanceGuid.ToString()));
                     json.Append(",\"text\":").Append(Json.Quote(scribble.Text));
@@ -137,17 +129,15 @@ internal static class CanvasWriter
     }
 
     /// <summary>
-    /// The document as a mermaid flowchart: the shape of a definition, at a fiftieth of the JSON.
+    /// Represents the document as a Mermaid flowchart, which is far smaller than the full JSON state.
     /// </summary>
     /// <remarks>
-    /// A reading view, not a writing one. Groups become subgraphs, which is exactly the layer a definition
-    /// is meant to be read at, and an agent orienting itself in someone else's canvas can take in fifty
-    /// lines of diagram where the full state would be thousands. What it deliberately does not carry is
-    /// data: branch and item counts decide whether a definition is correct, and no diagram of topology can
-    /// show them - that is what <c>peek</c> is for.
+    /// This is a topology view: each group becomes a subgraph with its objects drawn as nodes inside it. A caller can review the
+    /// structure without receiving the full state. Data counts are left out on purpose: a topology diagram has no place for them, and they are
+    /// read with <c>peek</c>.
     /// <para>
-    /// Node ids are short, and the full guids come back beside the diagram in <c>ids</c>, so whatever the
-    /// reader decides to do next it has the addresses to do it with.
+    /// Node ids are short. The map in <c>ids</c> gives the full guid for each one, which any later operation needs
+    /// to address the object.
     /// </para>
     /// </remarks>
     internal static string Mermaid(GH_Document? document)
@@ -157,12 +147,8 @@ internal static class CanvasWriter
             return "{\"mermaid\":\"flowchart LR\",\"ids\":{}}";
         }
 
-        // Notes are in here now. They used not to be - the filter took components and parameters, and a
-        // scribble is neither - so a note explaining a group rendered as nothing at all: an agent read the
-        // chart back and could not see the caption it had just written. Safe to include, because a note has no
-        // parameters and is not an active object, so it draws no wires and can never be marked broken; it
-        // simply appears inside the subgraph of whichever group it belongs to, which is where a caption
-        // belongs. Its own membership is the anchor, so no new field is needed to say what it explains.
+        // Include notes. A note has no parameters and is not an active object: it has no wires and is never marked
+        // broken. Its group membership identifies what it explains.
         Dictionary<Guid, string> shortId = [];
         List<IGH_DocumentObject> nodes = [.. document.Objects
             .Where(thing => thing is IGH_Component or IGH_Param or Grasshopper.Kernel.Special.GH_Scribble)];
@@ -197,8 +183,8 @@ internal static class CanvasWriter
             chart.Append($"  {shortId[loose.InstanceGuid]}{Node(document, loose.InstanceGuid)}\\n");
         }
 
-        // The wires, named where a name earns its keep: which socket a wire lands on matters, which of one
-        // output it left rarely does.
+        // Label the target input socket when the component has more than one. Source output indices are omitted
+        // because the consuming socket is usually the ambiguous end.
         foreach (IGH_DocumentObject thing in nodes)
         {
             foreach (IGH_Param input in Arrange.InputsOf(thing))
@@ -222,7 +208,7 @@ internal static class CanvasWriter
             }
         }
 
-        // Anything red, marked as such: a picture of a definition should show where it is unhappy.
+        // Mark components with runtime errors so failure locations are visible in the diagram.
         List<string> unhappy = [.. nodes
             .Where(thing => thing is IGH_ActiveObject active
                 && active.RuntimeMessages(GH_RuntimeMessageLevel.Error).Count > 0)
@@ -254,16 +240,13 @@ internal static class CanvasWriter
             return "[?]";
         }
 
-        // A note is drawn as what it is: its own wording, in a shape that is not a component. Rendering it as
-        // [Scribble] told a reader nothing - the name of the type is the one thing about a note that does not
-        // matter, and its text is the only thing that does.
+        // Render a note by its text, which is the useful information. Its component type is left out.
         if (thing is Grasshopper.Kernel.Special.GH_Scribble note)
         {
             return $"[/{Label(note.Text, "an empty note")}/]";
         }
 
-        // A panel is a parameter, so it keeps its box, but a panel nobody wired is prose rather than data and
-        // reads better as its own words.
+        // An unwired panel is treated as an annotation and rendered from its text, the same way as a note.
         if (thing is GH_Panel panel
             && panel.SourceCount == 0
             && panel.Recipients.Count == 0
@@ -299,8 +282,7 @@ internal static class CanvasWriter
         into.Append(",\"nickname\":").Append(Json.Quote(component.NickName));
         At(component, into);
 
-        // Which world it comes from: a Phenome component carries its operation's exact signature (found by
-        // reflection - see the class remarks), anything else the library an agent would re-express.
+        // Report the exact Phenome operation signature when available; otherwise report the component library.
         if (PhenomeSignature(component) is { } signature)
         {
             into.Append(",\"phenome\":").Append(Json.Quote(signature));
@@ -344,7 +326,7 @@ internal static class CanvasWriter
         into.Append("]}");
     }
 
-    /// <summary>A parameter standing on its own - a slider, a panel, a relay holding geometry.</summary>
+    /// <summary>A parameter standing on its own, such as a slider, a panel or a relay holding geometry.</summary>
     private static void DescribeLoose(IGH_Param parameter, StringBuilder into)
     {
         into.Append("{\"kind\":\"param\",\"id\":").Append(Json.Quote(parameter.InstanceGuid.ToString()));
@@ -365,10 +347,11 @@ internal static class CanvasWriter
             case GH_Panel panel:
                 into.Append(",\"text\":").Append(Json.Quote(panel.UserText));
 
-                // Whether the text leaves as one item or one per line - the text alone cannot say which.
+                // Report the Multiline Data flag because it determines whether the text is emitted as one item or
+                // one item per line.
                 into.Append(",\"multiline\":").Append(panel.Properties.Multiline ? "true" : "false");
 
-                // A wired panel shows what flows through it, not its typed text - write both.
+                // A wired panel's runtime value differs from its typed text. Report both.
                 if (panel.SourceCount > 0)
                 {
                     DescribeValues(panel, into);
@@ -387,9 +370,7 @@ internal static class CanvasWriter
     }
 
     /// <summary>
-    /// Where the object stands, in canvas coordinates - the textual stand-in for a picture of the canvas:
-    /// with positions on every object and bounds on every group, an agent reasons about the layout without
-    /// ever being sent a pixel.
+    /// The object's canvas pivot. With group bounds, this allows layout analysis without an image.
     /// </summary>
     private static void At(IGH_DocumentObject thing, StringBuilder into)
     {
@@ -402,12 +383,11 @@ internal static class CanvasWriter
     }
 
     /// <summary>
-    /// The rectangle the object covers, which for a note is the whole question.
+    /// The object's bounding box, which is required to detect note overlap.
     /// </summary>
     /// <remarks>
-    /// A pivot alone says where something starts and nothing about what it covers, and "does this note overlap
-    /// that group" cannot be answered from a point. Written as <c>[x, y, w, h]</c> so an agent can check for an
-    /// overlap itself rather than asking a human to look at the screen.
+    /// A pivot alone does not give coverage or overlap. The box is emitted as <c>[x, y, w, h]</c>, from which
+    /// overlap is calculated directly.
     /// </remarks>
     private static void Box(IGH_DocumentObject thing, StringBuilder into)
     {
@@ -424,8 +404,8 @@ internal static class CanvasWriter
     }
 
     /// <summary>
-    /// What the eyes see: selection, enablement, preview. Written only when off the default, so the
-    /// ordinary object stays one line and the unusual one says what is unusual about it.
+    /// Writes selection, enablement and preview state. Selection and enablement appear only when they differ
+    /// from the default; <c>previewOn</c> appears on every object that can draw.
     /// </summary>
     private static void DescribeState(IGH_DocumentObject thing, StringBuilder into)
     {
@@ -445,7 +425,7 @@ internal static class CanvasWriter
         }
     }
 
-    /// <summary>Flatten, graft, simplify, reverse - written only when set, like the rest of the state.</summary>
+    /// <summary>Data mapping flags: flatten, graft, simplify, and reverse. Only non-default values are emitted.</summary>
     private static void DescribeMapping(IGH_Param parameter, StringBuilder into)
     {
         if (parameter.DataMapping != GH_DataMapping.None)

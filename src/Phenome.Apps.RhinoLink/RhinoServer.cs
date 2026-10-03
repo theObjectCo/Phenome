@@ -5,16 +5,18 @@ using System.Text.Json;
 namespace Phenome.Apps.RhinoLink;
 
 /// <summary>
-/// The loopback interface to Rhino itself: what the process is doing, and how to answer what is blocking it.
+/// The loopback interface to the Rhino process: its state, and how to answer whatever is blocking it.
 /// </summary>
 /// <remarks>
-/// Same conventions as the canvas link next door - plain HTTP on 127.0.0.1, one JSON out, an ephemeral port
-/// written to a discovery file - and deliberately a different file, because these are different things. The
-/// canvas link answers about a document; this answers about a process, and it answers when the document
-/// link cannot, which is the entire reason it exists.
+/// Follows the conventions of the canvas link (plain HTTP on 127.0.0.1, one JSON per response, an ephemeral port
+/// in a discovery file) with a discovery file of its own, because the two report on different things. The
+/// canvas link reports on a document. This server reports on a process and answers when the document link
+/// cannot.
 /// <para>
-/// Nothing here runs on the Rhino UI thread. That is not an optimisation - it is the requirement. Every
-/// verb has to work while that thread is held, because a thread that is held is what all of this is for.
+/// <c>/pulse</c>, <c>/dialog</c>, <c>/dismiss</c>, <c>/escape</c> and <c>/console</c> never touch the Rhino UI thread,
+/// and that is a requirement: they must work while that thread is held, which is the situation this server
+/// exists for. <c>/command</c>, <c>/doc</c>, <c>/plugins</c>, <c>/load</c>, <c>/screenshot</c> and <c>/camera</c>
+/// run on the UI thread through <see cref="Ui.On"/> and wait while it is held.
 /// </para>
 /// </remarks>
 internal static class RhinoServer
@@ -29,20 +31,20 @@ internal static class RhinoServer
           "version": "0.1",
           "protocol": {
             "GET /": "this description",
-            "GET /pulse": "whether Rhino is idle, busy or blocked. Answered off the UI thread, so it answers when nothing else does. 'busy' names the running command and how long it has run: wait. 'blocked' names the open dialog and lists its buttons: nothing will answer until it is clicked",
+            "GET /pulse": "whether Rhino is idle, busy or blocked. Answered off the UI thread; it answers when nothing else does. 'busy' names the running command and how long it has run: wait. 'blocked' names the open dialog and lists its buttons: nothing will answer until it is clicked",
             "POST /dismiss": "SUPERSEDED by /dialog, and kept working. {button?, key?, expect?} - press a button by name, type a key, or close it when neither is given. When /pulse says clickable:false the dialog draws its own buttons and only a key reaches it",
-            "POST /dialog": "{button?, key?, close?, expect?} - answer the open dialog. Nothing is assumed: with no answer given this refuses and lists the buttons, because a decline by omission cannot be told from a decline by decision. 'close' declines, said out loud. No verb here guesses which button means yes - on a save prompt the affirmative is whichever of Save and Don't Save you meant",
-            "POST /escape": "{times?} - post Escape to Rhino, cancelling whatever it is waiting for. For the case /dismiss cannot answer: a command waiting on a pick is not a dialog, so nothing is disabled and there is no window to click, yet the UI thread is held and every other verb reports 'busy' as though waiting would help. Scripting an interactive command is the ordinary way to get here. 'times' cancels that many levels; one by default",
-            "POST /command": "{script} - run a Rhino command script. Here rather than only on the canvas link, because Rhino is what runs commands and Grasshopper need not be open for it",
+            "POST /dialog": "{button?, key?, close?, expect?} - answer the open dialog. Nothing is assumed: with no answer given this refuses and lists the buttons, because a decline by omission cannot be told from a decline by decision. 'close' declines explicitly. No verb here guesses which button means yes: on a save prompt the affirmative is whichever of Save and Don't Save the caller means",
+            "POST /escape": "{times?} - post Escape to Rhino, cancelling whatever it is waiting for. Use it where /dismiss cannot answer: a command waiting on a pick is not a dialog. Nothing is disabled and there is no window to click, yet the UI thread is held and every other verb reports 'busy' as though waiting would help. Scripting an interactive command is the ordinary way to get here. 'times' cancels that many levels, one by default",
+            "POST /command": "{script} - run a Rhino command script. The canvas link has this verb too; it is also here because Rhino runs commands and Grasshopper need not be open for it",
             "GET /doc": "the Rhino document: name, layers, object count",
-            "GET /console": "?tail=50 - the tail of Rhino's command line, which is where Rhino answers. One capture per Rhino and this is it; the canvas link reads from here",
-            "GET /plugins": "?all=false - every plug-in Rhino has a record of, with the runtime it would load into: loaded, dotnet, loadProtected, the path Rhino believes and the registry key. This is how to answer 'why is my plug-in not loading' without proving the registry innocent by hand. Shipped plug-ins are left out unless all=true, because there are a hundred of them and they are never the suspect",
-            "POST /load": "{id?, path?} - load a plug-in on purpose, quietly and again even if a previous attempt failed. Rhino remembers a failure and will not retry, which is why the ordinary build-and-load loop appears to do nothing the second time round. Answers with what Rhino's record says afterwards rather than with a result word meaning 'no'",
-            "GET /screenshot": "?width=640&zoomExtents=true - the active viewport as PNG (base64), framed on the geometry for the capture and the camera put back where the human left it",
+            "GET /console": "?tail=50 - the tail of Rhino's command line, which is where Rhino writes its output. There is one capture per Rhino and this is it; the canvas link reads from here",
+            "GET /plugins": "?all=false - every plug-in Rhino has a record of, with the runtime it would load into: loaded, dotnet, loadProtected, the path Rhino has recorded and the registry key. Use it to answer 'why is the plug-in not loading' without manual registry checks. Shipped plug-ins are left out unless all=true, because there are a hundred of them",
+            "POST /load": "{id?, path?} - load a plug-in explicitly, with no confirmation dialog, and load it again even after a previous attempt failed. Rhino does not retry a plug-in whose load previously failed, and without this the ordinary build-and-load loop appears to do nothing the second time round. Answers with Rhino's resulting record state instead of a single failure word",
+            "GET /screenshot": "?width=640&zoomExtents=true - the active viewport as PNG (base64), framed on the geometry for the capture and the camera put back where the user left it",
             "GET /camera": "where the active viewport is looking: projection, location, target, up, 35mm lens length and the viewport's pixel size",
-            "POST /camera": "{location?, target?, up?, lens?, projection?} - aim the active viewport; only what you pass changes. This is how to frame a view deliberately: Rhino's Zoom is interactive and a scripted one waits for a pick that never comes, which holds the UI thread and takes every other verb down with it"
+            "POST /camera": "{location?, target?, up?, lens?, projection?} - aim the active viewport; only the fields passed change. Use it to frame a view deliberately: Rhino's Zoom is interactive, and a scripted one waits for a pick that never comes, holding the UI thread and blocking every other verb"
           },
-          "why": "Grasshopper's link only exists once Grasshopper has been started, so it cannot report on anything that happens before that - including a dialog on startup, which is exactly when nothing else can answer.",
+          "why": "Grasshopper's link exists only once Grasshopper has been started and cannot report on anything that happens before that, including a dialog on startup, when nothing else can answer.",
           "discovery": "%TEMP%/phenome-rhino-<rhino pid>.port holds this port"
         }
         """;
@@ -52,9 +54,9 @@ internal static class RhinoServer
         Pulse.Start();
         CommandLine.Start();
 
-        // Bound before the port is named, and named only once bound: two Rhinos starting together used to be
-        // able to race for the same ephemeral port here, and the loser wrote a discovery file for a port
-        // nothing was listening on.
+        // Bind first, and record the port only once bound. Two Rhinos starting together can race for the same
+        // ephemeral port, and recording first would leave the loser with a discovery file for a port nothing
+        // listens on.
         listener = Loopback.Listen(out int port);
         Port = port;
 
@@ -71,12 +73,12 @@ internal static class RhinoServer
                 }
                 catch (Exception) when (listener is null || !listener.IsListening)
                 {
-                    // Shut down mid-await; not an incident.
+                    // The listener was shut down mid-await, which is expected.
                 }
                 catch (Exception)
                 {
-                    // Nowhere useful to say it: writing to the command line needs the UI thread, and this
-                    // server exists for the times that thread is not available.
+                    // Nowhere to report it: writing to the command line needs the UI thread, and this server
+                    // exists for exactly the times that thread is unavailable.
                 }
             }
         });
@@ -105,18 +107,18 @@ internal static class RhinoServer
         string path = context.Request.Url?.AbsolutePath.TrimEnd('/') ?? "";
         string method = context.Request.HttpMethod;
 
-        // A page the user visits can reach loopback; binding to 127.0.0.1 is not a boundary against it.
-        // See Browser.Refuse. This half answers about the process and can type at the command line, so it
-        // is no less worth guarding than the canvas half.
+        // A page the user visits can reach loopback, and binding to 127.0.0.1 does not protect against it (see
+        // Browser.Refuse). This half reports on the process and can type at the command line, and it needs the
+        // same guard as the canvas half.
         if (Browser.Refuse(context.Request, Port) is { } refused)
         {
             Respond(context.Response, 403, $"{{\"ok\":false,\"error\":{Json.Quote(refused)}}}");
             return;
         }
 
-        // A withdrawn version stops here too. The greeting still answers, so a client sees the session and
-        // the reason rather than a dead port - and the reason is the same one the canvas half gives, from
-        // the same state, because a version is withdrawn or it is not.
+        // A withdrawn version is refused here too, except for the empty-path greeting. The greeting still
+        // answers, and a client sees the session instead of a dead port. The refusal reason comes from the same
+        // state as the canvas half's, because a version is either withdrawn or it is not.
         if (Advisory.Withdrawn is { } notice && path.Length != 0)
         {
             Respond(context.Response, 403, $"{{\"ok\":false,\"error\":{Json.Quote(notice.Sentence)}}}");
@@ -171,16 +173,16 @@ internal static class RhinoServer
             button = Json.Text(request, "button");
             expect = Json.Text(request, "expect");
 
-            // Was missing here while the protocol text above and the MCP schema both promised it, so a
-            // caller's 'key' was read and thrown away. Rhino 8's own dialogs have no clickable buttons,
-            // which makes a key the only way into exactly the dialogs this half exists to answer.
+            // The protocol text above and the MCP schema both offer 'key'. Rhino 8's own dialogs have no
+            // clickable buttons, and a key is the only way to answer them, which are exactly the dialogs this
+            // half exists for.
             key = Json.Text(request, "key");
         }
 
         return Pulse.Dismiss(button, expect, key);
     }
 
-    /// <summary>Answers the open dialog, with nothing assumed when nothing was said.</summary>
+    /// <summary>Answers the open dialog; takes no action when nothing was given.</summary>
     private static string AnswerDialog(string payload)
     {
         if (string.IsNullOrWhiteSpace(payload))
@@ -228,7 +230,7 @@ internal static class RhinoServer
     }
 
     /// <summary>
-    /// The port, in a file named by Rhino's process id - so a client finds this Rhino rather than a Rhino.
+    /// The port file, named by Rhino's process id, from which a client finds the specific Rhino instance it wants.
     /// </summary>
     private static string PortFile =>
         Path.Combine(Path.GetTempPath(), $"phenome-rhino-{Environment.ProcessId}.port");

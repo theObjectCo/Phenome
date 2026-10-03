@@ -5,18 +5,18 @@ using Phenome.Apps.GrasshopperLink.Bridge;
 namespace Phenome.Apps.GrasshopperLink;
 
 /// <summary>
-/// The canvas side of the conversation: text in, journal entry out.
+/// Writes the canvas side of the conversation to the journal, one entry per new text.
 /// </summary>
 /// <remarks>
-/// Sends when the flag is true and the text is new - the flag is meant for a button, which springs back,
-/// so holding a stale true through recomputes must not re-send the same words. The agent reads the message
-/// from the journal like everything else; there is no other delivery.
+/// Sends when Send is true and the text is new. Send is meant for a momentary button that springs back, and a
+/// stale true across recomputes must not resend the same text. The agent reads the message from the journal,
+/// which is the only delivery.
 /// </remarks>
 public class SendMessageComponent : GH_Component
 {
     private string? lastSent;
 
-    /// <summary>The component that speaks into the journal.</summary>
+    /// <summary>Component that writes a message to the journal.</summary>
     public SendMessageComponent()
         : base(
             "Send to Agent",
@@ -41,7 +41,7 @@ public class SendMessageComponent : GH_Component
         pManager.AddTextParameter(
             "To",
             "@",
-            "Who it is for. Empty means everyone listening.",
+            "Recipient. Empty broadcasts to all connected clients.",
             GH_ParamAccess.item,
             "");
         pManager.AddBooleanParameter("Send", "S", "True sends. Wire a button here.", GH_ParamAccess.item, false);
@@ -75,15 +75,14 @@ public class SendMessageComponent : GH_Component
 }
 
 /// <summary>
-/// The other half: what the agents said, as a live list.
+/// Shows the other half of the conversation: agent messages as a live list.
 /// </summary>
 /// <remarks>
-/// Expires itself when a message lands in the journal, so replies appear without anyone recomputing
-/// anything - the closest a canvas gets to a chat window.
+/// Expires its solution when a message is appended to the journal, and replies appear with no manual recompute.
 /// </remarks>
 public class AgentRepliesComponent : GH_Component
 {
-    /// <summary>The component that shows the conversation.</summary>
+    /// <summary>Component that shows the conversation.</summary>
     public AgentRepliesComponent()
         : base(
             "Agent Replies",
@@ -115,7 +114,7 @@ public class AgentRepliesComponent : GH_Component
             return;
         }
 
-        // The journal speaks from whatever thread wrote the entry; a solution is the UI thread's to expire.
+        // The journal fires on whichever thread wrote the entry; expiring a solution belongs to the UI thread.
         Rhino.RhinoApp.InvokeOnUiThread(() =>
         {
             if (OnPingDocument() is not null)

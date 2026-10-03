@@ -9,23 +9,21 @@ namespace Phenome.Apps.GrasshopperLink.Definition;
 /// Reads the document against the composition rules and says where it falls short.
 /// </summary>
 /// <remarks>
-/// The mechanical half of the doctrine, so an author - human or agent - can converge instead of guess: what
-/// is measurable is measured (overlapping frames, unnamed groups, wires crossing a boundary without a
-/// parameter, groups too big to be one function, nesting past one level, objects in no group at all). What
-/// is not measurable - whether a group really does one thing - is left to the reader, but a group whose
-/// name says "and" is flagged, because a name is the honest confession of a mixed concern.
+/// Checks the composition rules that can be measured and names each concrete problem it finds. The checks cover
+/// overlapping frames, unnamed groups, wires crossing boundaries without parameters, group size, excessive nesting
+/// and ungrouped objects. Qualities that cannot be measured, such as whether a group performs one function, are
+/// inferred only through heuristics, for example a name that lists more than one responsibility.
 /// </remarks>
 internal static class Review
 {
     private const int TooMany = 31;
 
-    /// <summary>Above this many runs in one branch, a product of two inputs stops looking deliberate.</summary>
+    /// <summary>Above this number of runs in one branch, a product of two inputs is treated as likely unintended.</summary>
     private const int Suspicious = 100;
 
     /// <summary>
-    /// The four roles a group may have, and the colour each one wears: blue for the knobs a customer may
-    /// turn, red for what gets baked into Rhino as the product, yellow for geometry that is only ever
-    /// looked at, grey for a plain function.
+    /// The four group roles and their RGB colours: user-modifiable inputs are blue, baked Rhino output is red,
+    /// preview-only geometry is yellow, and plain functions are grey.
     /// </summary>
     private static readonly (string Role, int R, int G, int B)[] Palette =
     [
@@ -105,17 +103,17 @@ internal static class Review
                     $"{bare} wire(s) cross the boundary without a floating parameter - run signature so the group reads as a component.");
             }
 
-            // A blue group that feeds the whole definition is an input bank: the knobs were collected by
-            // kind instead of standing where they are used, which is the readability the colour promised.
+            // A blue group feeding three or more other groups is a central input bank. Each input belongs in the
+            // group whose function it controls.
             if (Near(group.Colour.R, 70) && Near(group.Colour.G, 110) && Near(group.Colour.B, 255)
                 && Serves(document, inside, groupById) is > 2 and var served)
             {
                 Say(findings, group, "input bank",
-                    $"This blue group feeds {served} other groups - put each input in the group that uses it, "
-                    + "so a reader finds a knob where its effect is.");
+                    $"This blue group feeds {served} other groups - put each input in the group that uses it. "
+                    + "A reader then finds each knob next to its effect.");
             }
 
-            // A colour is a role, so a colour off the palette says the role was never decided.
+            // A group colour outside the palette means its role has not been assigned.
             if (!Palette.Any(role =>
                 Near(group.Colour.R, role.R) && Near(group.Colour.G, role.G) && Near(group.Colour.B, role.B)))
             {
@@ -125,9 +123,8 @@ internal static class Review
             }
         }
 
-        // An object in two groups, which is the overlap nobody can lay out away: a frame is drawn around
-        // every one of its members, so two groups sharing an object must reach across each other whatever
-        // the layout does. arrange cannot fix it; only taking the object out of one group can.
+        // An object shared by two groups forces their frames to overlap, because each frame contains all of its
+        // members. Layout cannot separate the frames; removing the object from one of the groups separates them.
         Dictionary<Guid, List<string>> claimed = [];
 
         foreach (GH_Group group in groups)
@@ -153,7 +150,7 @@ internal static class Review
                 member));
         }
 
-        // Overlapping frames, ignoring the one case where overlap is the point.
+        // Check frame overlap, excluding a group nested on purpose inside its mother group.
         for (int i = 0; i < groups.Count; i++)
         {
             for (int j = i + 1; j < groups.Count; j++)
@@ -174,18 +171,17 @@ internal static class Review
                         "overlap",
                         $"'{groups[i].NickName}' and '{groups[j].NickName}' overlap - "
                             + (caption
-                                ? "a note reaches past the members it captions, so the frame drawn around it is "
-                                    + "wider than the room the layout reserved. arrange will not change this - it "
-                                    + "already landed where it means to. Shorten the note, or take it out of the group."
+                                ? "a note reaches past the members it captions, and the frame drawn around it is "
+                                    + "wider than the room the layout reserved. Run arrange, which reserves the "
+                                    + "width and height of each group's captions."
                                 : "run arrange, which lays groups out as whole blocks."),
                         groups[i].InstanceGuid));
                 }
             }
         }
 
-        // What the canvas is already shouting. A review that lints the composition while ignoring seven red
-        // components is worse than no review: it reports "clean" over a definition that does not run, and an
-        // author told to bring the review to zero believes them.
+        // Include runtime errors and warnings. Reporting only composition faults can make a definition that does
+        // not run appear clean.
         foreach (IGH_DocumentObject thing in nodes)
         {
             if (thing is not IGH_ActiveObject active)
@@ -206,10 +202,9 @@ internal static class Review
             }
         }
 
-        // Two relays nose to tail inside one group: a parameter passing straight into another parameter of
-        // the same group carries nothing the first one did not. Across a boundary the same shape is the
-        // signature working - one group's outlet feeding the next one's inlet - which is why this looks at
-        // who owns each end rather than at the wiring alone.
+        // A relay feeding directly into another relay in the same group duplicates the same value. Across group
+        // boundaries, the same wiring pattern is an intended signature. Check direct group ownership to distinguish
+        // the cases.
         foreach (IGH_DocumentObject thing in nodes)
         {
             if (thing is not IGH_Param relay || !IsRelay(relay) || relay.SourceCount != 1)
@@ -224,9 +219,9 @@ internal static class Review
                 continue;
             }
 
-            // The group holding each end directly, not any group containing it. Through nesting, a mother holds
-            // both ends of every outlet-to-inlet wire between her children, and this called the signature
-            // working between two sibling groups a chained pair.
+            // Use the directly owning group, not an ancestor through nesting. Otherwise a mother group contains
+            // both ends of a legitimate outlet-to-inlet connection between sibling groups and the connection is
+            // incorrectly reported as a duplicate.
             GH_Group? mine = groups.FirstOrDefault(group => group.ObjectIDs.Contains(thing.InstanceGuid));
             GH_Group? theirs = groups.FirstOrDefault(group => group.ObjectIDs.Contains(feeder.InstanceGuid));
 
@@ -240,12 +235,12 @@ internal static class Review
             }
         }
 
-        // Dead ends: an object that feeds nothing and draws nothing is doing nothing, and every one of them
-        // is a thing the next reader has to check before ignoring. Leftovers of a rethink, mostly - a
-        // parameter that used to carry something, a component whose output was rewired elsewhere.
+        // An object that neither feeds anything nor draws has no effect and only adds to what a reader must check.
+        // Such objects often remain after wiring changes, for example parameters that no longer carry data or
+        // components whose output was redirected.
         foreach (IGH_DocumentObject thing in nodes)
         {
-            // It draws: that is a purpose, and it is how most geometry is shown.
+            // Producing visible preview output is a purpose even when no object reads the result.
             if (thing is IGH_PreviewObject { IsPreviewCapable: true, Hidden: false })
             {
                 continue;
@@ -253,13 +248,13 @@ internal static class Review
 
             List<IGH_Param> outputs = [.. OutputsOf(thing)];
 
-            // Nothing to feed with - a Custom Preview or a bake target is the end of the line by design.
+            // An object with no outputs may intentionally terminate the dataflow, such as a preview or bake target.
             if (outputs.Count == 0 || outputs.Any(output => output.Recipients.Count > 0))
             {
                 continue;
             }
 
-            // A panel is prose and a swatch is a colour someone picked; neither owes anybody a wire.
+            // Annotations and colour selections do not require outgoing wires.
             if (thing is GH_Panel or GH_Scribble or Grasshopper.Kernel.Special.GH_ColourSwatch)
             {
                 continue;
@@ -275,8 +270,8 @@ internal static class Review
                 thing.InstanceGuid));
         }
 
-        // The parameter modifiers, which hide a structural change where no reader will look for it - and
-        // simplify worst of all, because what it drops depends on the data it happens to meet.
+        // Parameter modifiers can hide structural transformations. Simplify is especially unsafe because the items
+        // it removes depend on the data received.
         foreach (IGH_DocumentObject thing in nodes)
         {
             foreach (IGH_Param side in Arrange.InputsOf(thing).Concat(OutputsOf(thing)).Distinct())
@@ -285,9 +280,9 @@ internal static class Review
                 {
                     findings.Add(Finding(
                         "simplify",
-                        $"'{Named(thing)}' has the simplify modifier on '{side.Name}' - never use it: what it "
-                        + "drops depends on the data it meets, so the definition behaves differently in "
-                        + "someone else's file. Change structure visibly, with a component.",
+                        $"'{Named(thing)}' has the simplify modifier on '{side.Name}' - never use it. What it "
+                        + "drops depends on the data it receives, and the definition behaves differently in "
+                        + "another file. Change structure visibly, with a component.",
                         thing.InstanceGuid));
                 }
 
@@ -303,8 +298,8 @@ internal static class Review
             }
         }
 
-        // Data matching, which is where a definition goes quietly wrong rather than red. Nothing complains when
-        // a component is run against the same data twice; the geometry just doubles.
+        // Check data matching. A component receiving the same data twice can silently produce duplicated geometry
+        // without reporting an error.
         foreach (IGH_Component component in nodes.OfType<IGH_Component>())
         {
             if (Matching(component) is { } finding)
@@ -313,12 +308,11 @@ internal static class Review
             }
         }
 
-        // Two wires into one socket meet only where their paths agree. Grasshopper concatenates by path, so
-        // sources sitting at different depths - one on {0}, one on {0;0} - never land in the same branch:
-        // the component runs once per branch on half the data each time, and the result is quietly the wrong
-        // shape. Nothing turns red, and the broadcast check above cannot see it either, because every branch
-        // holds exactly one item. A Boundary Surfaces handed an outline on {0} and its offset on {0;0} makes
-        // two separate surfaces instead of one with a hole in it, and looks right until somebody measures.
+        // Check that multiple sources on one input use compatible path depths. Grasshopper concatenates by path,
+        // and sources at different depths, such as {0} and {0;0}, do not enter the same branch. The component may
+        // process partial data on each pass and produce an unexpected result without an error. For example, an
+        // outline at one depth and an offset at another can produce two separate surfaces instead of one surface
+        // with a hole.
         foreach (IGH_DocumentObject thing in nodes)
         {
             foreach (IGH_Param input in Arrange.InputsOf(thing))
@@ -348,16 +342,16 @@ internal static class Review
                     findings.Add(Finding(
                         "mismatched paths",
                         $"'{Named(thing)}' takes {input.SourceCount} sources on '{input.Name}' whose paths are "
-                        + $"{string.Join(" and ", depths)} deep - they never meet in one branch, so each is "
-                        + "processed on its own and the result is not the one list you wired for. Bring them "
-                        + "to one depth with a Flatten or Graft component, where a reader can see it.",
+                        + $"{string.Join(" and ", depths)} deep - they never meet in one branch. Each is "
+                        + "processed on its own, and the result is not the one list the wiring suggests. Bring "
+                        + "them to one depth with a Flatten or Graft component, where a reader can see it.",
                         thing.InstanceGuid));
                 }
             }
         }
 
-        // Renamed components: the loudest readability offence there is, and perfectly measurable - a
-        // component's nickname is how everyone recognises it, and names belong on parameters instead.
+        // Check whether a component nickname differs from its original. A component's nickname identifies its
+        // type, and descriptive names belong on parameters.
         foreach (IGH_DocumentObject thing in nodes.Where(thing => thing is IGH_Component))
         {
             string original = global::Grasshopper.Instances.ComponentServer
@@ -373,7 +367,7 @@ internal static class Review
             }
         }
 
-        // Script where components would do: countable, and worth saying out loud.
+        // Detect script components because components are normally preferable when available.
         int scripts = nodes.Count(thing =>
             thing.GetType().GetMethod("TryGetSource", [typeof(string).MakeByRefType()]) is not null
             || thing.GetType().GetProperty("ScriptSource") is not null);
@@ -386,11 +380,8 @@ internal static class Review
                 null));
         }
 
-        // A note that belongs to no group is not the same fault as a component that belongs to no group. The
-        // rule this finding enforces is "every component lives in the function that uses it", and a note is not
-        // used by anything - a document-level caption belongs to the document. A scribble never reached here
-        // anyway, being neither component nor parameter; an unwired panel did, because a panel *is* a
-        // parameter, so a caption written as a panel was reported as a stray object.
+        // Exclude annotations from the ungrouped-component count. A document-level note does not need a functional
+        // group. An unwired panel is an annotation too, although a panel is a parameter and counts among the nodes.
         int loose = nodes.Count(thing =>
             !grouped.Contains(thing.InstanceGuid) && !IsAnnotation(thing));
 
@@ -402,10 +393,9 @@ internal static class Review
                 null));
         }
 
-        // A note sitting on top of something is the fault notes actually have, and until now nothing looked
-        // for it: the layout pass does not move notes, so one placed before an arrange stays where it was
-        // while everything else moves out from under it. Reported as polish rather than blocking, because the
-        // definition still runs - it is just unreadable, which is what a note was for.
+        // Check whether a note overlaps another object. Arrange places notes as captions after laying out the
+        // dataflow. A note can overlap something before that pass, or when it is not in the group it explains.
+        // The overlap affects readability and not execution, and it is reported as polish.
         foreach (IGH_DocumentObject note in document.Objects.Where(IsAnnotation))
         {
             if (note.Attributes?.Bounds is not { } over)
@@ -426,8 +416,8 @@ internal static class Review
 
                 findings.Add(Finding(
                     "note covers",
-                    $"A note sits on top of '{Named(other)}' - arrange does not move notes, so put it in the "
-                        + "group it explains, or move it clear.",
+                    $"A note sits on top of '{Named(other)}' - arrange places notes as captions. Put it in "
+                        + "the group it explains, or move it clear.",
                     note.InstanceGuid));
 
                 break;
@@ -485,7 +475,7 @@ internal static class Review
         return bare;
     }
 
-    /// <summary>How many other groups this one feeds - the measure of a knob bank.</summary>
+    /// <summary>Count the other groups to which this group supplies data.</summary>
     private static int Serves(GH_Document document, HashSet<Guid> inside, Dictionary<Guid, GH_Group> groupById)
     {
         HashSet<Guid> served = [];
@@ -522,18 +512,15 @@ internal static class Review
         return served.Count;
     }
 
-    /// <summary>Close enough: Grasshopper's own colour picker rounds, and so does a human eye.</summary>
+    /// <summary>Compare a colour channel with a tolerance for rounding performed by Grasshopper's colour picker.</summary>
     private static bool Near(int one, int other) => Math.Abs(one - other) <= 12;
 
-    /// <summary>Where a group's members are, counting only the ones the layout puts there.</summary>
+    /// <summary>The area occupied by a group's layout members, excluding annotations.</summary>
     /// <remarks>
-    /// This exists to tell two kinds of frame overlap apart, because they want opposite advice. arrange sizes a
-    /// group's box from its <em>nodes</em> - a note is not a node, carries no data and takes no part in the
-    /// layout algebra - and then a pass afterwards puts each note above the members it captions. So a note
-    /// wider than those members reaches out past the room that was reserved, the frame is drawn around the note
-    /// too, and two frames touch that the layout believes it separated. Running arrange again lands on exactly
-    /// the same coordinates, because arrange is idempotent, so "run arrange" would send the author round a
-    /// loop. Comparing bodies rather than frames says which of the two cases this is.
+    /// A frame overlap has two causes, and the finding names which one it is. Layout sizes a group from its nodes
+    /// plus a band reserved for its captions. A caption added or lengthened since the last arrange can widen the
+    /// frame while the nodes stay apart. Comparing node bodies separates a real layout overlap from a caption
+    /// extending beyond it, and arrange answers both.
     /// </remarks>
     private static RectangleF Body(GH_Document document, GH_Group group)
     {
@@ -589,12 +576,11 @@ internal static class Review
         findings.Add(Finding(kind, what, group.InstanceGuid));
 
     /// <summary>
-    /// Which findings stop a definition from working, and which are only manners.
+    /// The finding kinds that stop a definition from working. Every other kind is polish.
     /// </summary>
     /// <remarks>
-    /// An author with limited time needs to know the difference, and an agent especially: one abandoned a
-    /// working graph to chase "input bank" and spent the rest of its session repairing the damage. So a
-    /// finding says whether it blocks - the definition does not run or does the wrong thing - or is polish.
+    /// A blocking finding means the definition is incorrect or does not work. A polish finding is a composition
+    /// improvement. Callers use the distinction to fix correctness before optional cleanup.
     /// </remarks>
     private static readonly string[] Blocking =
     [
@@ -603,13 +589,11 @@ internal static class Review
     ];
 
     /// <summary>
-    /// Whether an object is there to be read rather than to carry data.
+    /// Whether an object is an annotation, there to be read and carrying no data.
     /// </summary>
     /// <remarks>
-    /// A scribble always is. A panel is one only when nothing is wired to it in either direction: a panel in
-    /// the middle of a definition is a probe on the data and belongs to the function it watches, while an
-    /// unwired one with words in it is a caption. The difference matters because the rules for a component do
-    /// not apply to prose.
+    /// A scribble is always an annotation. A panel is an annotation only when it has no sources or recipients;
+    /// a wired panel is a data probe and belongs to the function whose data it observes.
     /// </remarks>
     private static bool IsAnnotation(IGH_DocumentObject thing) =>
         thing is GH_Scribble
@@ -619,19 +603,16 @@ internal static class Review
 
     /// <summary>What data matching makes of a component's inputs, when there is something to say.</summary>
     /// <remarks>
-    /// Runs are counted the way <c>GH_Component</c> iterates. Branch <i>i</i> of every input is paired with
-    /// branch <i>i</i> of the others, and an input with fewer branches lends its last one. Inside a pair the
-    /// longest item list sets the count (the shortest, on a component set to shortest-list matching), and a
-    /// list input counts once per branch. Tree inputs and components set to cross reference are both left out,
-    /// because in both the author has decided the structure outright.
+    /// Runs are counted according to <c>GH_Component</c> iteration. Branch <i>i</i> of each input is paired with
+    /// branch <i>i</i> of the others, and an input with fewer branches reuses its final branch. The item count for
+    /// a paired branch is the longest list, except under shortest-list matching. List inputs count once per branch.
+    /// Tree inputs and cross-reference components are excluded because their structure is explicitly selected.
     /// <para>
-    /// A component run more times than its largest input has items is running some data again against every
-    /// extra branch of another input. That is a product, and it is either a grid made on purpose (a grafted
-    /// input against a list) or a flatten upstream that turned 1500 points into 15,000 circles. The structure
-    /// is the same in both, and the size decides: a product with more than <see cref="Suspicious"/> runs
-    /// in one branch is blocking, and a smaller one, a 20 by 20 grid for instance, is polish. A long list fed
-    /// alongside an equally long one is no product at all. 1500 centres with 1500 radii make 1500 circles, and calling that blocking left a correct
-    /// definition unable to reach a clean review.
+    /// A component that runs more times than its largest input holds items is applying some data to several
+    /// branches of another input. That can be an intended product, such as a grafted input against a list, or the
+    /// result of a flattened tree. More than <see cref="Suspicious"/> runs in one branch is blocking; a smaller product may
+    /// be intentional, such as a 20 by 20 grid, and is polish. Matching list inputs of similar length are not a
+    /// product. For example, 1,500 centres paired with 1,500 radii produce 1,500 circles.
     /// </para>
     /// </remarks>
     private static string? Matching(IGH_Component component)
@@ -710,7 +691,7 @@ internal static class Review
                 : Finding(
                     "crosses",
                     what + "A grafted input against a list makes a grid this way. Confirm with peek that this "
-                    + "is the count you meant.",
+                    + "is the intended count.",
                     component.InstanceGuid);
         }
 
@@ -729,7 +710,7 @@ internal static class Review
             : Finding(
                 "broadcast",
                 $"{component.Name} runs {runs} times over {branches} branch(es), once per item of "
-                + $"{string.Join(" and ", several)}. Confirm with peek that this is the count you meant.",
+                + $"{string.Join(" and ", several)}. Confirm with peek that this is the intended count.",
                 component.InstanceGuid);
     }
 
@@ -749,7 +730,7 @@ internal static class Review
         return json.Append('}').ToString();
     }
 
-    /// <summary>A parameter that only carries: no value of its own, nothing to look at.</summary>
+    /// <summary>A parameter that passes data on, as opposed to one that owns or displays a value.</summary>
     private static bool IsRelay(IGH_Param parameter) =>
         parameter is not (Grasshopper.Kernel.Special.GH_NumberSlider
             or Grasshopper.Kernel.Special.GH_Panel

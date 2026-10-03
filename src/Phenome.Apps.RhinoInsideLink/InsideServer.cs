@@ -9,17 +9,16 @@ namespace Phenome.Apps.RhinoInsideLink;
 /// The loopback interface to a Rhino that was never opened.
 /// </summary>
 /// <remarks>
-/// Same conventions as the other two links - plain HTTP on 127.0.0.1, one JSON out, an ephemeral port in a
-/// discovery file named by process id - so a client that speaks to those speaks to this. What it answers
-/// about is different: there is no canvas and no document anybody is looking at, so the file on disk is the
-/// state and every verb names its own.
+/// Follows the conventions of the other two links (plain HTTP on 127.0.0.1, one JSON out, an ephemeral port in a
+/// discovery file named by process id), and a client that speaks to those speaks to this. What it reports
+/// differs, because there is no canvas and no document being viewed: the file on disk is the state, and every
+/// verb names its own.
 /// <para>
-/// The verb list is short because it is honest about what a headless core can do, which was measured rather
-/// than assumed. Rhino commands do not run: <c>RunScript</c> answers false and changes nothing, both through
-/// the serial-number overload against a headless document and against one opened the ordinary way, which in
-/// this process is headless anyway. So there is no <c>/command</c> here, and the process link next door is
-/// where that belongs. What does work is reading a document, writing it, and Rhino's importers and exporters,
-/// which turn out to load in a Rhino with no window.
+/// The verb list is short because it reflects what a headless core can do. Rhino commands do not run:
+/// <c>RunScript</c> returns false and changes nothing, through both the serial-number overload against a
+/// headless document and against one opened normally (headless in this process regardless). There is no
+/// <c>/command</c> here for that reason; the process link next door covers it. Reading a document, writing it,
+/// and Rhino's importers and exporters do work, and those load in a windowless Rhino.
 /// </para>
 /// </remarks>
 internal static class InsideServer
@@ -41,13 +40,13 @@ internal static class InsideServer
           "version": "0.1",
           "protocol": {
             "GET /": "this description",
-            "GET /pulse": "whether the core is free, what verb it is on and for how long, and how many requests are queued behind it. Answered without the queue, so it answers while the queue is busy",
+            "GET /pulse": "whether the core is free, what verb it is on and for how long, uptime, and how many requests were served and dropped. Answered without the queue; it answers while the queue is busy",
             "GET /doc": "?path=<.3dm> - what a document holds: units, tolerance, layers, and a count of each kind of object",
             "POST /convert": "{from, to, version?} - read one file and write another. The target's extension picks the format: .3dm through the archive writer, anything else through Rhino's exporter for it. Verified headless for .stl, .obj, .dxf and .step. 'version' applies to .3dm only; 0 means current",
             "POST /quit": "stop serving and let the process end"
           },
-          "why": "The other two links live inside a Rhino somebody opened. This one starts a Rhino core in its own process with no window, so a document can be read or converted with nobody watching a splash screen.",
-          "what it cannot do": "Rhino commands. RunScript answers false in a windowless core, so anything that is a command - selection, export options, most of the toolbar - is out of reach here. Use the process link inside a real Rhino for that.",
+          "why": "The other two links live inside a Rhino the user has opened. This one starts a Rhino core in its own process with no window, and a document can be read or converted without a splash screen appearing.",
+          "what it cannot do": "Rhino commands. RunScript answers false in a windowless core, and anything that is a command (selection, export options, most of the toolbar) is out of reach here. Use the process link inside a real Rhino for that.",
           "discovery": "%TEMP%/phenome-rhinoinside-<pid>.port holds this port"
         }
         """;
@@ -72,12 +71,12 @@ internal static class InsideServer
                 }
                 catch (Exception) when (listener is null || !listener.IsListening)
                 {
-                    // Shut down mid-await; not an incident.
+                    // The listener was shut down mid-await, which is not an error.
                 }
                 catch (Exception)
                 {
-                    // Nowhere useful to say it: the console belongs to whoever started the process, and a
-                    // listener that stumbles on one request should still take the next.
+                    // No useful place to report it: the console belongs to the user who started the process, and a
+                    // listener that fails on one request should still accept the next.
                 }
             }
         });
@@ -92,7 +91,7 @@ internal static class InsideServer
         }
         catch (Exception)
         {
-            // Shutting down; nothing left to tell.
+            // Shutting down; nothing to report.
         }
         finally
         {
@@ -106,8 +105,8 @@ internal static class InsideServer
         string path = context.Request.Url?.AbsolutePath.TrimEnd('/') ?? "";
         string method = context.Request.HttpMethod;
 
-        // A page the user visits can reach loopback; binding to 127.0.0.1 is not a boundary against it.
-        // See Browser.Refuse.
+        // A page the user visits can reach loopback, and binding to 127.0.0.1 does not protect against it (see
+        // Browser.Refuse).
         if (Browser.Refuse(context.Request, Port) is { } refused)
         {
             Respond(context.Response, 403, $"{{\"ok\":false,\"error\":{Json.Quote(refused)}}}");
@@ -150,8 +149,8 @@ internal static class InsideServer
         }
         catch (Exception asked) when (asked is ArgumentException or JsonException)
         {
-            // A field left out or a body that is not JSON is a bad request, not a server that fell over. The
-            // distinction is what tells a client whether to fix its call or to try again later.
+            // A missing field or a non-JSON body is a bad request, not a server failure. The distinction tells
+            // a client whether to fix its call or retry later.
             Send(context.Response, 400, Refusal(asked));
         }
         catch (Exception failure)
@@ -161,12 +160,12 @@ internal static class InsideServer
     }
 
     /// <summary>
-    /// Runs a verb on the thread Rhino belongs to, remembering what is running while it does.
+    /// Runs a verb on the thread that owns the Rhino core, recording what is running while it does.
     /// </summary>
     /// <remarks>
-    /// The name and the clock are what <c>/pulse</c> reads, and they are the whole reason a caller can tell a
-    /// long conversion from a hung one. Worth having here rather than in each verb: a verb that forgot to say
-    /// what it was doing would be invisible in exactly the situation somebody is asking about.
+    /// The name and elapsed time are what <c>/pulse</c> reads, and are the only way a caller can distinguish a
+    /// long conversion from a hang. The record is kept here, in one place for every verb: a verb that did not
+    /// record its work would be invisible exactly when someone is asking about it.
     /// </remarks>
     static string Work(string verb, Func<string> work)
     {
@@ -198,12 +197,12 @@ internal static class InsideServer
     }
 
     /// <summary>
-    /// The state, computed without touching the queue - so it answers while the queue is busy.
+    /// The state, computed without touching the queue. It answers while the queue is busy.
     /// </summary>
     /// <remarks>
-    /// That is the same promise the process link makes about the UI thread, for the same reason: the moment
-    /// somebody wants to know whether anything is happening is the moment everything else is blocked. Here it
-    /// is cheap, because what is running is a field this server sets rather than something to ask Rhino.
+    /// The same guarantee the process link makes about the UI thread, for the same reason: when someone wants to
+    /// know whether anything is happening, everything else is blocked. It is cheap here because the running verb
+    /// is a field this server sets, and Rhino is not asked.
     /// </remarks>
     static string Pulse()
     {
@@ -226,7 +225,7 @@ internal static class InsideServer
 
         json.Append(",\"advice\":").Append(Json.Quote(verb is null
             ? "The core is free."
-            : $"{verb} has been running for {since}ms. Verbs are served one at a time, so anything else is waiting behind it."));
+            : $"{verb} has been running for {since}ms. Verbs are served one at a time, and anything else is waiting behind it."));
 
         json.Append('}');
 
@@ -235,8 +234,8 @@ internal static class InsideServer
 
     static string Quit()
     {
-        // Answered before anything is torn down, because the caller asked a question and deserves the answer
-        // to arrive. The core stops once this response is on the wire.
+        // Answered before anything is torn down so the caller receives a reply. The core stops once this
+        // response is sent.
         Task.Run(async () =>
         {
             await Task.Delay(100);
@@ -250,16 +249,14 @@ internal static class InsideServer
         $"{{\"ok\":false,\"error\":{Json.Quote(failure.Message)}}}";
 
     /// <summary>
-    /// Writes the answer, and treats failing to write it as a different thing from failing to answer.
+    /// Writes the response, treating a write failure as separate from an answer failure.
     /// </summary>
     /// <remarks>
-    /// A client that gave up waiting makes the write throw, and a catch that answers again is writing to a
-    /// closed stream - which throws in turn, with a message about the response already having been submitted,
-    /// and buries the real one. Writing is the last thing that happens: a failure here is counted and nothing
-    /// else, because the verb already ran and there is nobody left to tell.
+    /// A client that stops waiting makes the write throw. Catching and answering again writes to a closed stream,
+    /// which throws with a "response already submitted" message and hides the real error. Writing is the final
+    /// step: a failure here is only counted, because the verb already ran and there is no client left to notify.
     /// <para>
-    /// The same shape as the canvas half's <c>Send</c>, and for the same reason. Written here on the day the
-    /// other one was fixed rather than left as a copy of the bug.
+    /// The canvas half's <c>Send</c> has the same structure, for the same reason.
     /// </para>
     /// </remarks>
     static void Send(HttpListenerResponse response, int status, string body)
@@ -286,19 +283,20 @@ internal static class InsideServer
 
         response.StatusCode = status;
         response.ContentType = "application/json; charset=utf-8";
-        response.Headers["Access-Control-Allow-Origin"] = "*";
+
+        // No Access-Control-Allow-Origin header, as on the canvas link. Browser.Refuse turns a page's request
+        // away, and with "*" here the page could still read that refusal and learn which port answers.
         response.ContentLength64 = bytes.Length;
         response.OutputStream.Write(bytes, 0, bytes.Length);
         response.OutputStream.Close();
     }
 
     /// <summary>
-    /// The port, in a file named by this process id - a different name from the other two links, on purpose.
+    /// The port file, named by this process id. Its name differs from the other two links' names on purpose.
     /// </summary>
     /// <remarks>
-    /// A client globs for all three and knows what it has found by the name: a canvas, a Rhino somebody is
-    /// looking at, or one nobody is. Sharing a name would make them indistinguishable, and they answer
-    /// different questions.
+    /// A client globs for all three and identifies each by name: a canvas, an interactive Rhino, or a headless
+    /// one. A shared name would make them indistinguishable, and they report different things.
     /// </remarks>
     static string PortFile =>
         Path.Combine(Path.GetTempPath(), $"phenome-rhinoinside-{System.Environment.ProcessId}.port");
@@ -311,7 +309,7 @@ internal static class InsideServer
         }
         catch (Exception)
         {
-            // Without the file a client has to be told the port, which is worse but not fatal.
+            // Without the file, a client must be given the port, which is worse but not fatal.
         }
     }
 
@@ -323,7 +321,7 @@ internal static class InsideServer
         }
         catch (Exception)
         {
-            // A stale file is caught by the pid check on the client side; best effort is enough.
+            // A stale file is caught by the client's pid check; best effort suffices.
         }
     }
 }

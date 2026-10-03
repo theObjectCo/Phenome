@@ -3,28 +3,25 @@ using System.Text;
 namespace Phenome.Apps.RhinoLink;
 
 /// <summary>
-/// The tail of Rhino's command line, kept so an agent can read what Rhino said.
+/// Captures the tail of Rhino's command line so an agent can read what Rhino printed.
 /// </summary>
 /// <remarks>
-/// Rhino answers on its command line and nowhere else: "56 curves added to selection" is the answer to a
-/// selection, an exporter's option list is the answer to an export, and a warning is the reason a command
-/// did something surprising. Capture is what turns that from something a human reads into something an
-/// agent can.
+/// Rhino reports only on its command line: selection counts, exporter option lists, and warnings appear there
+/// and nowhere else. The capture makes them readable by an agent as well as by a person.
 /// <para>
-/// There is exactly one drain per Rhino, because <c>CapturedCommandWindowStrings</c> clears the buffer as
-/// it reads and two readers would steal each other's lines. This plugin loads with Rhino, before any
-/// canvas exists, so this is the one - the canvas link checks whether capture is already on and, finding
-/// it is, asks here instead of starting a second.
+/// There is one drain per Rhino. <c>CapturedCommandWindowStrings</c> clears the buffer as it reads, and two
+/// readers would lose each other's lines. This plugin loads with Rhino, before any canvas exists, and owns the
+/// capture. The canvas link detects that capture is already on and reads from here instead of starting a
+/// second one.
 /// </para>
 /// <para>
-/// What this cannot do: show the command line <em>while</em> the UI thread is blocked, because the drain
-/// runs on that thread. A long script's output arrives in one piece when the script ends. Pulse is the
-/// verb for the meantime - it says whether there will be an end.
+/// The drain runs on the UI thread and cannot read the command line while that thread is blocked. A long
+/// script's output arrives when the script ends. Use Pulse to check state in the meantime.
 /// </para>
 /// </remarks>
 internal static class CommandLine
 {
-    /// <summary>Long enough to hold what a command said, short enough to stay cheap. Oldest lines fall off.</summary>
+    /// <summary>Holds enough lines for a command's output at little cost. Oldest lines are dropped first.</summary>
     private const int Kept = 500;
 
     private static readonly Queue<string> lines = new();
@@ -66,8 +63,8 @@ internal static class CommandLine
         {
             foreach (string raw in captured)
             {
-                // Rhino writes partial lines too - a prompt, then its answer - so what arrives is not
-                // always one line per entry. Blank entries are the newlines between them.
+                // Rhino can emit partial lines (a prompt, then its answer), and an entry is not always one
+                // full line. Blank entries are the newlines between them.
                 string line = raw.TrimEnd('\r', '\n');
 
                 if (line.Length == 0 || IsOurs(line))
@@ -116,7 +113,7 @@ internal static class CommandLine
         json.Append(",\"kept\":").Append(Json.Number(recent.Length));
         json.Append(",\"dropped\":").Append(Json.Number(lost));
         json.Append(",\"note\":").Append(Json.Quote(
-            "Drained when the UI thread breathes, so a long command's output arrives when it ends. Ask /pulse for what is happening now."));
+            "Drained when the UI thread is next free. A long command's output arrives when it ends. Ask /pulse for the current state."));
         json.Append('}');
 
         return json.ToString();

@@ -10,15 +10,14 @@ using static Phenome.Apps.GrasshopperLink.Bridge.Verbs.Plumbing;
 
 namespace Phenome.Apps.GrasshopperLink.Bridge.Verbs;
 
-/// <summary>Lengths, areas and volumes of the geometry on a parameter, and how two sets of it meet.</summary>
+/// <summary>Lengths, areas and volumes of the geometry on a parameter, and how two sets of it compare.</summary>
 /// <remarks>
-/// <c>peek</c> answers what the data is and says nothing about its size. A session that tried 64 variants of
-/// one input and needed the overlap after each one wrote its own geometry code in a throwaway script
-/// component. It asked for the length of a guide curve, the area where two closed profiles overlap and the
-/// distance between two curves, and those are this verb's answers.
+/// <c>peek</c> reports what the data is and not its size. Without this verb, geometry arithmetic takes throwaway
+/// script components. This verb gives those results directly: curve length, overlap area between closed
+/// profiles, and distance between curves.
 /// <para>
-/// The verb reads and never writes, like <c>peek</c>. Nothing is added to the canvas: RhinoCommon does the
-/// arithmetic on the data the parameter already holds.
+/// The verb is read-only, like <c>peek</c>. Nothing is added to the canvas; RhinoCommon computes on the data the
+/// parameter already holds.
 /// </para>
 /// </remarks>
 internal static class Measure
@@ -29,8 +28,8 @@ internal static class Measure
     private const int Listed = 200;
 
     /// <summary>
-    /// Pairs compared for <c>against</c>. A boolean intersection per pair on the UI thread holds Rhino for as
-    /// long as it takes, and 2,500 of them is already seconds on a large layout.
+    /// Maximum pairs compared for <c>against</c>. Each boolean intersection runs on the UI thread; 2,500
+    /// already takes seconds on a large layout.
     /// </summary>
     private const int Pairs = 2500;
 
@@ -65,8 +64,8 @@ internal static class Measure
                 request.QueryString["againstSide"],
                 request.QueryString["againstParam"]);
 
-            // Measuring a set against itself compares each pair once and never an item with itself, which
-            // is the question "do any of these profiles overlap".
+            // Comparing a set with itself checks each pair once and never an item against itself, answering
+            // "do any of these profiles overlap".
             bool itself = ReferenceEquals(first, second);
             List<Item> those = itself ? these : Items(second);
 
@@ -84,7 +83,7 @@ internal static class Measure
         IGH_DocumentObject thing = document.FindObject(id, topLevelOnly: true)
             ?? throw new KeyNotFoundException($"No object {id} on the canvas.");
 
-        // The output by default, unlike peek: what is measured is what a component made.
+        // Output by default, unlike peek: measure what a component produced.
         return LocateBy(thing, side ?? "output", param);
     }
 
@@ -257,9 +256,9 @@ internal static class Measure
     /// Every pair from the two sets: the area or volume they share, and the nearest distance between them.
     /// </summary>
     /// <remarks>
-    /// Two closed planar curves overlap by the area of their boolean intersection, two solids by the volume
-    /// of theirs. Distance is answered for curves and points, which is what a layout is drawn with. A pair
-    /// whose bounding boxes are apart by more than the tolerance cannot overlap and skips the boolean.
+    /// Two closed planar curves overlap by the area of their boolean intersection; two solids by the volume of
+    /// theirs. Distance is computed for curves and points, which is what layouts are drawn from. A pair whose
+    /// bounding boxes are more than the tolerance apart cannot overlap, and the boolean is skipped for it.
     /// </remarks>
     private static void Between(List<Item> these, List<Item> those, bool itself, double tolerance, StringBuilder json)
     {
@@ -390,7 +389,7 @@ internal static class Measure
         || a.Max.Y < b.Min.Y - tolerance || b.Max.Y < a.Min.Y - tolerance
         || a.Max.Z < b.Min.Z - tolerance || b.Max.Z < a.Min.Z - tolerance;
 
-    /// <summary>Nine significant figures: enough to compare two variants, short enough to read.</summary>
+    /// <summary>Nine significant figures are enough to compare two variants and short enough to read.</summary>
     private static double Round(double value) =>
         value == 0 || double.IsNaN(value) || double.IsInfinity(value)
             ? value

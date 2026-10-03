@@ -4,43 +4,38 @@ using System.Text.Json;
 
 namespace Phenome.Apps;
 
-/// <summary>A way to stop a version of the link that is known to be unsafe, on machines we do not own.</summary>
+/// <summary>
+/// Stops a released version of the link that is known to be unsafe, on machines outside the maintainers' control.
+/// </summary>
 /// <remarks>
-/// The link runs on other people's computers and updates when they decide to update. When a released
-/// version turns out to have a hole that a web page can drive, there is otherwise no way to reach anybody:
-/// deleting a release does not uninstall anything, and the people at risk are precisely the ones not
-/// reading the repository.
+/// The link runs on other people's computers and updates when they choose to. When a released version has a
+/// hole that a web page can drive, there is otherwise no way to reach the affected users: deleting a release
+/// does not uninstall anything, and the people at risk are those not watching the repository. The plugin
+/// therefore reads one static file and acts on it locally. Four properties matter:
 /// <para>
-/// So the plugin reads one static file and decides for itself. Four properties matter and each was chosen
-/// against an obvious alternative.
+/// <b>Fails open.</b> With no network, a blocked domain, a malformed file or GitHub down, the link starts. A
+/// safety notice that stops the tool when the network hiccups is worse than the problem it guards against, and
+/// would couple local work to a remote service. Blocking the domain defeats the check entirely. That is
+/// accepted: the check is there to reach users who want the notice, and a determined opt-out is out of scope.
 /// </para>
 /// <para>
-/// <b>It fails open.</b> No network, a blocked domain, a malformed file, GitHub down - the link starts. A
-/// safety notice that bricks the tool when the internet hiccups is a worse failure than the one it guards
-/// against, and it repeats the mistake of tying local work to a remote service. Anyone who blocks the
-/// domain defeats this entirely, and that is accepted: the purpose is to reach honest users, not to win
-/// against someone avoiding it.
+/// <b>Sends nothing.</b> The whole file is fetched and compared locally; no server is asked whether this
+/// version is safe. GitHub sees that a public file was fetched from this machine's address and learns nothing
+/// about who runs which version. There is no telemetry to secure, document or disable.
 /// </para>
 /// <para>
-/// <b>It sends nothing.</b> The whole file is fetched and compared here, rather than asking a server
-/// whether *this version* is safe. GitHub learns that somebody fetched a file, which it would learn from
-/// any download, and not who runs what. There is no telemetry to secure, publish a policy about, or be
-/// asked to turn off.
+/// <b>Disables only the link.</b> Rhino and Grasshopper behave exactly as before. Removing the user's CAD
+/// application because the bridge has a bug would be disproportionate. The bridge is the only part its
+/// maintainers can withdraw.
 /// </para>
 /// <para>
-/// <b>It disables the link and nothing else.</b> Grasshopper and Rhino carry on exactly as before. Taking
-/// away somebody's CAD application because our bridge has a bug would be wildly out of proportion, and the
-/// bridge is the only part that is ours to withdraw.
+/// <b>Can be overridden.</b> <c>PHENOME_IGNORE_ADVISORY=1</c> makes the link start anyway, with a notice at
+/// every startup. Without the switch a bad commit could stop every installation with no recourse. The machine
+/// belongs to its owner and the domain can be blocked anyway; a documented switch is the clearer design.
 /// </para>
 /// <para>
-/// <b>It can be overridden.</b> <c>PHENOME_IGNORE_ADVISORY=1</c> in the environment, and the link starts
-/// anyway, saying at every startup that it is doing so. A bad commit here could otherwise stop every
-/// installation with no recourse, and the machine belongs to its owner. Somebody determined can block the
-/// domain regardless, so the honest thing is a documented switch rather than a pretence that there is none.
-/// </para>
-/// <para>
-/// It lives in the same repository the releases come from. Whoever can edit it can already publish a
-/// malicious build, so no new trust is granted - and setting the flag is a public commit, which a file on a
+/// The file lives in the same repository the releases come from. Whoever can edit it can already publish a
+/// malicious build, and the file grants no new trust. Setting the flag is a public commit, which a file on a
 /// private server would not be.
 /// </para>
 /// </remarks>
@@ -64,10 +59,9 @@ internal static class Advisory
 
     /// <summary>Set once a notice has withdrawn this version; every server then refuses its verbs.</summary>
     /// <remarks>
-    /// Here rather than on one of the servers, because a withdrawal has to reach all of them. The first
-    /// draft put it on the canvas link alone, which would have stopped the canvas while the Rhino half went
-    /// on answering - and that half types at the command line, so it is no less able to run code. A version
-    /// is withdrawn or it is not; it cannot be withdrawn by half.
+    /// Stored here, outside any one server, because a withdrawal must reach all of them. Kept on the canvas
+    /// link only, it would stop the canvas while the Rhino half kept answering. The Rhino half types at the
+    /// command line and can run code just as well.
     /// </remarks>
     internal static Verdict? Withdrawn { get; private set; }
 
@@ -83,11 +77,10 @@ internal static class Advisory
     /// Fetches the notice in the background and calls back only if this version is withdrawn.
     /// </summary>
     /// <remarks>
-    /// Background, because a plugin that waits on the network before Grasshopper can draw is a plugin
-    /// people uninstall. Callback rather than a return value, because the answer arrives after the decision
-    /// to start has already been taken - the caller stops serving when it hears, and until then the link
-    /// works. A notice published one minute ago therefore takes effect on this run rather than the next,
-    /// which is the point of not deciding from a cache.
+    /// Runs in the background: a plugin that waits on the network before Grasshopper can draw is one people
+    /// uninstall. The answer comes through a callback because it arrives after the decision to start. The
+    /// caller stops serving when the callback runs, and until then the link works. The result is not cached:
+    /// a notice published a minute ago takes effect on the current run.
     /// </remarks>
     internal static void Watch(Action<Verdict> withdrawn)
     {
@@ -104,16 +97,16 @@ internal static class Advisory
 
                 if (verdict is { Blocked: true })
                 {
-                    // Set before the callback, so a caller that only logs has still stopped serving.
+                    // Set before the callback: every server refuses its verbs even if the caller only logs.
                     Withdrawn = verdict;
                     withdrawn(verdict);
                 }
             }
             catch (Exception)
             {
-                // Fails open, deliberately and silently: this is a courtesy to the user, not a
-                // guarantee to us, and a warning about a failed safety check is noise on every
-                // machine behind a proxy.
+                // Fails open and stays silent. The check is a courtesy to the user and guarantees nothing to
+                // the maintainers. A warning about a failed safety check would be noise on every machine behind
+                // a proxy.
             }
         });
     }
@@ -122,7 +115,7 @@ internal static class Advisory
     {
         using HttpClient client = new() { Timeout = TimeSpan.FromSeconds(8) };
 
-        // No version, no machine, no account - a plain GET for a public file.
+        // A plain GET for a public file: no version, machine, or account is sent.
         string json = await client.GetStringAsync(Source);
 
         using JsonDocument doc = JsonDocument.Parse(json);

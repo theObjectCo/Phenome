@@ -1,13 +1,13 @@
 namespace Phenome.Apps.RhinoLink;
 
 /// <summary>
-/// Getting onto the one thread that owns Rhino, and saying why the wait ended when it does not.
+/// Runs work on the UI thread that owns Rhino, and explains a wait that ends in a timeout.
 /// </summary>
 /// <remarks>
-/// Shared rather than owned by one verb class, because everything that touches the document or the
-/// plug-in manager needs it and <see cref="Pulse"/> exists precisely because it does not. A timeout here
-/// is never simply "no answer": a long command and an open dialog both look like silence from the outside
-/// and want opposite responses, so the refusal borrows the sentence pulse would have said.
+/// Shared by the verb classes: everything that touches the document or plug-in manager needs it, and
+/// <see cref="Pulse"/> exists because it does not. A timeout says more than "no answer". A long command and an
+/// open dialog both look like silence and need opposite responses, and the timeout reuses the message Pulse
+/// would give.
 /// </remarks>
 internal static class Ui
 {

@@ -1,11 +1,16 @@
-// The VS Code end of the Grasshopper link, and nothing else. A Rhino running the Phenome Link plugin
-// writes %TEMP%\phenome-link-<pid>.port and answers loopback HTTP from then on; this extension keeps the
-// human's window onto that: a status bar item saying whether a session exists, an output channel mirroring
-// the journal, a command that drops the canvas recipe into the editor, and the script round-trip where
-// saving a .gh.cs file pushes source back to the component that owns it.
+// This file is the VS Code half of the Grasshopper link. A Rhino running the Phenome Link plugin writes
+// %TEMP%\phenome-link-<pid>.port and answers loopback HTTP from then on. This extension adds:
+// - a status bar item showing whether a session exists, and a canvas switcher behind it,
+// - an output channel mirroring the journal,
+// - a command that inserts the canvas recipe into the editor,
+// - the script round-trip: saving a .gh.cs file pushes its source back to the owning component,
+// - two panels showing the canvas and the Rhino viewport,
+// - Teach Agents, which writes the pairing notes and the MCP registration into a workspace,
+// - Report a Problem, which assembles a report and offers a mail draft,
+// - the pair handler behind the canvas's Pair with VS Code button.
 //
-// Deliberately independent of the Phenome configurator extension - the link is useful to any Grasshopper
-// user with any agent, and this half mirrors that: it knows HTTP and the journal, not the kernel.
+// It is independent of the Phenome configurator extension by design: this half uses HTTP and the journal
+// only, and never the kernel.
 
 const vscode = require('vscode');
 const fs = require('fs');
@@ -17,7 +22,7 @@ let context = null;
 const link = {
     port: null,
 
-    /// A canvas chosen by hand, which discovery must not wander away from. Null means "whichever answers".
+    /// Port pinned by an explicit canvas choice; discovery must not replace it. Null means "first that answers".
     pinned: null,
 
     cursor: 0,
@@ -41,7 +46,8 @@ async function linkFetch(pathname, body) {
         const answer = await fetch(`http://127.0.0.1:${link.port}${pathname}`, {
             method: body ? 'POST' : 'GET',
 
-            // Required since 0.32.0: a page cannot set this on a no-cors request, so the link demands it.
+            // Required since 0.32.0. The link demands this header because a page cannot set it on a no-cors
+            // request.
             headers: body ? { 'Content-Type': 'application/json', 'X-Phenome-Client': 'vscode' } : undefined,
             body: body ? JSON.stringify({ author: 'vscode', ...body }) : undefined,
             signal: controller.signal,
@@ -53,12 +59,11 @@ async function linkFetch(pathname, body) {
     }
 }
 
-/// Finds a live session: every phenome-link-*.port file names a candidate; the first port that answers
-/// GET / wins. Dead Rhinos leave stale files behind, which is exactly why answering is the test.
+/// Find a live session: every phenome-link-*.port file is a candidate and the first to answer GET / is used.
+/// Dead Rhinos leave stale files behind, and an answer is the only reliable test.
 async function discoverLink() {
-    // A hand-picked canvas outranks finding one. Verified rather than trusted, because the Rhino it named
-    // may have closed since, and a pin that outlives its canvas is worse than no pin: every later call
-    // would insist a session exists on a machine that has none.
+    // A pinned port outranks discovery and is checked before use. The Rhino it names may have closed, and a
+    // stale pin would make every later call report a session that does not exist.
     if (link.pinned !== null) {
         try {
             link.port = link.pinned;
@@ -101,11 +106,11 @@ async function discoverLink() {
     return null;
 }
 
-/// Two pictures of the same machine, each in its own panel, each refreshed when asked.
+/// Two views of the same machine, one per panel, refreshed on request.
 ///
-/// Separate rather than combined, so whichever one is being watched gets the screen. On demand rather
-/// than live, and that is not a limitation: both verbs run on Rhino's single UI thread, so a panel that
-/// refreshed itself would be taking time from whoever is sitting in front of that machine.
+/// Kept separate so the panel being watched keeps the screen. Refresh is on demand by design. Both verbs run
+/// on Rhino's single UI thread, and an auto-refreshing panel would take time from the person using that
+/// machine.
 const podglad = { canvas: null, viewport: null };
 
 async function showPicture(kind) {
@@ -149,12 +154,12 @@ async function refreshPicture(kind) {
     }
 
     try {
-        // Both verbs are served by the canvas half and both take a width, so neither needs the Rhino
-        // plug-in to be registered - which matters, because that registration is the fragile one.
+        // The canvas half serves both verbs and both take a width. Neither depends on the Rhino plug-in being
+        // registered, which is the fragile part.
         const answer = await linkFetch(isCanvas ? '/canvas-image?width=1400' : '/screenshot?width=1400');
 
         if (!answer?.png) {
-            panel.webview.html = pictureHtml(title, null, answer?.error ?? 'Nothing came back.');
+            panel.webview.html = pictureHtml(title, null, answer?.error ?? 'No image was returned.');
             return;
         }
 
@@ -167,9 +172,9 @@ async function refreshPicture(kind) {
 function pictureHtml(title, png, trouble) {
     const stamp = new Date().toLocaleTimeString();
 
-    // Escaped because trouble is whatever the server or fetch said, and a stray < would swallow the rest
-    // of the page rather than show the sentence that explains why there is no picture.
-    const plain = (trouble ?? 'Nothing yet - press Refresh.')
+    // HTML-escaped: trouble is raw server or fetch text, and an unescaped < would hide the message that
+    // explains why there is no picture.
+    const plain = (trouble ?? 'No image yet. Press Refresh.')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     const body = png
@@ -203,12 +208,11 @@ function pictureHtml(title, png, trouble) {
 </body></html>`;
 }
 
-/// Every canvas that answers, newest first, with enough about each to tell them apart.
+/// Every canvas that answers, newest first, with enough detail to tell them apart.
 ///
-/// discoverLink takes the first that replies and says so in its own comment; that is fine with one Rhino
-/// and arbitrary with several, because readdirSync promises no order. This is the deliberate version, and
-/// it exists because the one way a human could choose - the button on the canvas - reaches the editor
-/// beside Rhino rather than a browser somewhere else. Working remotely there was no way to say which one.
+/// discoverLink takes the first reply, which is fine for one Rhino and arbitrary for several, because
+/// readdirSync promises no order. This list makes the choice explicit and works from a remote session; the
+/// button on the canvas reaches only the editor beside Rhino.
 async function listSessions() {
     let files = [];
 
@@ -237,15 +241,15 @@ async function listSessions() {
                 continue;
             }
 
-            // What the document is called is the only thing that tells two canvases apart for a human;
-            // the pid tells them apart for everything else. Asked after the greeting, so a Rhino that is
-            // alive but busy still appears rather than being skipped for being slow.
+            // The document name is what distinguishes two canvases for a user; the pid distinguishes them
+            // for everything else. It is asked after the greeting: a Rhino that is alive but busy is still
+            // listed and not skipped for being slow.
             let name = null;
 
             try {
                 name = (await linkFetch('/canvas'))?.document?.name ?? null;
             } catch {
-                // Busy or mid-solve: it is still a session, just not one that can describe itself now.
+                // Busy or mid-solve: still a session, though its document name cannot be read now.
             }
 
             live.push({
@@ -262,12 +266,11 @@ async function listSessions() {
     return live;
 }
 
-/// Asks which canvas, and remembers the answer.
+/// Ask which canvas and remember the choice.
 ///
-/// The choice is pinned rather than advisory: the poll below re-discovers whenever a call fails, and
-/// without pinning it would quietly wander back to whichever session answers first. It is dropped when
-/// that Rhino stops answering, so a choice cannot outlive the canvas it named - the same rule the MCP
-/// server already follows.
+/// The choice is pinned. pollLink re-discovers after any failed call and without a pin would fall back to the
+/// first session that answers. The pin is dropped when that Rhino stops answering and does not outlive the
+/// canvas it named, which is the same rule the MCP server follows.
 async function switchCanvas() {
     const live = await listSessions();
 
@@ -299,8 +302,8 @@ async function switchCanvas() {
     paintLinkStatus();
     linkLog(`— switched to the canvas on port ${picked.port} —`);
 
-    // The agent is told the same way the canvas button tells it, so a session started from here is bound
-    // to the canvas that was chosen rather than to whichever one answers first.
+    // The canvas button uses the same mechanism. The agent's MCP server binds to the canvas that was chosen
+    // instead of to the first session that answers.
     process.env.PHENOME_GH_PORT = String(picked.port);
 }
 
@@ -310,18 +313,18 @@ function paintLinkStatus() {
 
     link.status.text = link.port ? `${pin}$(plug) GH :${link.port}` : '$(debug-disconnect) GH offline';
     link.status.tooltip = link.port
-        ? `Grasshopper link on port ${link.port}${link.pinned === link.port ? ', chosen by hand' : ''}.`
+        ? `Grasshopper link on port ${link.port}${link.pinned === link.port ? ', manually selected' : ''}.`
           + " Click to switch canvas. The journal runs in the 'Phenome GH' output channel."
-        : 'No Grasshopper session. Start Rhino with the Phenome Link plugin. Click to look again.';
+        : 'No Grasshopper session. Start Rhino with the Phenome Link plugin. Click to rediscover.';
 
-    // Clickable, because this is where somebody looks when they want to know what they are attached to,
-    // and until now it could only be told rather than asked.
+    // The item is clickable. It is where the current attachment is read, and a click offers a choice instead
+    // of only reporting what discovery happened to find.
     link.status.command = 'phenomeLink.switchCanvas';
     link.status.show();
 }
 
-/// The heartbeat: journal entries into the output channel, connection state into the status bar. Polling,
-/// not push, on purpose - the journal keeps everything, so a missed beat costs nothing.
+/// Heartbeat: journal entries go to the output channel and the connection state to the status bar. The
+/// journal is polled, not pushed, because it is complete and a missed poll loses nothing.
 async function pollLink() {
     if (link.port === null) {
         await discoverLink();
@@ -358,7 +361,7 @@ async function pollLink() {
     paintLinkStatus();
 }
 
-/// GET /canvas into the active editor - the Transcribe gesture without the trip to the canvas.
+/// Insert GET /canvas into the active editor: the canvas recipe without going to the canvas.
 async function insertRecipe() {
     if (link.port === null) {
         vscode.window.showInformationMessage('Phenome Link: no Grasshopper session to read a recipe from.');
@@ -379,8 +382,8 @@ async function insertRecipe() {
 
 // ------------------------------------------------------------------------------------ script round-trip
 
-/// Pick a script component, get its source as a file; Ctrl+S sends it back. The component's id travels in
-/// the filename, so the save handler knows the addressee without any registry.
+/// Pick a script component and open its source as a file; Ctrl+S sends it back. The component id is part of
+/// the filename, and the save handler reads the target from it without a registry.
 async function editScript() {
     if (link.port === null) {
         vscode.window.showInformationMessage('Phenome Link: no Grasshopper session.');
@@ -423,8 +426,8 @@ async function editScript() {
     vscode.window.setStatusBarMessage('Phenome Link: saving this file sends it back to Grasshopper.', 5000);
 }
 
-/// The way back: a saved .gh.cs whose name carries a component id goes over POST /script, and whatever the
-/// component complains about lands on the file as squiggles - the balloon's words, in the margin.
+/// Return path: saving a .gh.cs whose filename carries a component id posts it to /script, and the
+/// component's error and warning messages from the recomputation become diagnostics on the file.
 async function pushSavedScript(document) {
     const match = /\.([0-9a-f-]{36})\.gh\.cs$/i.exec(document.fileName);
 
@@ -442,7 +445,7 @@ async function pushSavedScript(document) {
         [answer.errors ?? [], vscode.DiagnosticSeverity.Error],
         [answer.warnings ?? [], vscode.DiagnosticSeverity.Warning]]) {
         for (const message of messages) {
-            // The component speaks Roslyn: "…text… [line:column]". No position pins to the first line.
+            // Roslyn messages read "<text> [line:column]". A message with no position is placed on the first line.
             const position = /\[(\d+):(\d+)\]\s*$/.exec(message);
             const line = position ? Math.max(0, parseInt(position[1], 10) - 1) : 0;
             const column = position ? Math.max(0, parseInt(position[2], 10) - 1) : 0;
@@ -465,20 +468,18 @@ async function pushSavedScript(document) {
 
 // ------------------------------------------------------------------------------------------ teach agents
 
-// The knowledge an agent needs is small and stable; what varies is where agents look for it. The emerging
-// answer across agent CLIs is a file in the workspace root - AGENTS.md by convention, CLAUDE.md for
-// Claude - so that is where this writes. Marker-delimited and idempotent: re-teaching replaces the section
-// instead of stacking copies, and nothing else in the file is touched.
+// The notes are small and change rarely; the place agents read them varies. The convention across agent CLIs
+// is a file in the workspace root (AGENTS.md, and CLAUDE.md for Claude), and this writes there. The section is
+// delimited by the markers below and replaced on every run. Repeated calls do not stack copies, and the rest
+// of the file is left untouched.
 
 const TEACH_START = '<!-- phenome-link:start -->';
 const TEACH_END = '<!-- phenome-link:end -->';
 
-/// The notes themselves live in notes/pairing.md and ship with the extension.
+/// The notes live in notes/pairing.md and ship with the extension.
 ///
-/// They were a template literal in this file until every backtick in them needed escaping - which is the
-/// point at which content stops being code and starts being a document held hostage by one. As a markdown
-/// file they can be read, reviewed and corrected by somebody who does not write JavaScript, and changing
-/// what an agent is told stops being a code change.
+/// As a markdown file the text needs no escaped backticks and can be edited without touching JavaScript.
+/// Changing what an agent is told is a content change and not a code change.
 function notes() {
     return fs.readFileSync(path.join(context.extensionUri.fsPath, 'notes', 'pairing.md'), 'utf8').trim();
 }
@@ -487,14 +488,15 @@ const TEACHING = () => `${TEACH_START}
 ${notes()}
 ${TEACH_END}`;
 
-/// Writes the pairing knowledge into the workspace's agent files. AGENTS.md is created if absent;
-/// CLAUDE.md is only updated when it already exists - creating it is the owner's call, not a plugin's.
+/// Write the pairing notes into the workspace's agent files. AGENTS.md is created if absent and carries the
+/// notes. A CLAUDE.md that already exists gets them in full; one that does not exist is created as a
+/// reference to AGENTS.md rather than a second copy.
 async function teachAgents(quiet) {
     const folder = vscode.workspace.workspaceFolders?.[0];
 
     if (!folder) {
         if (!quiet) {
-            vscode.window.showInformationMessage('Phenome Link: open a folder first - the notes live in the workspace.');
+            vscode.window.showInformationMessage('Phenome Link: open a folder first. The notes are written into the workspace.');
         }
 
         return;
@@ -502,9 +504,9 @@ async function teachAgents(quiet) {
 
     const taught = [];
 
-    // AGENTS.md carries the notes; CLAUDE.md gets them too, because that is the file Claude reads and a
-    // fresh workspace has neither. Where CLAUDE.md has to be created, it only imports the notes rather
-    // than copying them - two copies of a doctrine is one too many.
+    // AGENTS.md carries the notes and CLAUDE.md gets them too, because that is the file Claude reads and a
+    // new workspace has neither. A CLAUDE.md that has to be created imports AGENTS.md instead of holding a
+    // second copy of the same text.
     const agents = path.join(folder.uri.fsPath, 'AGENTS.md');
     const claude = path.join(folder.uri.fsPath, 'CLAUDE.md');
 
@@ -522,7 +524,7 @@ async function teachAgents(quiet) {
         const file = path.join(folder.uri.fsPath, name);
         const exists = fs.existsSync(file);
 
-        // An existing CLAUDE.md gets the notes in full; one we just wrote already imports them.
+        // An existing CLAUDE.md gets the notes in full; one written just above already imports them.
         if (name === 'CLAUDE.md' && (!exists || fs.readFileSync(file, 'utf8').includes('@AGENTS.md'))) {
             continue;
         }
@@ -540,31 +542,27 @@ async function teachAgents(quiet) {
         taught.push(name);
     }
 
-    // The MCP half: the server script into the workspace (stable path, survives extension updates), and
-    // its registration merged into every place a host looks for project tool servers.
+    // MCP half: copy the server script to a stable workspace path that survives extension updates, then merge
+    // its registration into every location a host reads for project tool servers.
     const home = path.join(folder.uri.fsPath, '.phenome');
 
     fs.mkdirSync(home, { recursive: true });
     fs.copyFileSync(path.join(context.extensionUri.fsPath, 'mcp.js'), path.join(home, 'gh-mcp.js'));
 
-    // Once, .mcp.json was the only file written here, on the grounds that it is "where agents look for
-    // project tool servers". It is where *Claude Code* looks. Every other host has its own convention and
-    // reads none of the others, so an agent on any of them saw no grasshopper tools at all - and the notes
-    // it had just been taught are written almost entirely in terms of those tools. Watched happening: an
-    // agent on Kilo spent its whole first turn reasoning about why the tools were missing, correctly worked
-    // out that our own note about stale sessions did not apply, and set off to launch Rhino by hand.
+    // Each host reads its own registration file and none of the others; .mcp.json is where Claude Code looks.
+    // An agent on a host with no registration sees none of this server's tools, while the notes it has just
+    // been given describe the work almost entirely in terms of those tools.
     //
-    // So: register everywhere, merging rather than replacing, because these files are the workspace owner's
-    // and may already carry servers of their own. Writing a config for a host that is not installed costs a
-    // small file nobody reads; writing none for the host that IS installed costs the whole feature.
+    // The server is registered in all of them, merged into what is there: these files belong to the workspace
+    // owner and may already list servers of their own. A config for a host that is not installed costs one
+    // unread file; a missing config for the host that is installed loses the feature.
     //
-    // The path stays relative. Every one of these hosts spawns the server with the workspace as its working
-    // directory, and these files get committed - an absolute path would be one machine's truth in a file
-    // that travels.
+    // The path stays relative. All of these hosts start the server with the workspace as the working
+    // directory, and these files are committed; an absolute path would encode one machine in a shared file.
     const server = { command: 'node', args: ['.phenome/gh-mcp.js'] };
 
-    // VS Code's own MCP support keys this differently - `servers`, not `mcpServers` - and silently ignores
-    // the other spelling, which is the kind of difference that reads as "the feature does not work".
+    // VS Code's own MCP support uses `servers` instead of `mcpServers` and silently ignores the other key. A
+    // wrong spelling there looks like a broken feature.
     const registries = [
         { file: '.mcp.json', key: 'mcpServers' },            // Claude Code
         { file: '.kilocode/mcp.json', key: 'mcpServers' },   // Kilo Code
@@ -584,12 +582,12 @@ async function teachAgents(quiet) {
             // Absent or broken; either way this write is the whole content.
         }
 
-        // This key is what a host turns into the tool prefix, so it - not the name the server reports in
-        // its handshake - is what made the tools `mcp__grasshopper__*`. Renamed in 0.30.0, because the
-        // server drives Rhino as much as Grasshopper and half its verbs answer with no canvas open at all.
+        // This key becomes the host's tool prefix (`mcp__phenome__*`); the name the server reports in its
+        // handshake does not. The key was `grasshopper` before 0.30.0. The server drives Rhino as much as
+        // Grasshopper, and half its verbs answer with no canvas open.
         //
-        // The old key is deleted rather than left beside the new one: a host that finds both registers two
-        // servers, spawns two copies of this script, and offers every verb twice under two prefixes.
+        // The old key is deleted and not left beside the new one: a host that finds both registers two
+        // servers, starts two copies of this script and exposes every verb twice under two prefixes.
         servers[key] = { ...servers[key], phenome: server };
         delete servers[key].grasshopper;
 
@@ -598,8 +596,8 @@ async function teachAgents(quiet) {
         taught.push(file);
     }
 
-    // And the permissions, so the first session already trusts the server and its tools: one rule names
-    // the whole server. Local settings, merged - whatever else lives there is somebody's and stays.
+    // Permissions: one rule covers the whole server, and the first session already trusts the server and its
+    // tools. settings.local.json is merged into, and its existing entries stay.
     const claudeDir = path.join(folder.uri.fsPath, '.claude');
     const local = path.join(claudeDir, 'settings.local.json');
 
@@ -621,8 +619,8 @@ async function teachAgents(quiet) {
         settings.permissions.allow.push('mcp__phenome');
     }
 
-    // The rule for the old name goes, for the reason the old registration key goes: it names a server this
-    // workspace no longer has, and a stale allow rule is the kind of line somebody later has to work out.
+    // The rule for the old name is removed for the same reason as the old registration key: it names a server
+    // this workspace no longer has, and a stale allow rule is one more line to investigate later.
     settings.permissions.allow = settings.permissions.allow.filter(rule => rule !== 'mcp__grasshopper');
 
     fs.writeFileSync(local, JSON.stringify(settings, null, 2) + '\n', 'utf8');
@@ -633,7 +631,7 @@ async function teachAgents(quiet) {
     }
 }
 
-/// Offered once per workspace, when a live session first appears: the moment the knowledge becomes useful.
+/// Offered once per workspace, on the first live session, which is when the notes become useful.
 async function offerTeaching() {
     const folder = vscode.workspace.workspaceFolders?.[0];
 
@@ -660,8 +658,8 @@ async function offerTeaching() {
 
 // --------------------------------------------------------------------------------------------- feedback
 
-/// Assembles the report, shows it, and offers a mail draft - the human reads it before anything moves, and
-/// the sending is theirs. This side never posts anything outward.
+/// Assemble the report, show it, and offer a mail draft. Nothing is sent from this side: the user reads the
+/// report and does the sending.
 async function reportProblem() {
     if (link.port === null) {
         vscode.window.showInformationMessage('Phenome Link: no Grasshopper session to report on.');
@@ -699,7 +697,7 @@ async function reportProblem() {
     await vscode.window.showTextDocument(document);
 
     const answer = await vscode.window.showInformationMessage(
-        'Report ready. Nothing has been sent - open a mail draft with it?',
+        'Report ready. Nothing has been sent. Open a mail draft with it?',
         'Open mail draft', 'Show the file', 'Not now');
 
     if (answer === 'Open mail draft') {
@@ -712,8 +710,8 @@ async function reportProblem() {
 
 // ---------------------------------------------------------------------------------------------- pairing
 
-/// The command that starts an agent. An explicit setting wins; the default 'claude' is honoured only if
-/// PATH can resolve it; failing that, the newest Claude Code extension's own bundled CLI stands in.
+/// Command that starts an agent. An explicit setting wins. The default 'claude' is used only if PATH can
+/// resolve it; otherwise the newest Claude Code extension's bundled CLI is used.
 function agentCommand() {
     const configured = vscode.workspace.getConfiguration('phenomeLink').get('agentCommand') || 'claude';
 
@@ -747,15 +745,15 @@ function agentCommand() {
             return bundled;
         }
     } catch {
-        // No extensions folder is a fine answer; the default speaks for itself below.
+        // No extensions folder is an acceptable outcome; the default is returned below.
     }
 
     return 'claude';
 }
 
-/// The button on the canvas lands here: vscode://phenome.phenome-link/pair?port=NNNN opens (or wakes) this
-/// window and starts an agent session with the handshake already typed. The port travels in the link, so
-/// discovery is instant even before the poll finds the file.
+/// Handles the canvas button: vscode://phenome.phenome-link/pair?port=NNNN opens or wakes this window and
+/// starts an agent session with the handshake already typed. The port is in the URI and is known before the
+/// poll finds the port file.
 function handleUri(uri) {
     if (uri.path !== '/pair') {
         return;
@@ -769,9 +767,9 @@ function handleUri(uri) {
         paintLinkStatus();
     }
 
-    // The handshake is deliberately self-contained: the URI lands in whichever window was focused last,
-    // and that window's workspace - if there is one at all - need not know Phenome. Everything the agent
-    // must learn, the server itself teaches: GET / is the protocol.
+    // The handshake is self-contained on purpose: the URI opens the window that was focused last, and that
+    // window's workspace, if it has one, need not know anything about Phenome. The server describes the
+    // protocol itself at GET /.
     const where = port
         ? `http://127.0.0.1:${port}`
         : process.platform === 'win32'
@@ -780,30 +778,30 @@ function handleUri(uri) {
 
     const agent = agentCommand();
     // A path is quoted for the shell the terminal runs: PowerShell needs the call operator, and zsh or bash
-    // on a Mac need the path in single quotes, with any quote inside it closed and reopened. The Mac half has
-    // not been run on a Mac.
+    // need the path in single quotes with any inner quote closed and reopened. The macOS branch has not been
+    // run on a Mac.
     const invoke = !/[\\/]/.test(agent)
         ? agent
         : process.platform === 'win32'
             ? `& '${agent.replace(/'/g, "''")}'`
             : `'${agent.replace(/'/g, "'\\''")}'`;
 
-    // The port travels into the session's environment, so the agent's MCP server binds to the canvas whose
-    // button was pressed rather than to whichever session happens to answer first. With several Rhinos up -
-    // one per agent - that is the difference between pairing and gatecrashing.
+    // The port goes into the session environment so the agent's MCP server binds to the canvas whose button
+    // was pressed, not to the first session that answers. With several Rhinos running, one per agent, that is
+    // what keeps an agent on its own canvas.
     const terminal = vscode.window.createTerminal({
         name: port ? `Claude × Grasshopper :${port}` : 'Claude × Grasshopper',
         env: port ? { PHENOME_GH_PORT: String(port) } : undefined,
     });
 
     terminal.sendText(
-        `${invoke} "You are pairing with a live Grasshopper canvas${port ? ` on port ${port}` : ''}. If you ` +
-        `have 'phenome' MCP tools (canvas, events, say, ...), use them - each asks permission once, and ` +
-        `they are already bound to this canvas${port ? '' : ' by discovery'}. Otherwise it is loopback HTTP ` +
-        `at ${where}: GET / describes the whole protocol - start there. Read the canvas, then greet the ` +
-        `human with say (author 'claude'). Poll events?since=N while pairing (the response's 'latest' is ` +
-        `your next cursor); entries carry author - skip your own echo. The human's messages arrive as ` +
-        `kind:'message' entries."`);
+        `${invoke} "This session pairs with a live Grasshopper canvas${port ? ` on port ${port}` : ''}. If ` +
+        `'phenome' MCP tools (canvas, events, say, ...) are available, use them: each asks permission once, ` +
+        `and they are already bound to this canvas${port ? '' : ' by discovery'}. Otherwise the link is ` +
+        `loopback HTTP at ${where}. GET / describes the whole protocol; start there. Read the canvas, then ` +
+        `greet the user with say (author 'claude'). Poll events?since=N while pairing (the response's ` +
+        `'latest' is the next cursor). Every entry carries its author; skip the echo of this session's own ` +
+        `entries. The user's messages arrive as kind:'message' entries."`);
     terminal.show();
 }
 
@@ -827,7 +825,7 @@ function activate(extensionContext) {
             pushSavedScript(document).catch(failed => linkLog(`script push failed: ${failed.message}`));
         }));
 
-    // The Grasshopper heartbeat: cheap when connected, cheaper when not.
+    // Grasshopper heartbeat every 2.5 seconds. A poll costs little with a session and less without one.
     paintLinkStatus();
     link.timer = setInterval(() => { pollLink().catch(() => {}); }, 2500);
 }

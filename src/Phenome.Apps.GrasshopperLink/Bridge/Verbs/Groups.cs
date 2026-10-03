@@ -10,11 +10,11 @@ using static Phenome.Apps.GrasshopperLink.Bridge.Verbs.Plumbing;
 
 namespace Phenome.Apps.GrasshopperLink.Bridge.Verbs;
 
-/// <summary>A group is a function; these are the verbs that define one.</summary>
+/// <summary>A group is a function. These verbs define one.</summary>
 /// <remarks>
-/// Declaring its inlets and outlets, taking it apart again, and laying the finished blocks out. Apart
-/// from <see cref="Objects"/> because the unit is different - those verbs act on one object, these on a
-/// boundary drawn round several.
+/// They declare a group's inlets and outlets, take it apart and lay the finished blocks out. They are kept
+/// apart from <see cref="Objects"/> because the unit differs: those act on a single object, these on a boundary
+/// around several.
 /// </remarks>
 internal static class Groups
 {
@@ -23,14 +23,13 @@ internal static class Groups
         string author = Author(request);
         string name = Field(request, "name") ?? throw new ArgumentException("group needs 'name'.");
 
-        // No members is not an error: a group declared signature-first has none yet, which is the point.
+        // Absence of members is not an error: a signature-first group has none yet, by design.
         List<Guid> asked = request.RootElement.TryGetProperty("ids", out JsonElement ids)
             ? [.. ids.EnumerateArray().Select(id => Guid.Parse(id.GetString()!))]
             : [];
 
-        // Declared up front, before there is a body: this is what lets a definition be built the way code
-        // is written - the signature first, the innards after. Answered as a name-to-id map, so the body
-        // can wire straight onto them.
+        // Ports are declared before the body exists, and a definition is built like code: signature first, body
+        // after. They are returned as a name-to-id map that the body wires onto directly.
         List<(string Name, string? Type)> inlets = Names(request, "inlets");
         List<(string Name, string? Type)> outlets = Names(request, "outlets");
         Dictionary<string, Guid> made = [];
@@ -41,8 +40,8 @@ internal static class Groups
 
             EnsureAutosave(document);
 
-            // With an id, this is a rename and recolour of a group that exists - the alternative was an
-            // ungroup-and-regroup dance that leaves duplicates behind if anything goes wrong halfway.
+            // With an id this renames and recolours an existing group. Ungrouping and regrouping instead would
+            // leave duplicates if the operation failed partway.
             if (Field(request, "id") is { } existing)
             {
                 if (document.FindObject(Guid.Parse(existing), topLevelOnly: true)
@@ -69,15 +68,13 @@ internal static class Groups
                     already.AddObject(id);
                 }
 
-                // Ports declared against a group that already exists. This used to fall out of the early
-                // return below and do nothing at all, silently: a caller asking to add one outlet to a live
-                // group got ok and no outlet, which is the same fault as a note whose text was dropped and
-                // was reported in the same breath. A group's signature is the thing most likely to need
-                // changing after the fact - you learn what a function returns by writing it - so this is an
-                // edit worth supporting rather than refusing.
+                // Ports may be declared against an existing group. Adding a port to a live group must actually
+                // add it; silently returning ok with no port is the same fault as dropping a note's text. A
+                // group's signature is the part most often edited after the body is written, and this case must
+                // be supported.
                 //
-                // Only what is missing: matched by nickname, so calling this twice with the same declaration
-                // adds nothing the second time, and an existing port keeps its wires.
+                // Add only missing ports, matched by nickname: repeating the same declaration adds nothing, and
+                // an existing port keeps its wires.
                 HashSet<string> already_there = [.. Signature.Members(document, already)
                     .Select(id => document.FindObject(id, topLevelOnly: true))
                     .OfType<IGH_Param>()
@@ -95,8 +92,8 @@ internal static class Groups
                     {
                         if (already_there.Contains(what))
                         {
-                            // Answered anyway, so a caller gets the same name-to-id map whether the port was
-                            // planted just now or was already standing there.
+                            // Return the id either way: the caller gets the same name-to-id map whether the
+                            // port was just created or already existed.
                             IGH_Param? standing = Signature.Members(document, already)
                                 .Select(id => document.FindObject(id, topLevelOnly: true))
                                 .OfType<IGH_Param>()
@@ -114,8 +111,8 @@ internal static class Groups
 
                         port.NickName = what;
                         Signature.MarkAsPort(port, "group", side);
-                        // Only when the constructor left none - a second CreateAttributes is how the
-                        // unclearable wire selection was born (the long version is on `add`).
+                        // Create attributes only when the constructor left none; a second CreateAttributes causes
+                        // the unclearable wire selection described on `add`.
                         if (port.Attributes is null)
                         {
                             port.CreateAttributes();
@@ -139,14 +136,12 @@ internal static class Groups
                 return already.InstanceGuid;
             }
 
-            // The ports go down first and the group is drawn around them: a group created empty and then
-            // filled has to have its frame recomputed anyway, and an object added to a group that does not
-            // yet know its own bounds is how frames end up in the wrong place.
+            // Place the ports first, then draw the group around them: an empty group filled later needs its
+            // frame recomputed anyway, and adding an object to a group that does not yet know its bounds puts
+            // frames in the wrong place.
             //
-            // A lane per group, stacked down the Y axis and far enough apart to stay apart. arrange will
-            // lay the whole thing out properly at the end, but a human watching an agent work needs to
-            // read the canvas *while* it is being built - and everything landing in one pile is unreadable
-            // exactly when intervening would help most.
+            // Give each group its own lane down the Y axis, spaced apart. arrange lays the whole document out at
+            // the end, but a user reading the canvas during the build needs it legible while it is built.
             float x = 100;
             float y = 100 + (document.Objects.OfType<Grasshopper.Kernel.Special.GH_Group>().Count() * 260);
 
@@ -161,13 +156,12 @@ internal static class Groups
 
                     port.NickName = what;
 
-                    // Marked with the same mark signature uses, because it is the same thing: a group's edge.
-                    // Unmarked, a port declared here was recognised only while a wire happened to cross the
-                    // boundary at it - so signature could plant a duplicate in front of one, and a declared
-                    // outlet at the end of a definition was not counted as an outlet at all.
+                    // Mark with the same marker signature uses: both are a group's edge. An unmarked port here
+                    // is recognised only when a wire happens to cross it. signature can then plant a duplicate,
+                    // and a declared outlet at the end is not counted.
                     Signature.MarkAsPort(port, "group", side);
 
-                    // Only when the constructor left none, same as everywhere an object is stood up.
+                    // Create attributes only when the constructor left none, as everywhere an object is created.
                     if (port.Attributes is null)
                     {
                         port.CreateAttributes();
@@ -190,8 +184,8 @@ internal static class Groups
 
             if (request.RootElement.TryGetProperty("colour", out JsonElement colour))
             {
-                // A quarter opacity, the way the reference definitions paint them: the colour names the
-                // role, the wires underneath stay readable.
+                // Quarter opacity, matching the reference definitions: the colour marks the role while the wires
+                // below stay readable.
                 group.Colour = System.Drawing.Color.FromArgb(
                     64,
                     colour[0].GetInt32(),
@@ -214,8 +208,8 @@ internal static class Groups
 
             group.ExpireCaches();
 
-            // To the very back of the draw order: a group made around existing groups is the mother, and
-            // the mother is painted behind her children or she hides them.
+            // Move to the back of the draw order: a group drawn around existing groups is the mother and must
+            // render behind its children, or it hides them.
             document.ArrangeObject(group, GH_Arrange.MoveToBack);
 
             global::Grasshopper.Instances.ActiveCanvas?.Refresh();
@@ -276,8 +270,8 @@ internal static class Groups
             : [];
 
     /// <summary>
-    /// A parameter to stand at a group's edge. Typed when the caller says so, generic otherwise - and a
-    /// generic port carries anything, which is the right default for a signature still being sketched.
+    /// The parameter placed at a group's edge. Typed when specified, generic otherwise; a generic port carries
+    /// any type, which is the right default for an unfinished signature.
     /// </summary>
     private static IGH_Param PortFor(string? type) => (type ?? "").ToLowerInvariant() switch
     {
@@ -315,8 +309,8 @@ internal static class Groups
 
             global::Grasshopper.Instances.ActiveCanvas?.Refresh();
 
-            // Only when something actually moved. An arrange on a settled layout is a normal thing to run and
-            // it changes nothing, so marking unconditionally would turn a no-op into a save prompt.
+            // Mark only when something moved. Arranging a settled document is normal and changes nothing;
+            // marking unconditionally would raise a save prompt for a no-op.
             if (count > 0)
             {
                 Changed(document);
@@ -342,10 +336,9 @@ internal static class Groups
 
             EnsureAutosave(document);
 
-            // Counted rather than read out of the answer: signature is meant to be safe to run twice, and on
-            // a document whose ports are already settled it plants nothing. Marking that as a change would
-            // mean the finishing move always produced a save prompt, whether or not it did anything. Ports are
-            // added as objects, so the object count is the honest measure and needs no new API.
+            // Measure by object count, not by the answer. signature is safe to run twice and plants nothing
+            // when ports are already settled; marking unconditionally would always raise a save prompt. Ports
+            // are added as objects, and the object count is an accurate measure that needs no new API.
             int before = document.ObjectCount;
 
             string made = Signature.Apply(document, only);

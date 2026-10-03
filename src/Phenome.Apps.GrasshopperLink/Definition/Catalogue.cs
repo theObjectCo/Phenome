@@ -8,10 +8,10 @@ namespace Phenome.Apps.GrasshopperLink.Definition;
 /// Search over every component this installation actually has.
 /// </summary>
 /// <remarks>
-/// The alternative - a written catalogue of native components - would be large, stale by next release and
-/// blind to whatever plugins are installed here. The component server in this very process knows all of
-/// it, so the honest answer is a question put to it live. Top matches are instantiated once to read their
-/// true parameter lists; instantiation is what a drop on the canvas does anyway, just without the canvas.
+/// Queries are evaluated against the component server in the current process, which knows the installed plugins.
+/// A static catalogue would be large, would change with every version and would miss them. The top matches are
+/// instantiated to read their actual parameter lists, the same way a component is instantiated when it is added
+/// to a canvas.
 /// </remarks>
 internal static class Catalogue
 {
@@ -44,7 +44,10 @@ internal static class Catalogue
         return json.Append("]}").ToString();
     }
 
-    /// <summary>Name hits beat nickname hits beat description hits; a whole-word start beats a substring.</summary>
+    /// <summary>
+    /// Ranks name matches above nickname matches and nickname matches above description matches. Within the name,
+    /// an exact match ranks above a prefix match and a prefix match above a substring match.
+    /// </summary>
     private static int Rank(IGH_ObjectProxy proxy, string query)
     {
         string name = proxy.Desc.Name ?? "";
@@ -99,8 +102,8 @@ internal static class Catalogue
             }
             catch (Exception)
             {
-                // A component that will not stand alone still deserves its listing; the parameters are
-                // a courtesy, not the contract.
+                // If instantiation fails, return the component listing without parameters. The parameter details are
+                // an addition to the basic search result.
             }
         }
 

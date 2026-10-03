@@ -10,17 +10,16 @@ using static Phenome.Apps.GrasshopperLink.Bridge.Verbs.Plumbing;
 namespace Phenome.Apps.GrasshopperLink.Bridge;
 
 /// <summary>
-/// The loopback interface an agent talks to: the canvas as JSON, the journal, and a handful of verbs.
+/// The loopback interface an agent talks to: the canvas as JSON, the journal, and a set of verbs.
 /// </summary>
 /// <remarks>
-/// Plain HTTP on 127.0.0.1, one JSON in, one JSON out - the same convention the inspector set, chosen for
-/// the same reason: any client that can make a request is a peer, whether it is an agent's shell command, a
-/// script or one day a webview. The port is ephemeral and written to a discovery file, so nothing is
-/// configured and two Rhinos do not fight. <c>GET /</c> describes the whole protocol, so a client needs to
-/// know nothing but the discovery file's path.
+/// Plain HTTP on 127.0.0.1, one JSON in and one JSON out. The inspector set this convention for the same
+/// reason: any client that can make a request is a peer, whether an agent's shell command, a script or a
+/// webview. The port is ephemeral and written to a discovery file. Nothing is configured, and two Rhinos do not
+/// collide. <c>GET /</c> describes the whole protocol, and a client needs only the discovery file's path.
 /// <para>
-/// Every mutation runs on the Rhino UI thread - Grasshopper's document is single-threaded property of the
-/// window - and is journalled with the caller's <c>author</c>, so the human sees the agent's hands move.
+/// Every mutation runs on the Rhino UI thread, because Grasshopper's document is a single-threaded property
+/// of the window. Each one is journalled with the caller's <c>author</c>, and the user sees the agent's work.
 /// </para>
 /// </remarks>
 internal static class LinkServer
@@ -34,30 +33,30 @@ internal static class LinkServer
     static long dropped;
     static long announced;
 
-    /// <summary>How many requests have been answered - the "has anyone ever connected" the pair button reads.</summary>
+    /// <summary>Requests answered so far. The pair button uses it to tell whether a client has ever connected.</summary>
     internal static long Served => System.Threading.Interlocked.Read(ref served);
 
     /// <summary>
     /// How many answers were written to a client that had already gone.
     /// </summary>
     /// <remarks>
-    /// Counted rather than logged one by one. It is not a fault of the verb - the verb ran and did what it was
-    /// asked - and it is not a refusal, so it belongs in neither the friction log nor the command line. What it
-    /// is worth is a number somebody can ask for when a session felt unreliable.
+    /// Counted, and not logged one by one. A lost answer is not a verb fault (the verb ran and did what was
+    /// asked) and not a refusal, and it never enters the friction log. The command line mentions the count at
+    /// 1, 10, 100 and so on. The count is a number to check when a session looked unreliable.
     /// </remarks>
     internal static long Dropped => System.Threading.Interlocked.Read(ref dropped);
 
-    /// <summary>When the last request came in - a quiet line means nobody is paired.</summary>
+    /// <summary>When the last request arrived. No recent requests means no agent is paired.</summary>
     internal static DateTime LastRequest { get; private set; } = DateTime.MinValue;
 
     /// <summary>
     /// When an agent last did something, as opposed to merely being connected.
     /// </summary>
     /// <remarks>
-    /// A paired client polls the journal every couple of seconds whether or not anything is happening,
-    /// so "a request arrived" is true for as long as anybody is attached and says nothing about whether
-    /// they are working. The heartbeat and the discovery probe are excluded here for the same reason
-    /// they are excluded from the command line echo: they are the connection breathing, not an act.
+    /// A paired client polls the journal every couple of seconds whether or not it is acting. "A request
+    /// arrived" stays true for the whole connection and says nothing about work. The heartbeat and the
+    /// discovery probe are excluded here for the same reason they are excluded from the command line echo:
+    /// they keep the connection alive and are not actions.
     /// </remarks>
     internal static DateTime LastAction { get; private set; } = DateTime.MinValue;
 
@@ -68,54 +67,54 @@ internal static class LinkServer
           "protocol": {
             "GET /": "this description",
             "GET /canvas": "the whole document: every object, wires, values, selection, enabled, preview, mapping, solver state",
-            "GET /canvas?as=mermaid": "the same document as a mermaid flowchart - groups as subgraphs, red components marked - with a map of short node ids to real guids. The shape of a definition at a fiftieth of the size; it carries no data, so branch and item counts still come from peek",
-            "GET /events?since=N": "the journal after entry N; response carries 'latest' to ask from next time; a gap below your cursor means entries were dropped - re-read /canvas",
-            "POST /dismiss": "SUPERSEDED by /dialog, and kept working. {author, button?, key?, expect?} - press a button by name, type a key, or close it when neither is given. When /pulse says clickable:false the dialog draws its own buttons and only a key reaches it - the underlined letter of the answer, or {ESC}. 'expect' names the dialog you meant to answer and refuses if another one is up by then",
-            "POST /dialog": "{author, button?, key?, close?, expect?} - answer the dialog Rhino is waiting on. Nothing is assumed: with no answer given this refuses and lists the buttons, so a decline is always something somebody said rather than something left out. 'close' declines. Supersedes /dismiss, which is kept for callers that already send it",
-            "GET /console?tail=50": "the tail of Rhino's own command line - what commands and scripts said, which until now went only to the human. Drained when the UI thread breathes, so a long command's output arrives when it ends; /pulse is the verb for the meantime",
-            "GET /pulse": "whether Rhino is idle, busy or blocked - answered without the UI thread, so it still answers when nothing else does. 'busy' names the running command and how long it has run: wait. 'blocked' names the open dialog: nothing will answer until somebody clicks it",
-            "POST /say": "{author, text, to?} - a message into the journal, for whoever reads it",
+            "GET /canvas?as=mermaid": "the same document as a mermaid flowchart (groups as subgraphs, red components marked) with a map of short node ids to real guids. It gives the shape of a definition at a fiftieth of the size and carries no data; branch and item counts still come from peek",
+            "GET /events?since=N": "the journal after entry N; response carries 'latest' to ask from next time; a gap below the client's cursor means entries were dropped: re-read /canvas",
+            "POST /dismiss": "SUPERSEDED by /dialog, and kept working. {author, button?, key?, expect?} - press a button by name, type a key, or close it when neither is given. When /pulse says clickable:false the dialog draws its own buttons and only a key reaches it: the underlined letter of the answer, or {ESC}. 'expect' names the dialog meant to be answered, and the call refuses if another one is up by then",
+            "POST /dialog": "{author, button?, key?, close?, expect?} - answer the dialog Rhino is waiting on. Nothing is assumed: with no answer given this refuses and lists the buttons, and a decline is always explicit. 'close' declines. Supersedes /dismiss, which is kept for callers that already send it",
+            "GET /console?tail=50": "the tail of Rhino's own command line: what commands and scripts said. It is drained when the UI thread is idle, and a long command's output arrives when it ends; /pulse covers the meantime",
+            "GET /pulse": "whether Rhino is idle, busy or blocked, answered off the UI thread; it responds even when other verbs do not. 'busy' names the running command and how long it has run: wait. 'blocked' names the open dialog, which holds the UI thread until an agent answers it or the user clicks it",
+            "POST /say": "{author, text, to?} - a message into the journal, for the user or another agent",
             "POST /solver": "{author, enabled} - lock or unlock the solver",
             "POST /bake": "{author, ids:[guid]} - bake those objects into the Rhino document",
             "POST /param": "{author, id, side:'input'|'output', param:nameOrIndex, mapping?:'none'|'flatten'|'graft', simplify?, reverse?} - data mapping on one parameter",
             "POST /new": "{author} - a fresh Grasshopper document on the canvas",
             "POST /open": "{author, path} - open a .gh on the canvas, or a .3dm in Rhino",
-            "GET /documents": "every document Grasshopper holds open, with its id, name, path, modified flag, object count, and which one the canvas is showing. 'new' and 'open' leave the previous document open and unreachable, so more of them are usually there than anybody meant",
-            "POST /documents": "{author, use} - show the document with that id, so every later verb means that one. Same shape as /sessions one level up: read to see what there is, 'use' to change which one you are working on",
-            "POST /close": "{author, id?} - close a document, discarding whatever is unsaved in it; the one on the canvas unless you name another. Answers what the canvas shows afterwards, and says discardedUnsavedChanges when something was thrown away. No prompt appears: a modal would hold the UI thread every verb needs, so the choice is the verb you picked",
-            "POST /saveandclose": "{author, id?, path?} - write the document, then close it. Without 'path' it saves where it already lives, and refuses if it has never been saved rather than inventing a location",
+            "GET /documents": "every document Grasshopper holds open, with its id, name, path, modified flag, object count, and which one the canvas is showing. 'new' and 'open' leave the previous document open and unreachable, and more documents than intended usually accumulate",
+            "POST /documents": "{author, use} - show the document with that id; every later verb then works on that one. It has the same shape as /sessions one level up: read to see what there is, send 'use' to change which one the later verbs work on",
+            "POST /close": "{author, id?} - close a document, discarding whatever is unsaved in it; the one on the canvas unless another id is given. Answers what the canvas shows afterwards, and says discardedUnsavedChanges when something was thrown away. No prompt appears, because a modal would hold the UI thread every verb needs; picking this verb is the choice",
+            "POST /saveandclose": "{author, id?, path?} - write the document, then close it. Without 'path' it saves where it already lives, and refuses if it has never been saved; it does not invent a location",
             "POST /add": "{author, name|guid, pivot?:[x,y], nickname?} - put a component or parameter on the canvas; answers its id",
             "POST /wire": "{author, wires:[{from:{id, param?}, to:{id, param?}, disconnect?}]} - all the wires in one call, one solution at the end. A single {from, to} at the root still works",
             "POST /set": "{author, values:[{id, value?, param?, minimum?, maximum?, decimals?, nickname?, width?, height?}]} - all the values in one call. A single one at the root still works. A slider takes bounds and precision (or a string like '0<50<100' for all three), a panel text, a toggle a flag; with 'param' the value replaces a component input's stored constant, and a null value empties it. An array stores one item per element, and [x,y,z] is a point. 'nickname' renames a parameter standing on its own (never a component), and 'width' and 'height' size a panel; with any of those, 'value' may be left out",
             "POST /select": "{author, ids:[guid], add?} - select those objects, replacing the selection unless add",
-            "POST /delete": "{author, ids:[guid], force?} - remove those objects. Refuses and names the wires first if this would cut connections to objects that stay; force:true means you meant it",
-            "GET /wires": "every wire in the document, from and to, with names and parameters - the whole picture no per-input peek adds up to",
-            "GET /describe?id=guid": "one placed object's parameters: names, nicknames, types, item/list access, how many wires and items each holds - so a placed component needs no catalogue search",
+            "POST /delete": "{author, ids:[guid], force?} - remove those objects. Refuses and names the wires first if this would cut connections to objects that stay; force:true confirms the cut",
+            "GET /wires": "every wire in the document, from and to, with names and parameters",
+            "GET /describe?id=guid": "one placed object's parameters: names, nicknames, types, item/list access, how many wires and items each holds. A placed component needs no catalogue search",
             "POST /undo": "{author} - one step back through Grasshopper's own undo stack; every verb records into it",
             "POST /redo": "{author} - one step forward again",
-            "POST /arrange": "{author} - lay the whole document out in layers, mermaid-style: sources left, few crossings, even air, and whatever feeds a component or group stacked in the order of the sockets it feeds; groups are laid out as whole blocks, so their frames never overlap",
-            "POST /signature": "{author, id?} - give a group (or every group) named floating parameters at its edges and re-land the crossing wires on them, so it reads as a virtual component",
-            "POST /preview": "{author, id?, on?} - quiet the preview. With no id it sweeps the document: only the outlets of the red and yellow groups keep drawing - the geometry those colours promised - and everything else goes dark, machinery and intermediates alike. Name a group instead and that one is quieted on its own terms, whatever colour it wears; on:true gives a group its whole preview back",
+            "POST /arrange": "{author} - lay the whole document out in layers, mermaid-style: sources left, few crossings, even air, and whatever feeds a component or group stacked in the order of the sockets it feeds; groups are laid out as whole blocks and their frames never overlap",
+            "POST /signature": "{author, id?} - give a group (or every group) named floating parameters at its edges and re-land the crossing wires on them; the group then reads as a virtual component",
+            "POST /preview": "{author, id?, on?} - quiet the preview. With no id it sweeps the document: only the outlets of the red and yellow groups keep drawing (the geometry those colours produce), and everything else goes dark, machinery and intermediates alike. Name a group instead and only that group is quieted, whatever its colour; on:true gives a group its whole preview back",
             "GET /review": "the document against the composition rules: overlapping or unnamed groups, groups doing two jobs, bare boundary crossings, ungrouped objects",
-            "POST /report": "{author, expected, got, notes?} - leave a note where a verb fought you: what you expected against what happened. Refused requests are logged by themselves; this is for the rest. Local file, never sent anywhere",
+            "POST /report": "{author, expected, got, notes?} - leave a note about a verb that did not work as expected: what was expected against what happened. Refused requests are logged by themselves; this is for the rest. Local file, never sent anywhere",
             "GET /friction?tail=50": "the friction log: refused requests and reports, newest last, with the file's path",
-            "POST /feedback": "{author, expected, got, to?} - assembles the whole complaint into one readable file (session, review, recent friction) and answers with its path and a mailto link. Ask the human before calling it, and let them send it: nothing is sent from here",
-            "POST /group": "{author, name, ids?:[guid], colour?:[r,g,b], inlets?:[name|{name,type}], outlets?:[...]} - a named group, declared signature first if you like: inlets and outlets are created as named floating parameters and answered as a name-to-id map, so the body can be wired onto them afterwards",
+            "POST /feedback": "{author, expected, got, to?} - assembles the whole complaint into one readable file (session, review, recent friction) and answers with its path and a mailto link. Ask the user before calling it, and let them send it: nothing is sent from here",
+            "POST /group": "{author, name, ids?:[guid], colour?:[r,g,b], inlets?:[name|{name,type}], outlets?:[...]} - a named group, optionally declared signature first: inlets and outlets are created as named floating parameters and answered as a name-to-id map, and the body can then be wired onto them",
             "POST /ungroup": "{author, id} - dissolve a group, keeping its members",
             "GET /components?q=text": "search the installed component catalogue by name/description; top matches carry their inputs and outputs",
-            "GET /canvas-image?width=1200&fit=true": "the Grasshopper canvas itself as PNG (base64), fitted to the whole document for the capture and the view put back after - for judging whether a layout reads",
-            "GET /screenshot?width=640&zoomExtents=true": "the active Rhino viewport as PNG (base64) - low-res by default; framed on the geometry for the capture and the camera put back where the human left it (zoomExtents=false skips the framing)",
-            "POST /escape": "{author, times?} - post Escape to Rhino, cancelling whatever it is waiting for. For the case /dismiss cannot answer: a command waiting on a pick is not a dialog, so nothing is disabled and there is no window to click, yet the UI thread is held and every verb reports 'busy' as though waiting would help. 'times' cancels that many levels; one by default",
+            "GET /canvas-image?width=1200&fit=true": "the Grasshopper canvas itself as PNG (base64), fitted to the whole document for the capture and the view put back after; use it to judge whether a layout reads",
+            "GET /screenshot?width=640&zoomExtents=true": "the active Rhino viewport as PNG (base64), low-res by default, framed on the geometry for the capture and the camera put back where the user left it (zoomExtents=false skips the framing)",
+            "POST /escape": "{author, times?} - post Escape to Rhino, cancelling whatever it is waiting for. It covers the case /dismiss cannot answer: a command waiting on a pick is not a dialog. Nothing is disabled and there is no window to click, yet the UI thread is held and every verb reports 'busy' as though waiting would help. 'times' cancels that many levels; one by default",
             "GET /camera": "where the active viewport is looking: projection, camera location, target, up, 35mm lens length and the viewport's pixel size",
-            "POST /camera": "{author, location?:[x,y,z], target?:[x,y,z], up?:[x,y,z], lens?, projection?:'perspective'|'parallel'} - aim the active viewport. Only what you pass changes. This is how to frame a particular view: the Zoom command is interactive and a scripted one waits for a pick that never comes, which hangs the UI thread and takes every other verb down with it",
+            "POST /camera": "{author, location?:[x,y,z], target?:[x,y,z], up?:[x,y,z], lens?, projection?:'perspective'|'parallel'} - aim the active viewport. Only the fields passed change. This is how to frame a particular view: the Zoom command is interactive, and a scripted one waits for a pick that never comes. That hangs the UI thread and every other verb with it",
             "GET /peek?id=guid&side=input|output&param=nameOrIndex": "the full data on one parameter, branch by branch with tree paths. Give a group's id instead and it answers that group's signature as it stands: every inlet and outlet with its type, branch and item counts, and a few values off each outlet",
             "GET /measure?id=guid&side=output&param=nameOrIndex&against=guid&againstSide=&againstParam=": "lengths, areas and volumes of the geometry on one parameter (an output unless side=input), item by item with tree paths, and their totals and bounding box. With 'against' every pair from the two sets is compared: the area two closed planar curves share, the volume two solids share, and the nearest distance between curves or points. The same id and parameter twice compares the set with itself, each pair once",
             "GET /rhino": "the Rhino document: name, layers, object count",
-            "GET /plugins": "what is loaded: Grasshopper libraries and loaded Rhino plug-ins, each with version and the file it came from. For when the suspect named in the console is a plug-in rather than a component",
+            "GET /plugins": "what is loaded: Grasshopper libraries and loaded Rhino plug-ins, each with version and the file it came from. Use when the console output points to a plug-in rather than a component",
             "POST /place": "{author, group?, objects:[{id?, name|guid, nickname?, pivot?, slider?, text?, value?, inputs?:[{param?, sources:[{id, output?}]}]}]} - a whole recipe in one call; local ids wire to each other and to existing canvas guids, 'group' puts everything placed into that group; answers the id map",
             "POST /save": "{author, path?} - save the document (autosave also runs once before an agent's first edit)",
             "POST /zoom": "{author, ids:[guid]} - focus the canvas view on those objects",
-            "POST /rhino": "{author, script} - run a Rhino command script (layers, blocks, groups - the whole command language)",
+            "POST /rhino": "{author, script} - run a Rhino command script (layers, blocks, groups: the whole command language)",
             "GET /scripts": "the script components on the canvas, with their generation",
             "GET /script?id=guid": "one script component's source",
             "POST /script": "{author, id, source} - new source in, one solve, the component's errors and warnings back"
@@ -127,13 +126,11 @@ internal static class LinkServer
     /// <summary>Binds an ephemeral loopback port and starts answering.</summary>
     internal static void Start()
     {
-        // Before the listener, so the first request can already be told what Rhino is doing and what it
-        // has been saying.
+        // Started before the listener: the first request already sees what Rhino is doing and what it has said.
         Pulse.Start();
         CommandLine.Start();
 
-        // The border that says an agent is driving. Started here rather than on the first request, so the
-        // first request is already inside it.
+        // Started here and not on the first request: the agent-driving border covers the first request too.
         Attention.Start();
 
         listener = Listen();
@@ -149,23 +146,21 @@ internal static class LinkServer
                     System.Threading.Interlocked.Increment(ref served);
                     LastRequest = DateTime.Now;
 
-                    // Answered on a thread of its own, so a long verb does not stop the next request being
-                    // accepted. It used to be called right here, which meant a two-minute bake held the accept
-                    // loop for two minutes: a second client was not queued behind the first, it was not let in
-                    // at all, and its own timeout fired. With two agents on one canvas that is the whole story
-                    // - 947 of 1132 friction entries in one session were "the specified network name is no
-                    // longer available", which is a client that gave up waiting to be accepted.
+                    // Answered on its own thread: a long verb cannot block the accept loop. Run inline, a
+                    // two-minute bake holds the loop for two minutes, and a second client is not queued behind
+                    // it. That client is never accepted at all, and its own timeout fires. In one session with
+                    // two agents on one canvas, 947 of 1132 friction entries were "the specified network name
+                    // is no longer available", each one a client giving up on being accepted.
                     //
-                    // Safe because the document is not touched here: every verb marshals onto the UI thread
-                    // through OnUi, so document work stays as serialised as it ever was, and one OnUi block
-                    // still runs to completion before another starts. What now runs in parallel is the part
-                    // that never needed Rhino - parsing, the journal and friction behind their locks, and
-                    // writing the answer.
+                    // This is safe because no document work happens here. Every verb marshals onto the UI
+                    // thread through OnUi: document access stays serialised, and one OnUi block runs to
+                    // completion before another starts. Only work that never needed Rhino runs in parallel:
+                    // parsing, the journal and friction behind their locks, and writing the answer.
                     _ = Task.Run(() => Answer(context));
                 }
                 catch (Exception) when (!listener.IsListening)
                 {
-                    // Shut down mid-await; not an incident.
+                    // The listener was shut down mid-await, which is expected.
                 }
                 catch (Exception failure)
                 {
@@ -180,26 +175,26 @@ internal static class LinkServer
         string path = context.Request.Url?.AbsolutePath.TrimEnd('/') ?? "";
         string method = context.Request.HttpMethod;
 
-        // Before anything is read or run: a browser must not be able to drive this. See Browser.Refuse -
-        // loopback is not a boundary against a page the user merely visits, and this API compiles C#.
+        // Checked before anything is read or run: a browser must not be able to drive this, and this API
+        // compiles C#. Loopback is not a boundary against a page the user merely visits (see Browser.Refuse).
         if (Browser.Refuse(context.Request, Port) is { } refused)
         {
             Send(context.Response, 403, $"{{\"ok\":false,\"error\":{Json.Quote(refused)}}}");
             return;
         }
 
-        // A version withdrawn while it was running keeps answering the greeting and refuses the verbs.
-        // Tearing the listener down would be tidier to write and worse to receive: a client would see a
-        // dead port, report "no session", and the human would never learn why. A refusal carries the
-        // sentence, so whoever is at the other end - a person or an agent - is told what to do.
+        // A withdrawn version keeps answering the greeting and refuses the verbs. With the listener torn
+        // down, a client would see a dead port and report "no session", and the user would never learn why.
+        // A refusal carries the notice text and tells the client at the other end, person or agent, what to
+        // do.
         if (Advisory.Withdrawn is { } notice && path.Length != 0)
         {
             Send(context.Response, 403, $"{{\"ok\":false,\"error\":{Json.Quote(notice.Sentence)}}}");
             return;
         }
 
-        // Read once, up front: the body stream is single-pass, and a refusal cannot say what was asked
-        // for unless the asking was kept.
+        // Read once, up front: the body stream is single-pass, and a refusal can only quote the request if
+        // the request was kept.
         string payload = method == "POST" ? ReadBody(context.Request) : "";
 
         if (path != "/events" && path.Length != 0)
@@ -306,14 +301,13 @@ internal static class LinkServer
     /// The first edit an author sends over plain HTTP gets one sentence pointing at the MCP tools.
     /// </summary>
     /// <remarks>
-    /// One agent lost its <c>phenome</c> tools overnight, drove the canvas from Python scripts the next
-    /// morning, and kept doing so for a week after the tools came back. It built groups, moved them by hand
-    /// and skipped <c>review</c>, and nothing it sent was ever answered differently from the same verb
-    /// through MCP. The two clients this repository ships say who they are in <c>X-Phenome-Client</c>, so a
-    /// request without the header comes from a script, curl or another machine.
+    /// An agent that loses its <c>phenome</c> tools can fall back to plain HTTP scripts and never notice when
+    /// the tools return, because a script and an MCP call to the same verb get identical answers. The two
+    /// clients this repository ships identify themselves in <c>X-Phenome-Client</c>. A request without the
+    /// header comes from a script, curl or another machine.
     /// <para>
-    /// Once per author for the life of this Rhino, and only on a verb that changes the canvas. A loop of
-    /// <c>set</c> over variants is a fair use of a script, and a sentence on every answer would bury it.
+    /// Sent once per author for the life of this Rhino, and only on a verb that changes the canvas. A loop of
+    /// <c>set</c> over variants is a legitimate use of a script, and a sentence on every answer would bury it.
     /// </para>
     /// </remarks>
     private static string Door(HttpListenerRequest request, string method, string path, string payload, string body)
@@ -348,10 +342,10 @@ internal static class LinkServer
         }
 
         const string Sentence =
-            "This edit came over plain HTTP rather than through the phenome MCP tools. If your host lists tools "
+            "This edit came over plain HTTP, not through the phenome MCP tools. If the agent's MCP host lists tools "
             + "named mcp__phenome__* (Claude Code may list them as deferred, and one ToolSearch loads them), "
             + "build and change the definition through them. A script suits a loop of set, peek and measure. "
-            + "Said once per author.";
+            + "This note is sent once per author.";
 
         return body[..^1] + ",\"door\":" + Json.Quote(Sentence) + "}";
     }
@@ -372,24 +366,25 @@ internal static class LinkServer
     }
 
     /// <summary>
-    /// Writes the answer, and treats failing to write it as a different thing from failing to answer.
+    /// Writes the answer. A failed write is handled apart from a failed verb.
     /// </summary>
     /// <remarks>
-    /// One lost response used to produce three wrong consequences, because the write was inside the same try as
-    /// the verb. A client that had gone made <see cref="Respond"/> throw, the general catch treated that as the
-    /// verb having failed, and so: the friction log gained an entry for a verb that had in fact run - 947 of
-    /// 1132 entries in one two-agent session were exactly this - the command line echoed a failure that had not
-    /// happened, and the catch called <see cref="Respond"/> a second time on a closed stream, which is where
-    /// "this operation cannot be performed after the response has been submitted" came from.
+    /// <see cref="Send"/> catches its own write failures although it remains inside the verb's try block. If
+    /// the write shared the verb's exception handling, a client that had gone would make
+    /// <see cref="Respond"/> throw, and the general catch would treat it as the verb failing. The friction log
+    /// would gain entries for verbs that had in fact run, the command line would echo a failure that had not
+    /// happened, and the catch would call <see cref="Respond"/> a second time on a closed stream ("this
+    /// operation cannot be performed after the response has been submitted"). In one two-agent session that
+    /// accounted for 947 of 1132 friction entries.
     /// <para>
-    /// Writing is the last thing that happens and nothing follows it, so a failure here is counted and
-    /// otherwise ignored. The verb already ran; there is nobody left to tell.
+    /// Writing is the last step and nothing follows it. A failure here is counted and otherwise ignored: the
+    /// verb already ran, and there is no client left to tell.
     /// </para>
     /// <para>
-    /// What this cannot fix is the caller's side of it: an agent that sees a transport error still cannot tell
-    /// whether the verb ran. It should not retry a mutating verb on that error - the journal is the answer, and
-    /// it carries the author, so reading <c>/events</c> back and looking for its own entry says whether the work
-    /// landed. Retrying blind is how a non-idempotent verb gets applied twice.
+    /// The caller's side stays as it is: an agent seeing a transport error still cannot tell whether the verb
+    /// ran, and must not retry a mutating verb on that error. Because the journal carries the author, reading
+    /// <c>/events</c> back and looking for its own entry tells the agent whether the work landed. Retrying
+    /// blind applies a non-idempotent verb twice.
     /// </para>
     /// </remarks>
     private static void Send(HttpListenerResponse response, int status, string body)
@@ -402,8 +397,8 @@ internal static class LinkServer
         {
             long count = System.Threading.Interlocked.Increment(ref dropped);
 
-            // Said at one, ten, a hundred - so a session that loses one answer says so once, and a session
-            // losing them steadily says so a handful of times rather than a thousand.
+            // Announced at 1, 10, 100 and so on. A session that loses one answer reports it once, and one
+            // losing them steadily reports it a few times, not a thousand.
             long at = System.Threading.Interlocked.Read(ref announced);
 
             if (count >= NextAnnouncement(at))
@@ -411,13 +406,13 @@ internal static class LinkServer
                 System.Threading.Interlocked.Increment(ref announced);
 
                 LinkLog.Say(
-                    $"Phenome Link: {count} answer(s) could not be delivered - the client had gone. " +
+                    $"Phenome Link: {count} answer(s) could not be delivered: the client had gone. " +
                     $"The verbs themselves ran. Latest: {failure.Message}");
             }
         }
     }
 
-    /// <summary>1, 10, 100, 1000 - the count at which the next complaint is due.</summary>
+    /// <summary>The count at which the next message is due: 1, 10, 100, 1000 and so on.</summary>
     private static long NextAnnouncement(long already) =>
         already switch { 0 => 1, 1 => 10, 2 => 100, _ => (long)Math.Pow(10, already) };
 
@@ -425,49 +420,45 @@ internal static class LinkServer
     /// One line per request in Rhino's own command line: the time, the verb, and whether it worked.
     /// </summary>
     /// <remarks>
-    /// The journal and the VS Code channel are the full account; this is for the person sitting in front of
-    /// Rhino watching an agent work, who wants to know it is doing something and where it stopped - without
-    /// looking anywhere else. Queued onto the UI thread, since requests are answered on a worker.
+    /// The journal and the VS Code channel are the full record. This line is for the person watching an agent
+    /// work from inside Rhino: it shows that the agent is doing something and where it stopped, with nothing
+    /// else to look at. It is queued onto the UI thread, because requests are answered on workers.
     /// </remarks>
     private static void Echo(string method, string path, bool ok, string? said, System.Diagnostics.Stopwatch? clock = null)
     {
-        // The heartbeat and the discovery probe are not news: a client polls the journal every couple of
-        // seconds, and echoing that buries the one line the watcher actually wanted under a hundred that
-        // say nothing happened. Failures are still worth hearing about, whatever asked.
+        // The heartbeat and the discovery probe are not echoed. A client polls the journal every couple of
+        // seconds, and echoing each poll buries the line the watcher wants under hundreds that report
+        // nothing. Failures are echoed whatever the path.
         if (ok && (path == "/events" || path.Length == 0))
         {
             return;
         }
 
-        // Three bracketed facts and then the verb: when, from where, how long, what. Read down rather than
-        // across, so every field is a fixed width - and the brackets are what makes that visible, since a
-        // column whose edges are drawn cannot drift by a character without somebody noticing.
+        // Three bracketed fields and then the verb: when, from where, how long, what. The log is read down
+        // the columns, and the time and address fields are a fixed width. The brackets make that visible: a
+        // column with drawn edges cannot drift by a character without showing it.
         //
-        // The duration is not padded, and that is a correction rather than an oversight. It was padded to a
-        // fixed width first, on the argument that aligned digits make a slow call findable by shape - which is
-        // true of a column of four-digit numbers and false of what this log actually holds, where almost every
-        // line is two digits of milliseconds and the padding reads as a gutter. The brackets already do the
-        // work the padding was for: an eye finds [1.4 s] among [78 ms] without help, because the edges are
-        // drawn. What it costs is that the verb no longer starts at a fixed column, and that is the cheaper
-        // loss - the verb is the thing being read, not something read past.
+        // The duration is not padded. Padding to a fixed width makes a slow call findable by shape in a column
+        // of four-digit numbers. In this log nearly every line has two digits of milliseconds, and the padding
+        // reads as a gutter. The brackets already mark a slow call: an eye finds [1.4 s] among [78 ms]
+        // unaided. The cost is that the verb does not start at a fixed column, the cheaper loss because the
+        // verb is what the reader scans for.
         //
-        // Nothing says "ok". A column of identical words carries no information and would be the widest
-        // thing on the line; what the watcher is scanning for is the line that is *not* ok, so only that one
-        // is marked.
+        // No line prints "ok". A column of identical words carries no information and would be the widest
+        // field on the line; only the failure lines are marked.
         //
-        // The address is on every line even though it never changes within a Rhino, because the place it
-        // used to be - the banner written once at load - has scrolled off the top by the fifteenth request,
-        // and it is the one fact somebody reading this needs in order to hand this session to an agent or to
-        // tell which of two Rhinos they are looking at. It also means any screenshot of this log names the
-        // session it came from.
+        // The address is on every line although it never changes within a Rhino. A banner written once at
+        // load scrolls off the top within about fifteen requests, and the address is the fact a reader needs
+        // to hand the session to an agent or to tell two Rhinos apart. On every line, it also names the
+        // session in any screenshot.
         //
-        // The whole address rather than the port alone, because a line reading 127.0.0.1:53654 can be pasted
-        // into a request and one reading 53654 has to be assembled first. It comes from the same constant the
-        // listener binds, so the log cannot name an address nothing is listening on.
+        // The line carries the whole address: 127.0.0.1:53654 pastes straight into a request, and 53654 alone
+        // has to be assembled first. The address comes from the same constant the listener binds, and the log
+        // cannot name an address nothing is listening on.
         //
-        // And the verb goes last, after the bracketed fields rather than among them: it is the only part
-        // whose width varies and the only part a reader is scanning *for*. Anything variable in the middle
-        // pushes every column after it out of line, which is what the brackets exist to prevent.
+        // The verb goes last, after the bracketed fields: it is the only part whose width varies and the only
+        // part a reader scans for. Anything variable in the middle pushes every later column out of line,
+        // which is what the brackets exist to prevent.
         string verb = path.Length == 0 ? "/" : path.TrimStart('/');
         (string amount, string unit) = clock is null ? ("", "") : Duration(clock.ElapsedMilliseconds);
 
@@ -482,8 +473,8 @@ internal static class LinkServer
 
         line = line.TrimEnd();
 
-        // Claimed before it is written: the capture cannot tell this plugin's echo from Rhino's own
-        // output, and an agent reading /console should not be shown its own footsteps as news.
+        // Claimed before writing: capture cannot tell this plugin's echo from Rhino's own output, and an agent
+        // reading /console must not be shown its own requests as news.
         CommandLine.Ours(line);
 
         try
@@ -492,13 +483,13 @@ internal static class LinkServer
         }
         catch (Exception)
         {
-            // A log line is never worth an incident of its own.
+            // A log line that cannot be written is dropped without an error.
         }
     }
 
     /// <summary>
-    /// A duration in the unit that reads at a glance, rather than four digits of milliseconds - split into
-    /// the amount and the unit, so the caller can column them separately and the digits line up.
+    /// A duration in a unit that reads at a glance, in place of four digits of milliseconds. Amount and unit are
+    /// returned apart; the caller places them in separate columns and the digits stay aligned.
     /// </summary>
     private static (string Amount, string Unit) Duration(long milliseconds) =>
         milliseconds < 1000
@@ -508,8 +499,8 @@ internal static class LinkServer
                 : ($"{milliseconds / 60_000}m{milliseconds % 60_000 / 1000:00}", "s");
 
     /// <summary>
-    /// A message on one line and no longer than the command line can show. A refusal that wraps over four
-    /// lines pushes everything before it off the top, which is the opposite of what the echo is for.
+    /// A message collapsed to one line and shortened to what the command line can show. A refusal wrapping
+    /// over four lines would push the earlier echo lines off the top.
     /// </summary>
     private static string OneLine(string said)
     {
@@ -532,12 +523,11 @@ internal static class LinkServer
         response.StatusCode = status;
         response.ContentType = "application/json";
 
-        // No Access-Control-Allow-Origin, and its absence is the point. It used to be "*", on the reasoning
-        // that the clients are local windows and the listener never leaves loopback. The second half is
-        // true and the conclusion does not follow: a page the user visits can reach loopback, and that
-        // header was what let it *read* the answers - turning a blind port scan into "knock until something
-        // says grasshopper-link". Without it a browser gets an opaque response and learns nothing, which is
-        // the difference between finding this link in a minute and not finding it at all.
+        // No Access-Control-Allow-Origin header is sent, deliberately. The listener never leaves loopback,
+        // but a page the user visits can reach loopback, and with "*" in that header the page could read the
+        // answers. It could then knock on ports until one said grasshopper-link. Without the header a browser
+        // gets an opaque response and learns nothing, and this link is not found at all where it would
+        // otherwise be found in a minute.
         response.ContentLength64 = bytes.Length;
         response.OutputStream.Write(bytes);
         response.Close();
@@ -549,9 +539,9 @@ internal static class LinkServer
     /// Binds a listener on an ephemeral loopback port and publishes the port it settled on.
     /// </summary>
     /// <remarks>
-    /// The retrying is in <see cref="Loopback.Listen"/>, shared with the Rhino half. What stays here is the
-    /// one thing that is this class's business: <see cref="Port"/> is assigned from the out parameter, so it
-    /// only ever holds a port a listener is actually running on.
+    /// The retrying lives in <see cref="Loopback.Listen"/>, shared with the Rhino half. What stays here is
+    /// this class's own concern: <see cref="Port"/> is assigned from the out parameter and only ever holds a
+    /// port a listener is actually running on.
     /// </remarks>
     private static HttpListener Listen()
     {

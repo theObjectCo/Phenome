@@ -4,20 +4,20 @@ using System.Text.Json;
 namespace Phenome.Apps.RhinoLink;
 
 /// <summary>
-/// The Rhino viewport: what it shows, where it looks, and where to point it.
+/// The Rhino viewport: what it shows, where it looks, and how to aim it.
 /// </summary>
 /// <remarks>
-/// Here for the reason the plug-in records are: a viewport is Rhino's, and answering about it from the
-/// canvas half meant a Grasshopper had to be running to photograph a Rhino window. Nothing in these three
-/// ever touched Grasshopper - they were simply written where the server happened to be at the time.
+/// These verbs are here for the same reason as the plug-in records: the viewport is part of Rhino, and answering
+/// from the canvas half required Grasshopper to be running only to capture a Rhino window. None of the three
+/// verbs uses Grasshopper.
 /// <para>
-/// The canvas half keeps its copies, so a pairing where only that side is current still works; the client
-/// asks here first and falls back there on a 404.
+/// The canvas half keeps its own copies, and a pairing where only that side is current still works. The client
+/// asks here first and falls back to the canvas half on a 404.
 /// </para>
 /// </remarks>
 internal static class View
 {
-    /// <summary>The eyes, kept cheap on purpose: a low resolution says plenty and costs the reader little.</summary>
+    /// <summary>Captures the viewport at low resolution by default: enough detail at little cost to the reader.</summary>
     internal static string Screenshot(HttpListenerRequest request)
     {
         int width = int.TryParse(request.QueryString["width"], out int asked)
@@ -34,14 +34,14 @@ internal static class View
             System.Drawing.Size full = view.ClientRectangle.Size;
             int height = Math.Max(120, (int)((double)width / Math.Max(1, full.Width) * Math.Max(1, full.Height)));
 
-            // Framed for the capture, put back after: the picture should show the geometry, but the
-            // camera belongs to the human and stays where they left it.
+            // Framed for the capture and restored afterward: the picture should show the geometry, but the
+            // camera is the user's and must stay where the user left it.
             Rhino.DocObjects.ViewportInfo? kept = frame
                 ? new Rhino.DocObjects.ViewportInfo(view.ActiveViewport)
                 : null;
 
-            // The target is kept apart: restoring the projection alone recomputes it from the frustum, and
-            // the human would come back to their own camera aimed somewhere new.
+            // The target is saved separately. Restoring the projection alone recomputes the target from the
+            // frustum, and the user's camera would come back aimed somewhere new.
             Rhino.Geometry.Point3d target = view.ActiveViewport.CameraTarget;
 
             if (frame)
@@ -101,14 +101,13 @@ internal static class View
     /// Aims the active viewport, changing only what was asked for.
     /// </summary>
     /// <remarks>
-    /// The way to frame a view deliberately. Rhino's own <c>Zoom</c> is an interactive command: run it
-    /// from a script with a magnification it does not recognise and it sits waiting for a pick that will
-    /// never arrive, which holds the UI thread and so fails every other verb here at once, with a message
-    /// about being busy rather than about being stuck. Setting the camera outright asks nothing of the
-    /// user and cannot wait for them.
+    /// Frames a view without an interactive command. Rhino's <c>Zoom</c> is interactive: run from a script
+    /// with an unrecognized magnification, it waits for a pick that never arrives. It holds the UI thread in the
+    /// meantime, and every other verb here fails and is reported as busy, although the thread is stuck. Setting
+    /// the camera directly asks nothing of the user and cannot block.
     ///
-    /// Location and target are set together when both are given, because setting one at a time makes
-    /// Rhino recompute the other and the second call then undoes half of the first.
+    /// Location and target are set together when both are given: setting one at a time makes Rhino recompute
+    /// the other, and the second call undoes part of the first.
     /// </remarks>
     internal static string AimCamera(string payload)
     {
@@ -147,7 +146,7 @@ internal static class View
                 }
 
                 // Changed before the camera is placed: switching projection rebuilds the frustum, which
-                // would otherwise discard the placement that had just been made.
+                // would otherwise discard the placement just made.
                 if (parallel)
                 {
                     viewport.ChangeToParallelProjection(symmetricFrustum: true);
@@ -181,9 +180,9 @@ internal static class View
                 viewport.Camera35mmLensLength = millimetres;
             }
 
-            // Clipping planes are not the caller's business but they are the caller's problem: moving a
-            // camera without them leaves geometry outside a frustum that was fitted to where it used to
-            // be, and the view comes back empty for a reason that looks nothing like the cause.
+            // The caller does not ask for clipping planes, and they are refitted here anyway. Moving a camera
+            // without them leaves geometry outside a frustum fitted to the old position, and the view returns
+            // empty for a cause that does not look like the real one.
             viewport.SetClippingPlanes(Rhino.RhinoDoc.ActiveDoc.Objects.BoundingBox);
 
             view.Redraw();

@@ -6,19 +6,18 @@ using Grasshopper.Kernel.Special;
 namespace Phenome.Apps.GrasshopperLink.Definition;
 
 /// <summary>
-/// Lays the document out the way a diagram renderer would - and lays out groups as whole blocks.
+/// Lays the document out like a diagram renderer, treating each group as one block.
 /// </summary>
 /// <remarks>
-/// The mermaid recipe, sized for a canvas, but applied to a hierarchy rather than a flat graph: a group is
-/// one box in the layout, its members are laid out inside it, and the boxes themselves are layered and
-/// ordered by the same rules. That hierarchy is the whole difference between a readable canvas and the
-/// tangle a flat layout produces - laying out members individually interleaves the members of different
-/// groups, and once interleaved, the frames <em>must</em> overlap however carefully anything is spaced.
+/// The mermaid layout, sized for a canvas and applied to a hierarchy rather than a flat graph: a group is one
+/// box, its members are laid out inside it, and the boxes are layered and ordered by the same rules. Laying out
+/// members individually interleaves the members of different groups, and interleaved members force their frames
+/// to overlap regardless of spacing.
 /// <para>
-/// Within a level: layers by longest path from the sources (so nothing stands left of what feeds it),
-/// barycenter sweeps both ways to untangle, the last of them ordering every source by the socket it feeds,
-/// and sizes from the objects' real bounds. Groups get padding for their
-/// frame and the label above it, and mothers are pushed to the very back afterwards.
+/// Within a level, blocks are layered by longest path from the sources, and nothing sits left of what feeds it.
+/// Barycenter sweeps alternate between both directions to reduce crossings, and in the right-to-left half of
+/// each sweep the sources are ordered by the sockets they feed. Sizes come from the objects' real bounds. Groups
+/// get padding for their frame and the label above it, and mother groups are moved to the back afterwards.
 /// </para>
 /// </remarks>
 internal static class Arrange
@@ -31,7 +30,7 @@ internal static class Arrange
     private const float GroupLabel = 26;
     private const int Sweeps = 4;
 
-    /// <summary>How close to its place an object may be and count as there. See Place.</summary>
+    /// <summary>How near its planned pivot, in pixels, an object counts as in place. See Place.</summary>
     private const float Settled = 1.5f;
 
     /// <summary>One box in the layout: a single object, or a group with boxes of its own inside.</summary>
@@ -53,11 +52,11 @@ internal static class Arrange
         internal PointF? Base;
 
         /// <summary>
-        /// What this block is, for ordering two of them that the dataflow cannot separate.
+        /// The block's identity, used to order two blocks that the dataflow does not separate.
         /// </summary>
         /// <remarks>
-        /// An instance guid, because it is the only identity here that no layout pass rewrites: position is the
-        /// thing being decided, and document order is rewritten by the restacking at the end.
+        /// The instance guid is the only identity here that no layout pass rewrites. The layout sets positions, and
+        /// the restacking at the end rewrites document order.
         /// </remarks>
         internal Guid Key => Group?.InstanceGuid ?? Node?.InstanceGuid ?? Guid.Empty;
     }
@@ -65,8 +64,8 @@ internal static class Arrange
     /// <summary>Arranges the whole document. Returns how many objects moved.</summary>
     internal static int Whole(GH_Document document)
     {
-        // Notes are laid out by Captions afterwards, and an unwired panel counts as a note. Laid out here as
-        // well, it was moved by the layout and then again by the caption pass.
+        // Notes are laid out by Captions afterwards, and an unwired panel counts as a note. Laying them out here as
+        // well would move them twice.
         List<IGH_DocumentObject> nodes = [.. document.Objects
             .Where(thing => thing is IGH_Component or IGH_Param && thing.Attributes is not null && !IsNote(thing))];
 
@@ -90,8 +89,8 @@ internal static class Arrange
             groupById[group.InstanceGuid] = group;
         }
 
-        // Who owns whom. Grasshopper allows an object in several groups; the first claim wins, because a
-        // layout must put each object in exactly one place.
+        // Ownership. Grasshopper allows an object in several groups. The first group that lists it owns it,
+        // because the layout places each object in exactly one location.
         Dictionary<Guid, GH_Group> owner = [];
 
         foreach (GH_Group group in groups)
@@ -107,7 +106,7 @@ internal static class Arrange
 
         Dictionary<IGH_DocumentObject, List<IGH_DocumentObject>> upstream = Upstream(nodes, nodeById);
 
-        // The blocks: every unowned group is a root box, every unowned object is a root box of its own.
+        // Blocks: every unowned group is a root box, and every unowned object is a root box of its own.
         Dictionary<Guid, Block> blockOfGroup = [];
         List<Block> roots = [];
 
@@ -134,14 +133,14 @@ internal static class Arrange
 
         LayoutLevel(roots, upstream, BlockGapX, BlockGapY);
 
-        // Anchored at the old top-left, so a tidy-up does not also teleport the canvas.
+        // Anchor to the old top-left so a layout pass does not also move the canvas.
         PointF origin = nodes
             .Select(thing => thing.Attributes!.Bounds.Location)
             .Aggregate((kept, next) => new PointF(Math.Min(kept.X, next.X), Math.Min(kept.Y, next.Y)));
 
-        // Where everything was, before any of it is touched. Two things need this: the count at the end, which
-        // should say how many objects ended up somewhere else rather than how many were written to, and the
-        // correction below, which cannot be measured until the layout has been applied once.
+        // Record where everything was before any of it moves. The moved count at the end needs this: it counts the
+        // objects that ended somewhere else, which can differ from how many were written. The drift correction
+        // below needs it too: the anchor is the top-left of these old pivots, and the plan is moved onto it.
         Dictionary<IGH_DocumentObject, PointF> before = [];
 
         foreach (IGH_DocumentObject thing in document.Objects)
@@ -152,8 +151,8 @@ internal static class Arrange
             }
         }
 
-        // Every pivot is planned before any is written. The anchor correction below goes into the plan, and
-        // no object is moved twice.
+        // Plan every pivot before writing any. The drift correction below is added to the plan, and each object
+        // moves at most once.
         Dictionary<IGH_DocumentObject, PointF> wants = [];
 
         foreach (Block root in roots)
@@ -161,18 +160,17 @@ internal static class Arrange
             Plan(root, origin.X, origin.Y, wants);
         }
 
-        // And now the correction that makes running this twice mean the same as running it once.
+        // Correct the plan. With the correction, running this twice gives the same result as running it once.
         //
-        // The anchor is the top-left of where the objects *were*, but the layout does not put its first object
-        // at its own top-left: inside a group it is inset by the frame's padding and the room the label needs.
-        // So the result sat down and to the right of the anchor by that inset, the next run took the new
-        // positions as its anchor and added the inset again, and the whole definition walked across the canvas
-        // a group's padding at a time - measured at 26 by 52 pixels per run, for ever. Translating the plan
-        // back onto the anchor fixes it whatever the inset happens to be.
+        // The anchor is the top-left of where the objects were. The layout does not place its first object at its
+        // own top-left: inside a group it is inset by the frame's padding and the room the label needs. The result
+        // lands down and to the right of the anchor by that inset. The next run takes the new positions as its
+        // anchor and adds the inset again, and the definition drifts across the canvas (measured at 26 by 52 pixels
+        // per run). Translating the plan back onto the anchor removes the drift for any inset.
         //
-        // In the plan, not afterwards. It was a second move over objects the layout had just written, and
-        // with the layout's origin read from bounds, which Grasshopper rounds against the pivot, the two moves
-        // did not cancel: a real definition moved 46 objects by one pixel on its second arrange.
+        // The correction is folded into the plan, which avoids a second move over objects the layout has just
+        // written. Such a move, with the layout origin read from bounds (which Grasshopper rounds against the
+        // pivot), does not cancel the first one: a second pass moved 46 objects by one pixel.
         PointF anchor = nodes
             .Select(thing => before[thing])
             .Aggregate((kept, next) => new PointF(Math.Min(kept.X, next.X), Math.Min(kept.Y, next.Y)));
@@ -200,8 +198,8 @@ internal static class Arrange
 
         Captions(document, groups, blockOfGroup);
 
-        // Counted from where things ended up against where they started, which is the only measure a caller can
-        // check: a settled document answers zero however much was written on the way there.
+        // Compare where each object ended with where it started. A settled document reports zero however much was
+        // written on the way.
         int moved = 0;
 
         foreach ((IGH_DocumentObject thing, PointF was) in before)
@@ -219,25 +217,19 @@ internal static class Arrange
     }
 
     /// <summary>
-    /// Notes, put where they belong once everything else has a place.
+    /// Places notes after every other object has a position.
     /// </summary>
     /// <remarks>
-    /// A note is not a node: it carries no data, has no ports and takes part in no dataflow, so it has no
-    /// business in the layout algebra above - which is why it was excluded from it, and why it then sat wherever
-    /// it happened to be created while every component moved out from under it. That is how a scribble ends up
-    /// across a group's sliders, reported from the field in those words.
+    /// A note has no ports and takes no part in the dataflow, and the layout leaves it out. This pass places it
+    /// afterwards and cannot disturb the layout already decided. The rule needs no new field, because a note's
+    /// group says what the note is about. A note in a group is that group's caption and goes above the group's
+    /// other members. A note in no group is about the document and goes above everything. An agent already sets
+    /// this by passing <c>group</c> to <c>place</c>, and <c>describe</c> reports it back.
     /// <para>
-    /// A pass afterwards instead, which cannot disturb a layout that has already been decided. The rule needs no
-    /// new field on anything: <b>a note's group is what it is about</b>. In a group, it is that group's caption
-    /// and goes above the group's other members; in no group, it is about the document and goes above the whole
-    /// thing. An agent already says which by passing <c>group</c> to <c>place</c>, and <c>describe</c> already
-    /// reports it back.
-    /// </para>
-    /// <para>
-    /// Measured from the members rather than from the frame, deliberately. A note that belongs to a group is one
-    /// of its members, so the frame is drawn around the note as well - reading the frame to decide where to put
-    /// the note would be a loop, and each run would push it further out. Measuring the members that are not
-    /// notes is stable, which is what makes running arrange three times give the same answer three times.
+    /// Captions are measured from the members, not from the frame. A note in a group is one of its members, and
+    /// the frame is drawn around the note too. Placing the note from the frame would feed its own output back as
+    /// input and push it further out on each run. The members that are not notes give a stable measure, and
+    /// repeated arrange passes give the same result.
     /// </para>
     /// </remarks>
     private static int Captions(GH_Document document, List<GH_Group> groups, Dictionary<Guid, Block> blockOfGroup)
@@ -245,10 +237,9 @@ internal static class Arrange
         int moved = 0;
         HashSet<Guid> spoken = [];
 
-        // The highest line any caption was written on. Tracked as it goes rather than measured afterwards,
-        // because a caption's Bounds does not move until the next layout pass - so asking the canvas where the
-        // captions ended up would answer where they used to be, and the document's own notes would be stacked
-        // straight on top of them. Measured once, that is exactly what happened.
+        // The highest line any caption was written on, tracked while writing. A caption's Bounds does not move
+        // until the next layout pass. Reading the captions back from the canvas returns where they were before, and
+        // the document's own notes would be stacked on top of them.
         float ceiling = float.MaxValue;
 
         foreach (GH_Group group in groups)
@@ -270,11 +261,9 @@ internal static class Arrange
                     continue;
                 }
 
-                // Pivots, not bounds. Bounds is computed during a layout pass and cached, and the layout has
-                // just moved every one of these - so reading bounds here answers where the members used to be,
-                // the caption is placed against a body that has moved out from under it, and the next run puts
-                // it somewhere else again. Measured: two captions swapping places on alternate runs. A pivot is
-                // what the layout wrote, so it is the thing that can be read back.
+                // Read pivots here. Bounds is cached during a layout pass, and the layout has just moved every
+                // member: bounds still give the positions from before the move, and a caption placed from them
+                // lands against a body that has shifted. A pivot holds what the layout wrote.
                 corner = new PointF(
                     Math.Min(corner.X, attributes.Pivot.X),
                     Math.Min(corner.Y, attributes.Pivot.Y));
@@ -282,9 +271,9 @@ internal static class Arrange
                 any = true;
             }
 
-            // The layout reserved a band for these above the body, and says where the body starts. Measuring
-            // the members instead put a mother's caption against her child groups' pivots, which a group does
-            // not keep up to date, and it landed on a component inside.
+            // The layout reserved a band for these above the body and recorded where the body starts. Measuring the
+            // members instead puts a mother group's caption against its child groups' pivots. A group does not keep
+            // its pivot up to date, and the caption can land on a component inside.
             if (blockOfGroup.GetValueOrDefault(group.InstanceGuid)?.Base is { } reserved)
             {
                 corner = reserved;
@@ -296,8 +285,8 @@ internal static class Arrange
                 continue;
             }
 
-            // Stacked upwards from just above the body, in the order the group holds them, so two captions do
-            // not land on each other.
+            // Stack the captions upwards without overlap, from just above the body, in the order the group holds
+            // them.
             float above = MathF.Round(corner.Y) - CaptionGap;
 
             foreach (IGH_DocumentObject note in notes)
@@ -314,8 +303,8 @@ internal static class Arrange
             }
         }
 
-        // Whatever belongs to no group belongs to the document: a title, a credit, a warning to whoever opens
-        // it. Above everything, which is the one place a reader looks first and no component ever wants.
+        // A note in no group belongs to the document, for example a title, a credit or a warning. It goes above
+        // everything, where a reader looks first and no component sits.
         List<IGH_DocumentObject> loose = [.. document.Objects
             .Where(thing => IsNote(thing) && !spoken.Contains(thing.InstanceGuid) && thing.Attributes is not null)];
 
@@ -346,8 +335,8 @@ internal static class Arrange
             return moved;
         }
 
-        // Above the captions as well as above the components, so a document's title does not land on a group's
-        // caption. Both are notes and neither is in the layout, so nothing else would have kept them apart.
+        // The document's notes go above the group captions as well as the components. Both are notes and neither
+        // is in the layout, and only this line keeps a document title off a group's caption.
         float band = Math.Min(everything.Y, ceiling) - CaptionGap;
 
         foreach (IGH_DocumentObject note in loose)
@@ -360,10 +349,10 @@ internal static class Arrange
         return moved;
     }
 
-    /// <summary>Whether this is something to read rather than something to run.</summary>
+    /// <summary>Whether this object is a note, something to read.</summary>
     /// <remarks>
-    /// A scribble always is. A panel only when nothing is wired to it either way: a panel in the middle of a
-    /// definition is a probe on the data and belongs where the data is, while an unwired one is a caption.
+    /// A scribble always is. A panel is a note only when nothing is wired to it in either direction. A panel in
+    /// the middle of a definition is a probe on the data and stays where the data is; an unwired one is a caption.
     /// </remarks>
     private static bool IsNote(IGH_DocumentObject thing) =>
         thing is GH_Scribble
@@ -373,10 +362,9 @@ internal static class Arrange
     /// Moves a note's pivot to a point, counting it only when it was not already there.
     /// </summary>
     /// <remarks>
-    /// In pivot space throughout, for the reason given where the body is measured: everything around this has
-    /// just been moved, and bounds do not catch up until the next layout pass. A caption is placed relative to
-    /// its group's pivots and written as a pivot, so nothing in the calculation depends on a number that is
-    /// about to change.
+    /// Works in pivot space throughout. Everything around the note has just moved, and bounds are not updated
+    /// until the next layout pass. The caption is read and written as a pivot, and the calculation does not depend
+    /// on a number that is about to change.
     /// </remarks>
     private static int Put(IGH_DocumentObject note, PointF want)
     {
@@ -451,11 +439,10 @@ internal static class Arrange
             nested ? BlockGapX : NodeGapX,
             nested ? BlockGapY : NodeGapY);
 
-        // Room for the group's captions, in the block's own size: the box the layout reserves is then the box
-        // the frame is drawn around. A caption is one unwrapped line and is often wider than what it captions.
-        // Measured before this: a 503 px caption over a block at x=100 reached x=603, and the neighbour
-        // started at 579. The band adds up the captions the way Captions stacks them, and the topmost caption
-        // ends at the top of the band.
+        // The block's size includes room for the group's captions, and the box the layout reserves is the box the
+        // frame is drawn around. A caption is one unwrapped line and is often wider than what it captions: a 503 px
+        // caption over a block at x=100 reached x=603, and the neighbour started at 579. The band adds up the
+        // captions the way Captions stacks them, and the topmost caption ends at the top of the band.
         List<SizeF> captions = Notes(block.Group!);
         float widest = captions.Count == 0 ? 0 : captions.Max(caption => caption.Width);
 
@@ -468,7 +455,10 @@ internal static class Arrange
             inner.Height + (2 * GroupPad) + GroupLabel + block.Band);
     }
 
-    /// <summary>One level of boxes: layered left to right, untangled, stacked. Returns the space used.</summary>
+    /// <summary>
+    /// Lays out one level of boxes: layers them left to right, orders each layer to reduce crossings and stacks
+    /// it. Returns the space used.
+    /// </summary>
     private static SizeF LayoutLevel(
         List<Block> blocks,
         Dictionary<IGH_DocumentObject, List<IGH_DocumentObject>> upstream,
@@ -534,21 +524,21 @@ internal static class Arrange
             return layer[at] = deepest + 1;
         }
 
-        // In guid order, not in the order the blocks arrived. In a cycle the block walked first lands right of
-        // the others, and the arrival order is document order, which Restack reverses on every run: two groups
-        // feeding each other swapped columns on every arrange, for ever.
+        // Walk the blocks in guid order. In a cycle the block walked first lands right of the others. Arrival order
+        // is document order, which Restack reverses on every run, and walking in it would make two mutually feeding
+        // groups swap columns on every pass.
         foreach (int i in Enumerable.Range(0, blocks.Count).OrderBy(i => blocks[i].Key))
         {
             LayerOf(i);
         }
 
-        // Every wire between two blocks, from the consuming side: which block reads, and how far down that block
-        // the socket it reads into sits, as a fraction of the block's height.
+        // For each block, the wires it sends to other blocks, seen from the reading side: the block that reads,
+        // and how far down that block the receiving socket sits, as a fraction of the block's height.
         List<(int Reader, double Down)>[] readers = Readers(blocks, owner);
 
-        // A block nothing feeds goes in the column just left of its nearest reader. Longest path from the
-        // sources alone puts every source in the first column, where the groups feeding a component three
-        // columns along stand among the groups feeding the first one and their wires cross all of them.
+        // Place a block with no feeders in the column just left of its nearest reader. Longest path from the
+        // sources alone puts every source in the first column. Groups feeding a component three columns along would
+        // then stand among the groups feeding the first one, and their wires would cross all of them.
         for (int i = 0; i < blocks.Count; i++)
         {
             if (feeders[i].Count == 0 && readers[i].Count > 0)
@@ -570,13 +560,13 @@ internal static class Arrange
             columns[layer[i]].Add(i);
         }
 
-        // Where each block stands now, top to bottom, is the order the sweeps start from.
+        // Start the sweeps from the current top-to-bottom order in each column.
         //
-        // Not the order of document.Objects. Restack rewrites that order on every run by sending each group to
-        // the back in turn, which reverses them, and a block with nothing wired to it keeps the place it starts
-        // from. Sixteen unconnected groups came out upside down on every arrange, about 160 objects moved each
-        // time. A position is what this pass decides, and a second run starts from the order the first one
-        // left. Ties fall to the guid, which no pass rewrites.
+        // The sweeps do not start from document order. Restack rewrites it on every run by sending each group to
+        // the back in turn, which reverses them, and a block with nothing wired to it keeps the position it starts
+        // from (16 unconnected groups came out reversed with about 160 objects moved per pass). This pass decides
+        // position, and a second run starts from the order the first one left. Ties go to the guid, which no pass
+        // rewrites.
         float[] top = new float[blocks.Count];
 
         for (int i = 0; i < blocks.Count; i++)
@@ -600,13 +590,11 @@ internal static class Arrange
 
         void Order(List<int> column)
         {
-            // Ranked first, and where two blocks rank the same, ordered by identity.
+            // Sort by rank, and break equal ranks by the block's guid.
             //
-            // Two groups with no wire between them rank identically for ever, and List.Sort is not stable,
-            // so which came first was decided by the sort's internals and could differ between two runs on
-            // the same document. Measured: two unconnected groups swapping places on alternate arranges,
-            // for ever, each swap reported as seven objects moved. An instance guid is fixed for an object's
-            // life and no pass touches it.
+            // Two groups with no wire between them keep equal ranks through every sweep. List.Sort is not stable,
+            // and without the tie-break their order depends on the sort's internals and can differ between runs on
+            // the same document. An instance guid is fixed for an object's life and no pass changes it.
             column.Sort((a, b) =>
             {
                 int byRank = rank[a].CompareTo(rank[b]);
@@ -615,7 +603,7 @@ internal static class Arrange
             });
         }
 
-        // A block's place in its column, or its own place when the column no longer knows it (a cycle).
+        // A block's index in its column, or the fallback when the column does not contain it (a cycle).
         int Place(int block, int fallback)
         {
             int at = columns[layer[block]].IndexOf(block);
@@ -642,8 +630,9 @@ internal static class Arrange
 
             // Right to left: a block goes level with the socket it feeds. This pass puts the source of a
             // component's first input above the source of its second, and the inputs of a group in the order of
-            // its inlets. A source has no feeders, and without this pass a column of sources kept the order it
-            // started in. It runs last, and the sources end in socket order.
+            // its inlets. A source has no feeders, and the left-to-right pass leaves a column of sources in the
+            // order it started in. This half runs last in each sweep, and the sweeps end with the sources in socket
+            // order.
             for (int c = columns.Length - 1; c >= 0; c--)
             {
                 List<int> column = columns[c];
@@ -666,9 +655,9 @@ internal static class Arrange
 
         foreach (List<int> column in columns)
         {
-            // An empty column is possible and used to crash the whole verb with "Sequence contains no
-            // elements": two groups can feed each other through different members, and a cycle in the
-            // block graph leaves a layer number with nobody standing on it.
+            // A column can be empty: two groups can feed each other through different members, and a cycle in the
+            // block graph leaves a layer number with nothing on it. Max over an empty column throws "Sequence
+            // contains no elements" and fails the whole verb.
             if (column.Count == 0)
             {
                 continue;
@@ -691,7 +680,7 @@ internal static class Arrange
     }
 
     /// <summary>
-    /// For each block, the blocks that read from it, each with how far down the reader the socket sits.
+    /// For each block, the blocks that read from it and how far down each reader the socket sits.
     /// </summary>
     /// <remarks>
     /// The fraction is measured on the reading block as it was laid out inside: the leaf's own offset in its
@@ -761,8 +750,8 @@ internal static class Arrange
     /// <summary>A size in whole pixels, the unit every block is measured and stacked in.</summary>
     /// <remarks>
     /// Bounds come from text measurement and are fractional, and Grasshopper rounds them against the pivot. The
-    /// same note measures a pixel taller or shorter depending on where it last stood, and before this the band
-    /// reserved for it changed with it and a second arrange moved the body below by one pixel.
+    /// same note can measure a pixel taller or shorter depending on its last position. Without rounding, the band
+    /// reserved for it changes with it, and a second pass moves the body below by a pixel.
     /// </remarks>
     private static SizeF Pixels(SizeF size) => new(MathF.Ceiling(size.Width), MathF.Ceiling(size.Height));
 
@@ -791,9 +780,9 @@ internal static class Arrange
             RectangleF bounds = node.Attributes!.Bounds;
             PointF pivot = node.Attributes.Pivot;
 
-            // The pivot sits at its own offset inside the bounds; keeping that offset lands the object's
-            // top-left exactly where the layout said. Whole pixels, because Grasshopper rounds an object's
-            // bounds against its pivot and a fractional pivot measures differently the next time.
+            // Keep the pivot's own offset inside the bounds, and the object's top-left lands where the layout put
+            // it. Round to whole pixels: Grasshopper rounds an object's bounds against its pivot, and a fractional
+            // pivot measures differently next time.
             wants[node] = new PointF(
                 MathF.Round(x + (pivot.X - bounds.X)),
                 MathF.Round(y + (pivot.Y - bounds.Y)));
@@ -816,15 +805,14 @@ internal static class Arrange
     {
         PointF pivot = node.Attributes!.Pivot;
 
-        // An object already where the layout wants it is not moved, and saying otherwise costs twice:
-        // the answer's count stops meaning anything on a settled document, and every rerun pushes an
-        // undo step per object that undoes nothing. Arranging twice is a normal thing to do - it is the
-        // finishing move - so the second run should report nothing and record nothing.
+        // Do not move an object already in place. Moving it anyway has two costs: the moved count stops meaning
+        // anything on a settled document, and every rerun records an undo step per object that undoes nothing.
+        // Arranging twice is normal, and the second run should report nothing and record nothing.
         //
-        // The test is within a pixel, not equality. Grasshopper rounds an object's bounds against its pivot:
-        // a parameter fifty and a fraction pixels wide measures fifty at one position and fifty-one at the
-        // next, and everything laid out after it lands a pixel along. A pixel is below anything a canvas
-        // shows, and a want that close counts as where the object already is.
+        // The test allows a difference below Settled (1.5 px) on each axis. Grasshopper rounds an object's bounds
+        // against its pivot: a parameter fifty-and-a-fraction pixels wide measures fifty at one position and fifty-one at the
+        // next, and everything laid out after it lands a pixel along. A pixel is below anything a canvas shows,
+        // and a target that close counts as already in place.
         if (Math.Abs(pivot.X - want.X) < Settled && Math.Abs(pivot.Y - want.Y) < Settled)
         {
             return;
@@ -834,20 +822,22 @@ internal static class Arrange
 
         node.Attributes.Pivot = want;
 
-        // The layout is expired *and* recomputed. Bounds is worked out during a layout pass and cached, and until the next
-        // pass Bounds and Pivot disagree: anything that reads one to convert to the other gets the old
-        // position. That is how two groups once came to swap places on
-        // alternate runs. Recomputing here costs a layout per moved object and removes the class of fault.
+        // Expire *and* recompute the layout. Bounds is computed during a layout pass and cached. Until the next
+        // pass Bounds and Pivot disagree, and anything converting one to the other reads the old position (two
+        // groups swapped places on alternate passes this way). Recomputing here costs one layout per moved object
+        // and removes that class of fault.
         node.Attributes.ExpireLayout();
         node.Attributes.PerformLayout();
     }
 
-    /// <summary>Groups behind their contents, mothers behind their children, every frame recomputed.</summary>
+    /// <summary>
+    /// Recomputes every frame and sends groups behind their contents and mother groups behind their children.
+    /// </summary>
     private static void Restack(GH_Document document, List<GH_Group> groups, Dictionary<Guid, GH_Group> groupById)
     {
-        // Laid out here and now rather than at the next repaint: a group's frame is derived from its
-        // members' bounds and cached, so until something performs the layout, both the human's canvas and
-        // anything reading /canvas would be told the old frames - and conclude the groups overlap.
+        // Lay out now, before the next repaint. A group's frame is derived from its members' bounds and cached.
+        // Until a layout runs, both the canvas and anything reading /canvas report the old frames and conclude the
+        // groups overlap.
         foreach (IGH_DocumentObject thing in document.Objects)
         {
             if (thing is not GH_Group && thing.Attributes is { } attributes)
@@ -873,17 +863,15 @@ internal static class Arrange
             document.ArrangeObject(group, GH_Arrange.MoveToBack);
         }
 
-        // Mothers last, so they end up furthest back of all.
+        // Mother groups go last and end up furthest back of all.
         foreach (GH_Group group in groups.Where(group => IsMother(group, groupById)))
         {
             document.ArrangeObject(group, GH_Arrange.MoveToBack);
         }
 
-        // And notes to the very front, which is the other half of putting them where they belong. A group's
-        // frame is a tinted rectangle drawn over whatever is behind it, so a caption sitting underneath one is
-        // washed out and a caption underneath a component is not there at all. A note is the one thing on a
-        // canvas whose entire purpose is to be read, so it is the one thing that should never be behind
-        // anything. Depth is as much a part of "where it goes" as the coordinates are.
+        // Bring notes to the front, which is the second half of placing them. A group frame is a tinted rectangle
+        // drawn over what is behind it. A caption under a frame is washed out, and a caption under a component is
+        // invisible. A note is never left behind anything.
         foreach (IGH_DocumentObject note in document.Objects.Where(IsNote).ToList())
         {
             document.ArrangeObject(note, GH_Arrange.MoveToFront);

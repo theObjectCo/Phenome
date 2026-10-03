@@ -4,16 +4,16 @@ using System.Text.Json;
 
 namespace Phenome.Apps;
 
-/// <summary>The two things every hand-built JSON needs: a safe string and an invariant number.</summary>
+/// <summary>
+/// The two primitives every hand-built JSON response needs: a safely quoted string and an invariant number.
+/// </summary>
 /// <remarks>
-/// Built by hand rather than with a serializer for the same reason the transcriber does it: the shapes here
-/// are small, assembled from live Grasshopper objects that no serializer should be pointed at, and the
-/// protocol is a contract - what goes on the wire is exactly what is written here, not what a library
-/// decides an object graph looks like this version.
+/// JSON is built by hand, without a serializer. The shapes are small and are assembled from live Grasshopper
+/// objects that a serializer should not walk. The protocol is also a contract: what goes on the wire is exactly
+/// what is written here and does not depend on how a library version serializes an object graph.
 /// <para>
-/// In <c>Phenome.Apps</c> rather than in either plugin's own namespace, which is the whole trick: it is the
-/// parent of both, so every call site in both halves reads <c>Json.Quote</c> unchanged and no file needs an
-/// import. See the README beside this file.
+/// It sits in <c>Phenome.Apps</c>, the parent of both plugin namespaces (see the README beside this file).
+/// Every call site in both halves reads <c>Json.Quote</c> with no import.
 /// </para>
 /// </remarks>
 internal static class Json
@@ -64,7 +64,7 @@ internal static class Json
 
     internal static string Number(long value) => value.ToString(CultureInfo.InvariantCulture);
 
-    /// <summary>Re-laid with indentation, for the reader who is a person pasting into a prompt.</summary>
+    /// <summary>Re-indents JSON for human readers.</summary>
     internal static string Indented(string json)
     {
         using JsonDocument parsed = JsonDocument.Parse(json);
@@ -76,10 +76,9 @@ internal static class Json
     /// A string field, or null when it is absent or is not a string.
     /// </summary>
     /// <remarks>
-    /// Silent about the difference between missing and wrongly typed, deliberately: every caller of this
-    /// treats an unusable field the same way, by falling back to what it would have done without one. A
-    /// verb that needs the field to be there says so itself, in its own words, which are better words than
-    /// anything a reader could produce.
+    /// Missing and wrongly typed are reported the same way (as null), deliberately: every caller falls back
+    /// to what it would have done without the field. A verb that requires the field reports that itself, in
+    /// its own message.
     /// </remarks>
     internal static string? Text(JsonElement request, string name) =>
         request.ValueKind == JsonValueKind.Object

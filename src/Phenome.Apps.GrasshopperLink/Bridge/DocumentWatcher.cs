@@ -5,14 +5,14 @@ using Grasshopper.Kernel;
 namespace Phenome.Apps.GrasshopperLink.Bridge;
 
 /// <summary>
-/// Turns what happens on the canvas into journal entries.
+/// Writes canvas events to the journal.
 /// </summary>
 /// <remarks>
-/// Grasshopper's own document events are the source: objects added and deleted, documents opened and
-/// closed, solutions ending - the last with a summary of what went red, so an agent knows the canvas is
-/// unhappy without asking for the whole state. Entries authored here say <c>canvas</c>: they describe what
-/// the document did, whoever's hand caused it; a client that wants to know whose hand reads the verbs
-/// journalled by the server alongside.
+/// The source is Grasshopper's own document events: objects added and deleted, documents opened and closed,
+/// and solutions ending. A solution-end entry carries a summary of what went red, and an agent learns that the
+/// document has errors without reading the whole state. Entries authored here use the author <c>canvas</c>:
+/// they describe what the document did, whatever caused it. A client that needs to know who caused it reads
+/// the verbs the server journals alongside.
 /// </remarks>
 internal static class DocumentWatcher
 {
@@ -69,8 +69,8 @@ internal static class DocumentWatcher
     }
 
     /// <summary>
-    /// What went red or orange, and what took the time - the entry says not just that a solve ended but
-    /// how it went and where it was spent, so "why is this slow" is answered from the journal.
+    /// Error and warning counts and the slowest components. With them the journal answers "why is this slow"
+    /// as well as "did the solve finish".
     /// </summary>
     private static string Complaints(GH_Document document)
     {

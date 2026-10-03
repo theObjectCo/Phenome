@@ -1,9 +1,10 @@
 # Every verb, and which half answers it
 
-As of 0.34.0. Fifty-three tools over two HTTP servers and one client.
+The list is as of 0.34.0: fifty-three tools over two HTTP servers and one client.
 
-The MCP server is registered as `phenome`, so a host presents these as `mcp__phenome__<name>`. The prefix
-comes from the registration key the pairing writes, not from the name the server reports in its handshake.
+The MCP server is registered as `phenome`, and a host presents these tools as `mcp__phenome__<name>`. The
+prefix comes from the registration key the pairing writes, not from the name the server reports in its
+handshake.
 
 | half | born with | answers about |
 |---|---|---|
@@ -12,28 +13,28 @@ comes from the registration key the pairing writes, not from the name the server
 | **mcp.js** | the agent session | starting, choosing and restarting a Rhino |
 
 The client asks the Rhino half first for anything that half owns, and falls back to the canvas half on a
-404 — so a pairing where only one side has been updated keeps working. Verbs marked *(also on `.gha`)*
-exist in both for that reason.
+404. A pairing where only one side has been updated keeps working this way, and verbs marked
+*(also on `.gha`)* exist in both halves for that reason.
 
-## RhinoLink — 11 verbs, and none of them need a canvas
+## RhinoLink: 11 verbs, none of which needs a canvas
 
 Start with `launch grasshopper:false` for all of these.
 
 | verb | endpoint | what it does |
 |---|---|---|
-| `pulse` | `GET /pulse` | idle, busy or blocked — answered off the UI thread, so it answers when nothing else does *(also on `.gha`)* |
-| `dialog` | `POST /dialog` | answer the open dialog: `button` presses, `key` types, `close` declines. With no answer given it refuses and lists the buttons rather than deciding for you *(also on `.gha`)* |
-| `dismiss` | `POST /dismiss` | superseded by `dialog`, kept working: same thing, except that sending nothing closes the dialog and so declines *(also on `.gha`)* |
+| `pulse` | `GET /pulse` | idle, busy or blocked, answered off the UI thread and therefore available when nothing else answers *(also on `.gha`)* |
+| `dialog` | `POST /dialog` | answer the open dialog: `button` presses, `key` types, `close` declines. With no answer given it refuses and lists the buttons instead of deciding for the caller *(also on `.gha`)* |
+| `dismiss` | `POST /dismiss` | superseded by `dialog` and still working. It behaves the same, except that sending nothing closes the dialog, which declines it *(also on `.gha`)* |
 | `escape` | `POST /escape` | cancel whatever Rhino is waiting for, for the case `dismiss` cannot answer *(also on `.gha`)* |
 | `console` | `GET /console` | the tail of Rhino's command line, where commands and scripts reply. `mine:true` reads the link's own echo from the canvas half instead |
 | `rhino_command` | `POST /command` | run a Rhino command script in the scripting dialect *(also on `.gha` as `/rhino`)* |
 | `rhino_doc` | `GET /doc` | the Rhino document: name, layers, object count, camera *(also on `.gha` as `/rhino`)* |
-| `plugins` | `GET /plugins` | every plug-in Rhino has a record of, loaded or **not**, with path, registry key, managed flag, load protection — and the runtime Rhino is hosting. Grasshopper's libraries are merged in when a canvas is open |
-| `rhino_load` | `POST /load` | load a plug-in by id or path, quietly and again after a failure |
+| `plugins` | `GET /plugins` | every plug-in Rhino has a record of, loaded or **not**, with path, registry key, managed flag, load protection, and the runtime Rhino is hosting. Grasshopper's libraries are merged in when a canvas is open |
+| `rhino_load` | `POST /load` | load a plug-in by id or path without its confirmation dialog, and again after a failed attempt |
 | `screenshot` | `GET /screenshot` | the active viewport as PNG, framed for the capture and the camera put back *(also on `.gha`)* |
-| `camera` | `GET`/`POST /camera` | read or aim the active viewport; only what you pass changes *(also on `.gha`)* |
+| `camera` | `GET`/`POST /camera` | read or aim the active viewport; only the fields passed change *(also on `.gha`)* |
 
-## GrasshopperLink — 39 verbs about the canvas
+## GrasshopperLink: 39 verbs about the canvas
 
 ### Reading
 
@@ -42,14 +43,14 @@ Start with `launch grasshopper:false` for all of these.
 | `canvas` | `GET /canvas` | the whole document, or `as:'mermaid'` for its shape at a fiftieth of the size |
 | `canvas_image` | `GET /canvas-image` | the canvas as a picture, fitted to the document |
 | `describe` | `GET /describe` | one object's parameters, types, access, wire and item counts; a note's text and box |
-| `peek` | `GET /peek` | one parameter's full data with tree paths — or a group's whole signature |
+| `peek` | `GET /peek` | one parameter's full data with tree paths, or a group's whole signature |
 | `measure` | `GET /measure` | lengths, areas and volumes on one parameter; with `against`, overlaps and nearest distance between two sets |
 | `wires` | `GET /wires` | every wire in the document, from and to |
 | `review` | `GET /review` | the document against the composition rules |
 | `components` | `GET /components` | search the installed catalogue by name or description |
 | `scripts` | `GET /scripts` | the script components on the canvas, with their generation |
 | `script_read` | `GET /script` | one script component's source |
-| `events` | `GET /events` | the journal after entry N — what the canvas did and who did it |
+| `events` | `GET /events` | the journal after entry N: what the canvas did and who did it |
 
 ### Building
 
@@ -94,21 +95,21 @@ Start with `launch grasshopper:false` for all of these.
 
 | verb | endpoint | what it does |
 |---|---|---|
-| `say` | `POST /say` | a message into the journal, for whoever reads it |
-| `report` | `POST /report` | leave a note where a verb fought you |
+| `say` | `POST /say` | a message into the journal |
+| `report` | `POST /report` | leave a note about a verb that got in the way |
 | `friction` | `GET /friction` | the friction log: refusals and reports, newest last |
-| `feedback` | `POST /feedback` | assemble the whole complaint into one file and a mail draft. Ask the human first |
+| `feedback` | `POST /feedback` | assemble the whole complaint into one file and a mail draft. Ask the user first |
 
-## mcp.js — 3 verbs with no endpoint
+## mcp.js: 3 verbs with no endpoint
 
-These are about the process rather than anything inside it, so no server can answer them: two of them
-exist precisely when nothing is running.
+These verbs concern the process itself, and no server can answer them. Two of them must work precisely when
+no Rhino is running.
 
 | verb | what it does |
 |---|---|
 | `launch` | start Rhino and wait for the link. `fresh` starts a second one; `grasshopper:false` starts Rhino alone; `packageDirs` sets RHINO_PACKAGE_DIRS for a plug-in loading from its build folder, and `restart` keeps it |
 | `sessions` | every live session on the machine, canvas and Rhino; `use` pins one so later verbs mean it |
-| `restart` | end this agent's Rhino and bring a fresh one up — the only way a rebuilt assembly reaches a running Rhino, since a .NET plug-in cannot be unloaded. Refuses while either half holds unsaved work |
+| `restart` | end this agent's Rhino and bring a fresh one up. This is the only way a rebuilt assembly reaches a running Rhino, since a .NET plug-in cannot be unloaded. Refuses while either half holds unsaved work |
 
 ## Two things the table does not show
 

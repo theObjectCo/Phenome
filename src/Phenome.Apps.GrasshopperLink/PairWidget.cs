@@ -10,15 +10,13 @@ using Phenome.Apps.GrasshopperLink.Bridge;
 namespace Phenome.Apps.GrasshopperLink;
 
 /// <summary>
-/// The button that starts the pairing: shown while nobody is on the line, one click opens VS Code with the
-/// port in hand.
+/// Starts pairing. The button is shown while no agent is on the line, and one click opens VS Code with the port.
 /// </summary>
 /// <remarks>
-/// The click launches a URI - <c>vscode://phenome.phenome/pair?port=N</c> by default - and the editor's
-/// URI handler does the rest: wakes the window, starts an agent session with the handshake typed in. The
-/// template is a Grasshopper setting (<c>PhenomeLink:PairUri</c>), so a different editor with a different
-/// agent slots in by changing one string, not this code. The button hides itself as soon as the link has
-/// heard from anyone recently - a paired canvas needs no invitation.
+/// The click launches a URI (<c>vscode://phenome.phenome-link/pair?port=N</c> by default). The editor's URI
+/// handler brings the window to the foreground and starts an agent session with the handshake typed in. The
+/// template is a Grasshopper setting (<c>PhenomeLink:PairUri</c>), and a different editor or agent takes a change
+/// to that one string and none to this code. The button hides while the link is receiving requests.
 /// </remarks>
 public sealed class PairWidget : GH_Widget
 {
@@ -55,7 +53,7 @@ public sealed class PairWidget : GH_Widget
     {
         if (DateTime.Now - LinkServer.LastRequest < Quiet)
         {
-            // Someone is on the line; the invitation would be noise.
+            // An agent is on the line, and the pairing button would only be noise.
             bounds = Rectangle.Empty;
             return;
         }
@@ -125,17 +123,17 @@ public sealed class PairWidget : GH_Widget
         {
             Rhino.RhinoApp.WriteLine(
                 $"Phenome Link: nothing answered {uri} - install VS Code with the Phenome extension, " +
-                "or point the PhenomeLink:PairUri setting at your editor.");
+                "or point the PhenomeLink:PairUri setting at the editor to pair with.");
         }
 
         return GH_ObjectResponse.Handled;
     }
 
     /// <summary>
-    /// The other half of "install one thing": a .vsix shipped inside the yak package, beside this .gha,
-    /// is handed to VS Code before the first pairing. Yak has no install hooks - deliberately - but the
-    /// pair button is code, and one click is the whole install. Once per session, best effort, silent
-    /// when there is nothing to do.
+    /// Installs the VS Code extension before the first pairing. A .vsix shipped inside the yak package,
+    /// beside this .gha, is handed to VS Code. Yak has no install hooks by design, and the pair button
+    /// performs the install on its first click. The install runs once per session as a best effort and does
+    /// nothing when there is nothing to install.
     /// </summary>
     private static void EnsureExtension()
     {
@@ -159,8 +157,8 @@ public sealed class PairWidget : GH_Widget
                 return;
             }
 
-            // 'code' is a .cmd shim, so it goes through the shell; a missing VS Code fails quietly here
-            // and loudly two lines later, when the vscode:// launch has nobody to answer it.
+            // 'code' is a .cmd shim and has to run through the shell. A missing VS Code fails silently here
+            // and shows up later, when the vscode:// launch finds no handler.
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "cmd",
@@ -171,8 +169,8 @@ public sealed class PairWidget : GH_Widget
         }
         catch (Exception)
         {
-            // Best effort by design: the URI handler may already be installed, and the launch below
-            // gives its own instruction when it is not.
+            // Best effort by design. The URI handler may already be installed, and the launch that follows
+            // reports when it is not.
         }
     }
 

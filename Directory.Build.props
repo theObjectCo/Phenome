@@ -9,17 +9,16 @@
     <Deterministic>true</Deterministic>
 
     <!--
-      Nothing shipped should name the machine it was built on. Without this, the assembly's debug
-      directory carries the absolute path of its .pdb - C:\Users\<somebody>\source\repos\... - which is
-      the kind of thing you find in a published package after publishing it. PathMap neutralises any
-      other path the compiler embeds; the commit hash stays out of the version so a build is named by
-      its version alone.
+      Release output must not expose the build machine's local paths. Without PathMap, the assembly's debug
+      directory can retain its absolute .pdb path, for example C:\Users\<user>\source\repos\...; PathMap
+      also removes other embedded paths. The commit hash is kept out of the version, and a build is
+      identified by its version alone.
     -->
     <PathMap>$(MSBuildProjectDirectory)=.</PathMap>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
-  <!-- Release builds are what leaves the building, and they leave without symbols. -->
+  <!-- Release builds are what leaves the building, and they carry no symbols. -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>

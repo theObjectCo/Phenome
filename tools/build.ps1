@@ -4,19 +4,18 @@
     Code extension.
 
 .DESCRIPTION
-    The three are one mechanism and version together. The .gha is the canvas end; the .vsix is the editor
-    end, and the canvas's pair button hands it to VS Code on the first pairing - so a release that
-    carries only one of them is part of a release.
+    The three are one mechanism and share one version. The .gha is the canvas end. The .vsix is the editor
+    end, and the canvas's pair button passes it to VS Code on first pairing. A release that carries only one
+    of them is incomplete.
 
-    The .rhp is the Rhino end, and it is the one easiest to forget because everything works without it
-    until the moment it does not: a .gha only exists once Grasshopper has been started, so nothing else
-    can report on a dialog that appears while Rhino is still starting - which is exactly when nothing
+    The .rhp is the Rhino end and the easiest to forget. A .gha is loaded only once Grasshopper has started,
+    and nothing else can report on a dialog that appears while Rhino is still starting, which is when nothing
     else can answer.
 
     Nothing here talks to a package server. Publishing is a separate, deliberate act.
 
 .PARAMETER Configuration
-    Release by default, which is what leaves the building: no symbols, no machine paths.
+    Release by default, which is the configuration that ships, with no symbols and no machine paths.
 
 .EXAMPLE
     pwsh tools/build.ps1

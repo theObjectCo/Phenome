@@ -1,7 +1,7 @@
 # Builds all three parts of the link and, from a tag, attaches them to a release.
 #
-# This is the replacement for `yak push`: a tagged release carrying the .gha, the .rhp and the .vsix, which anybody can
-# download without a package source, a token or an account. Yak packing stays a local script because it needs
+# This is the replacement for `yak push`: a tagged release carrying the .gha, the .rhp and the .vsix,
+# downloadable without a package source, a token or an account. Yak packing stays a local script because it needs
 # Yak.exe, which ships inside Rhino and is not on a runner.
 name: build
 
@@ -16,23 +16,22 @@ on:
 jobs:
   build:
     # Windows, because the plugin targets net7.0 against the Grasshopper reference assemblies and that is where
-    # the .gha is normally produced. Nothing here needs Rhino installed - the NuGet package supplies the
-    # references - but keeping the build on the platform it ships to costs nothing and removes a question.
+    # the .gha is normally produced. Nothing here needs Rhino installed (the NuGet package supplies the
+    # references). Building on the platform the plugin ships to costs nothing and removes a question.
     runs-on: windows-latest
 
-    # Whether this release carries a Security block in the changelog. Derived rather than declared: a flag
-    # somebody has to remember to set is a flag that will one day not be set, and this file already carries
-    # two comments about exactly that failure. Writing the block is the thing you do anyway; the release
-    # note follows from it.
+    # Whether this release carries a Security block in the changelog. The value is derived from the changelog.
+    # A flag that relies on being remembered will one day not be set, and this file already carries two
+    # comments about exactly that failure. The block is written anyway, and the release note follows from it.
     outputs:
       security: ${{ steps.wersje.outputs.security }}
 
     steps:
       - uses: actions/checkout@v4
 
-      # One SDK, not two. The plugin targets net7.0 but is never *run* here - only built - and a modern SDK
-      # builds an old target by fetching its reference pack from NuGet, a few megabytes against the 288 MB
-      # of a second SDK and the minute it took to unpack.
+      # One SDK is installed. The plugin targets net7.0 but is only built here, never *run*, and a modern SDK
+      # builds an old target by fetching its reference pack from NuGet. The pack is a few megabytes; a second
+      # SDK is 288 MB and took a minute to unpack.
       #
       # The kernel's workflow keeps both on purpose: it runs tests on net7.0, and running needs a runtime
       # that no reference pack provides.
@@ -44,31 +43,31 @@ jobs:
         with:
           node-version: '20'
 
-      # The plugin references no Phenome library on purpose, so this builds from a clean clone with no feed
-      # and no secret. That property is worth a comment because it is the reason this repository is public.
+      # The plugin references no Phenome library on purpose, and this builds from a clean clone with no feed
+      # and no secret. That property is the reason this repository is public.
       - name: Build the plugin
         run: dotnet build src/Phenome.Apps.GrasshopperLink/Phenome.Apps.GrasshopperLink.csproj -c Release
 
-      # The Rhino half, which is the one a release forgets: everything works without it until Rhino stops
-      # on a dialog before Grasshopper has loaded, and then nothing is listening to say so. v0.21.0 shipped
-      # without it because this file builds what it names and it named only the plugin above.
+      # The Rhino half is the one most easily left out. Everything works without it until Rhino stops on a
+      # dialog before Grasshopper has loaded, and then nothing can report it. This file builds only what it
+      # names, and v0.21.0 shipped without the Rhino half because only the plugin above was named.
       - name: Build the Rhino plugin
         run: dotnet build src/Phenome.Apps.RhinoLink/Phenome.Apps.RhinoLink.csproj -c Release
 
       # Built but not released. The third half starts a Rhino core of its own with no window, which makes it
-      # useful on a machine nobody is sitting at - and it is not part of the pair anybody installs, so it does
-      # not go in dist. Compiled here anyway for the reason the comment above gives about the Rhino plugin:
-      # this file builds what it names, and anything unnamed rots without anybody finding out.
+      # useful on an unattended machine. It is not part of what a user installs and does not go in dist. It is
+      # compiled here for the reason given above for the Rhino plugin: this file builds what it names, and
+      # anything unnamed goes stale unremarked.
       - name: Build the Rhino.Inside half
         run: dotnet build src/Phenome.Apps.RhinoInsideLink/Phenome.Apps.RhinoInsideLink.csproj -c Release
 
-      # Pinned. `npx --yes @vscode/vsce` takes whatever is newest at the moment the build runs, and vsce
-      # carries thirty direct dependencies - so an upstream release could change what lands in our .vsix
-      # without any commit here, and nothing would record which version packed a given release.
+      # vsce is pinned. `npx --yes @vscode/vsce` takes whatever is newest at the moment the build runs, and
+      # vsce carries thirty direct dependencies. Unpinned, an upstream release could change what lands in the
+      # .vsix without any commit here, and nothing would record which version packed a given release.
       #
-      # The npm deprecation warnings in this step's log come from that tree, not from us: this extension has
-      # no dependencies at all, deliberately. They are left visible rather than silenced with --loglevel,
-      # because the flag that hides somebody else's noise hides ours too.
+      # The npm deprecation warnings in this step's log come from that dependency tree. This extension has no
+      # dependencies at all, deliberately. The warnings stay visible: silencing them with --loglevel would
+      # also hide this project's own warnings.
       - name: Package the extension
         working-directory: src/Phenome.Apps.VSCodeLink
         run: npx --yes @vscode/vsce@3.9.2 package --allow-missing-repository --skip-license
@@ -82,21 +81,21 @@ jobs:
           Copy-Item src/Phenome.Apps.GrasshopperLink/manifest.yml dist
           Copy-Item (Get-ChildItem src/Phenome.Apps.VSCodeLink -Filter 'phenome-link-*.vsix')[0].FullName dist
 
-          # The gateway's zip belongs here too, and is deliberately absent rather than written blind: the
-          # lines above index [0] into a search, so a pattern matching nothing throws and the whole build
-          # stops. Add the build step and the copy together, when the project exists - and remember it is
-          # also named in the version check below, which is the one that fails silently rather than loudly.
+          # The gateway's zip belongs here too and is deliberately left out until the project exists. The
+          # lines above index [0] into a search: a pattern matching nothing throws, and the whole build stops.
+          # Add the build step and the copy together, when the project exists, and add its version to the
+          # version check below as well: a declaration missing from that check is never compared.
 
           Get-ChildItem dist | ForEach-Object { "  $($_.Name)  $([int]($_.Length/1KB)) KB" }
 
-      # All five version declarations must agree. Yak cross-checks the first two, the friction log stamps its
-      # reports with the assembly version so a report names a build - and the extension is here because it was
-      # not: v0.1.0 shipped a 0.17.0 vsix, two histories in one release, and nothing complained. The parts
-      # only work together, so they carry one number.
+      # All five version declarations must agree: the parts only work together, and they carry one number.
+      # Yak cross-checks the first two, and the friction log stamps its reports with the assembly version,
+      # which lets a report name a build. The extension is checked because v0.1.0 shipped a 0.17.0 vsix, two
+      # histories in one release, and nothing flagged it.
       #
       # The Rhino plugin joined this list the moment it existed. A check that names its subjects one by one
-      # has to be extended by hand every time there is a new one, and the failure is silent: an unnamed
-      # project simply is not checked, and ships with whatever number it happened to have.
+      # has to be extended by hand for every new one, and the failure is silent: a project left unnamed is
+      # not checked and ships with whatever number it happened to have.
       - name: Check every version declaration agrees
         id: wersje
         shell: pwsh
@@ -114,32 +113,32 @@ jobs:
           }
           $versions.GetEnumerator() | ForEach-Object { "  $($_.Key): $($_.Value)" }
 
-          # @() around it on purpose: Sort-Object -Unique hands back a bare string when everything agrees,
-          # and indexing a string gives a character - so $distinct[0] was '0' rather than '0.18.0', and the
-          # check failed precisely when it should have passed.
+          # The @() around it is there on purpose. Sort-Object -Unique returns a bare string when everything
+          # agrees, and indexing a string gives a character: without @(), $distinct[0] is '0' and not
+          # '0.18.0', and the check fails exactly when it should pass.
           $distinct = @($versions.Values | Sort-Object -Unique)
           if ($distinct.Count -ne 1) { throw "the versions disagree: $($distinct -join ', ')" }
 
-          # On a tag, the tag is a fourth declaration and the loudest one - it is what the release is named
-          # after and what anybody quotes in a bug report.
+          # On a tag, the tag is a sixth declaration and the loudest one: the release is named after it, and
+          # it is what gets quoted in a bug report.
           if ($env:GITHUB_REF -like 'refs/tags/v*') {
             $tag = $env:GITHUB_REF -replace '^refs/tags/v', ''
             "  tag: $tag"
             if ($tag -ne $distinct[0]) { throw "the tag says $tag and the files say $($distinct[0])" }
           }
 
-          # And the changelog, for the same reason the versions are checked here rather than trusted: it is
-          # the only account of a release written for somebody who does not have this repository, and a
-          # release that forgot to write one looks exactly like a release with nothing worth saying.
+          # The changelog is checked too, for the same reason the versions are checked here and not trusted.
+          # It is the only account of a release written for someone outside this repository, and a release
+          # with no entry looks exactly like a release with nothing worth saying.
           if (-not (Select-String -Path CHANGELOG.md -Pattern "^## $([regex]::Escape($distinct[0]))$" -Quiet)) {
             throw "CHANGELOG.md has no '## $($distinct[0])' entry"
           }
           "  changelog: an entry for $($distinct[0])"
 
-          # And whether that entry says the release fixes something somebody can be hurt by. The release
-          # note then says so in its title and at the top of its body, without a second tag, a label or
-          # anything else to remember. Pattern built by concatenation rather than interpolation, because
-          # $(...) inside a double-quoted PowerShell string is a subexpression, not a capture group.
+          # Then check whether that entry says the release fixes something that could cause harm. If it does,
+          # the release note says so in its title and at the top of its body, with no second tag, label or
+          # anything else to remember. The pattern is built by concatenation and not by interpolation, because
+          # $(...) inside a double-quoted PowerShell string is a subexpression and not a capture group.
           $zmiany = Get-Content CHANGELOG.md -Raw
           $wzor = '(?ms)^## ' + [regex]::Escape($distinct[0]) + '\s*\r?\n(.*?)(?=^## |\z)'
           $security = 'false'
@@ -156,25 +155,26 @@ jobs:
           name: phenome-link
           path: dist/*
 
-  # There is no Yak job, and that is a decision rather than an omission. Building a package needs Yak.exe,
-  # which ships inside Rhino and exists on no hosted runner - so it wanted a self-hosted Windows machine with
-  # Rhino on it, gated behind a repository variable, producing an asset that was sometimes there and sometimes
-  # not. An attachment you cannot rely on is worse than one that is honestly absent: it makes the install
-  # instructions conditional on something the reader cannot check.
+  # There is no Yak job, by decision. Building a package needs Yak.exe, which ships inside Rhino and exists on
+  # no hosted runner. A Yak job needed a self-hosted Windows machine with Rhino on it, gated behind a
+  # repository variable, and produced an asset that was sometimes there and sometimes not. An attachment that
+  # cannot be relied on is worse than one that is honestly absent, because it makes the install instructions
+  # conditional on something the reader cannot check.
   #
-  # So a release carries the three files and nothing else, and whoever wants a package builds one:
+  # A release carries the three files and nothing else, and a package is built on demand:
   #   pwsh tools/pack-yak.ps1 -From dist -Destination <a folder you can read>
-  # That is also the only sensible way to hand it round a studio, since a Yak source is a folder and whoever
-  # can read the folder can install. tools/pack-yak.ps1 keeps working and is covered by no CI - say so here
-  # rather than letting somebody assume a green tick means it still packs.
+  # This is also the only sensible way to distribute it across a studio: a Yak source is a folder, and read
+  # access to the folder is what permits install. tools/pack-yak.ps1 keeps working and is covered by no CI;
+  # a green tick here does not mean it still packs.
 
-  # The same three files into the company SharePoint library, so an internal machine can pick up a build
-  # without going to a public release page - and so there is a record of every version we cut.
+  # Uploads the same three files to the company SharePoint library. An internal machine can pick up a build
+  # there without going to a public release page, and the library keeps a record of every version released.
   #
-  # Hosted rather than self-hosted, deliberately. Graph is ordinary HTTPS and nothing here is local, so this
-  # needs no runner of ours: one fewer thing depending on one machine, and the publishing secret never lands
-  # on a machine that already holds another. Tag-only, so a fork's pull request never reaches the secret -
-  # GitHub withholds secrets from fork pull requests anyway, and the two together are the belt and braces.
+  # The job runs on a hosted runner on purpose. Graph is ordinary HTTPS and nothing here is local, and the
+  # job needs no self-hosted runner: one fewer thing depends on one machine, and the publishing secret never
+  # lands on a machine that already holds another. The job runs on tags only, and a fork's pull request never
+  # reaches the secret. GitHub withholds secrets from fork pull requests anyway; the two together are belt
+  # and braces.
   sharepoint:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && needs.build.result == 'success'
@@ -189,10 +189,10 @@ jobs:
       - name: Upload to the Builds folder
         shell: pwsh
         env:
-          # These live in Settings → Secrets and variables → **Actions**. There is an Agents tab beside it
-          # holding a separate store with the same names and the same look, which workflows cannot read -
-          # v0.19.0 published nothing because that is where they had been created, and the step reported
-          # them missing because to a workflow they were.
+          # These live in Settings → Secrets and variables → **Actions**. The Agents tab beside it holds a
+          # separate store with the same names and the same look, and workflows cannot read it. v0.19.0
+          # published nothing because the values had been created there, and the step reported them missing
+          # because, to a workflow, they were.
           TENANT: ${{ vars.PHENOME_GRAPH_TENANT }}
           CLIENT_ID: ${{ vars.PHENOME_GRAPH_CLIENT_ID }}
           SECRET: ${{ secrets.PHENOME_GRAPH_SECRET }}
@@ -203,23 +203,23 @@ jobs:
           $missing = @('TENANT','CLIENT_ID','SECRET','DRIVE','FOLDER') |
             Where-Object { -not (Get-Item "env:$_" -ErrorAction SilentlyContinue).Value }
           if ($missing) {
-            # Not a failure: the release itself is the product, and this is a convenience on top of it. But
-            # it says so, because a step that publishes nothing and prints nothing cannot be told from one
-            # that worked.
+            # Missing settings are not a failure: the release itself is the product, and this is a convenience
+            # on top of it. The step still prints what is missing, because a step that publishes nothing and
+            # prints nothing cannot be told from one that worked.
             Write-Host "  $($missing -join ', ') not set - nothing sent to SharePoint."
             exit 0
           }
 
           $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
 
-          # A folder per version, because the .gha carries no version in its filename and would otherwise
-          # overwrite its predecessor on every release - leaving a file nobody can date.
+          # A folder per version, because the .gha carries no version in its filename. In a shared folder it
+          # would overwrite its predecessor on every release and leave a file that cannot be dated.
           $target = "$env:FOLDER/$version"
 
-          # The zip is the gateway, which is not in the yak package but is part of the same release and
-          # carries the same version. Listed before it exists on purpose: this job selects by extension and
-          # says nothing about what it skipped, so an artefact added later would otherwise be absent here
-          # and nobody would find out. A pattern matching nothing costs nothing.
+          # The zip is the gateway. It is outside the yak package, part of the same release and on the same
+          # version. It is listed before it exists on purpose: this job selects by extension and says nothing
+          # about what it skipped, and an artefact added later would otherwise be missing here unnoticed. A
+          # pattern that matches nothing costs nothing.
           $files = Get-ChildItem dist -Include *.gha, *.rhp, *.vsix, *.zip -Recurse
           if (-not $files) { throw 'nothing to upload' }
 
@@ -237,7 +237,7 @@ jobs:
             Write-Host "  $($up.name) -> $target, $([int]($up.size/1KB)) KB"
           }
 
-          if (-not $env:TEAMS_WEBHOOK) { Write-Host '  TEAMS_WEBHOOK is not set - nobody notified'; exit 0 }
+          if (-not $env:TEAMS_WEBHOOK) { Write-Host '  TEAMS_WEBHOOK is not set - no notification sent'; exit 0 }
 
           $body = @{
             type = 'message'
@@ -276,50 +276,50 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          # The title says it before anybody opens anything. A release nobody should skip and a release
-          # with six small improvements look identical on a list of tags, and the person who most needs to
-          # know is the one scrolling that list rather than reading the changelog.
+          # The title carries the warning, visible before anything is opened. A release that should not be
+          # skipped and a release with six small improvements look identical on a list of tags, and the person
+          # who most needs to know is the one scrolling that list without reading the changelog.
           name: >-
             ${{ needs.build.outputs.security == 'true'
                 && format('{0} — security release, do not skip', github.ref_name)
                 || github.ref_name }}
-          # Named rather than dist/*, because that also published manifest.yml - a build input, and one more
-          # file to wonder about on a page where every entry should be something you install.
+          # Each file is named, because dist/* also published manifest.yml: a build input, and one more
+          # unexplained file on a page where every entry should be something a user installs.
           files: |
             dist/*.gha
             dist/*.rhp
             dist/*.vsix
             # The gateway, once it is built here: a separate, deliberate download, outside the yak package
             # but part of this release and on this release's version. Unmatched globs are not an error, so
-            # naming it now is free and means the release cannot quietly ship without it.
+            # naming it now costs nothing and prevents the gateway being left out without a trace.
             dist/*.zip
           body: |
-            ${{ needs.build.outputs.security == 'true' && '> **This release fixes a security problem. The `### Security` block in `CHANGELOG.md` says what it was, what somebody could have done with it, and whether you were exposed. Read that before deciding to install this later.**' || '' }}
+            ${{ needs.build.outputs.security == 'true' && '> **This release fixes a security problem. The `### Security` block in `CHANGELOG.md` says what it was, what an attacker could do with it, and whether you were exposed. Read it before deciding to install this later.**' || '' }}
 
-            Three parts of one mechanism, and they install by hand. These three files are the whole release:
-            there is no package on any server and no plan for one. If you would rather install from Rhino's
-            Package Manager, `tools/pack-yak.ps1` in the repository builds a `.yak` for a folder of your own,
-            which is also how to hand it round a studio — whoever can read the folder can install.
+            The release is three files, the `.gha`, the `.rhp` and the `.vsix`, installed by hand. No package
+            is published on any server, and there is no plan for one. For Rhino's Package Manager,
+            `tools/pack-yak.ps1` in the repository builds a `.yak` into a folder, and everyone who can read
+            that folder can install from it.
 
-            **The .gha** goes in `%APPDATA%\Grasshopper\Libraries\`. Then right-click it, Properties,
-            **Unblock** — Windows marks files that arrived from elsewhere and Grasshopper refuses a blocked
-            assembly *silently*. This is the step everybody misses.
+            **The .gha** goes in `%APPDATA%\Grasshopper\Libraries\`. Then right-click it, open Properties and
+            select **Unblock**. Windows marks files that arrived from elsewhere, and Grasshopper refuses a
+            blocked assembly with no warning. A blocked file must be unblocked by hand.
 
             **The .rhp**: drag it onto an open Rhino, or point `PlugInManager` at it. Rhino remembers what
-            it has loaded between sessions — but it writes that list when it *closes normally*, so a Rhino
-            killed rather than closed forgets it was ever told.
+            it has loaded between sessions, and it updates that list only when it *closes normally*. A kill
+            skips the registrations made in that session; plug-ins recorded from an earlier normal close still
+            load.
 
             **The .vsix**: `code --install-extension phenome-link-<version>.vsix`, or let the canvas's
             *Pair with VS Code* button do it on the first pairing.
 
             Then restart Rhino. `GET /` on the port in `%TEMP%\phenome-link-<pid>.port` describes the canvas
-            protocol, and `%TEMP%\phenome-rhino-<pid>.port` the one that still answers when the canvas
-            cannot — whether Rhino is free, what dialog is holding it, and how to answer that.
+            protocol. The port in `%TEMP%\phenome-rhino-<pid>.port` answers when the canvas cannot: it says
+            whether Rhino is free, what dialog is holding it and how to answer that.
 
-            What changed since the version you have is in `CHANGELOG.md`, which is written for that question
-            rather than for the commit history.
+            What changed since the installed version is in `CHANGELOG.md`.
 
-            **If that file has a `### Security` block for a version above yours, read it before deciding to
-            skip this release.** The link binds loopback and runs code in Rhino, so a hole in it is reachable
-            by anything that runs on your machine — a web page included. Those entries say what an attacker
-            could do and what to do about it, in plain words.
+            **If that file has a `### Security` block for a version above the installed one, read it before
+            deciding to skip this release.** The link binds to loopback and runs code in Rhino. A vulnerability
+            in it is reachable by anything that runs on the same machine, a web page included. Those entries
+            say what an attacker could do and what to do about it.

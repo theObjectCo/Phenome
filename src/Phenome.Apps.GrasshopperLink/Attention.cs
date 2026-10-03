@@ -10,63 +10,54 @@ using Phenome.Apps.GrasshopperLink.Bridge;
 namespace Phenome.Apps.GrasshopperLink;
 
 /// <summary>
-/// Shows, on the screen itself, that something other than the person is driving.
+/// Shows on screen that an agent, not the person, is driving.
 /// </summary>
 /// <remarks>
-/// An agent working through this link moves the same canvas and the same viewports a human does, and
-/// from across the room the two are indistinguishable: geometry appears, sliders move, the view jumps.
-/// Whose hands did it is not a detail - it decides whether the person reaches for the mouse or waits,
-/// and whether a surprise is a bug or somebody else's next step.
+/// An agent moves the same canvas and viewports a user does, and from across the room the two look the
+/// same: geometry appears, sliders move, the view jumps. The border tells the person whether to reach for the
+/// mouse or wait.
 /// <para>
-/// So while requests are arriving, both surfaces get a soft border lit from the inside: every Rhino
-/// viewport and the Grasshopper canvas. It goes out on its own a few seconds after the last request, so
-/// nobody has to turn it off, and an idle screen is never wearing it.
+/// While an agent is acting, every Rhino viewport and the Grasshopper canvas get a solid inner border. The
+/// border clears eight seconds after the last action, and journal polling alone never shows it.
 /// </para>
 /// <para>
-/// Drawn rather than announced. A dialog would have to be dismissed, a message in the command line
-/// scrolls away, and both ask for attention the person may not want to give; a border is seen without
-/// being read.
+/// A border is seen without being read. A dialog needs dismissing and a command-line message scrolls away, and
+/// both of those demand attention.
 /// </para>
 /// </remarks>
 internal static class Attention
 {
     /// <summary>
-    /// How long after a request the border stays lit - long enough to bridge the gaps between calls.
+    /// How long after a request the border stays lit, long enough to cover the gaps between calls.
     /// </summary>
     /// <remarks>
-    /// Agents work in bursts with thinking in between, and a border that goes out during the thinking
-    /// says the opposite of the truth: it says the machine is yours again, seconds before it is not.
+    /// Agents work in bursts with pauses between them. A border that clears during a pause wrongly signals that
+    /// the machine is free again.
     /// </remarks>
     private static readonly TimeSpan Hold = TimeSpan.FromSeconds(8);
 
     /// <summary>
-    /// Object Orange, #ff9800.
+    /// The border colour, Object Orange (#ff9800).
     /// </summary>
     /// <remarks>
-    /// The house teal was the obvious choice and the wrong one twice over. It is the primary brand
-    /// colour, which makes it the colour of things being normal, and this is not that. And it is close
-    /// enough in value to Rhino's grey viewport background - and far too close on a white one - that it
-    /// washed out exactly where it most needed to be read.
+    /// The house teal reads as the normal brand colour. Its value is too close to Rhino's grey viewport
+    /// background and far too close to a white one, and it washes out where it has to be visible.
     /// <para>
-    /// The house palette files orange under critical calls to action and warnings, which is the right
-    /// register for "someone other than you is holding this machine", and it separates from both a grey
-    /// and a white background without being alarming.
+    /// The house palette reserves orange for critical calls to action and warnings, which fits "an agent is
+    /// driving". Orange stands out against both grey and white backgrounds without looking like an alarm.
     /// </para>
     /// </remarks>
     private static readonly Color Glow = Color.FromArgb(0xFF, 0x98, 0x00);
 
     /// <summary>
-    /// Two pixels, solid.
+    /// The border width in pixels. The border is solid.
     /// </summary>
     /// <remarks>
-    /// A glow was the first idea and it kept failing at the only thing it had to do. Soft enough to look
-    /// good and it went unseen; strong enough to be seen and it was a painted frame with blurred edges,
-    /// which is a worse version of a line. Three rounds of tuning opacity were three rounds of asking a
-    /// gradient to behave like a border.
+    /// A soft glow is either too faint to see or strong enough to read as a painted frame with blurred edges,
+    /// and no opacity setting makes a gradient work as a border.
     /// <para>
-    /// A border, then. Thin enough to take no room and to sit outside the drawing, definite enough that
-    /// there is nothing to squint at, and the same on a white viewport as on a grey one - which the
-    /// gradient never managed, because a gradient's visibility depends on what is under it.
+    /// A solid border takes no room, sits outside the drawing, is clearly visible and looks the same on white and
+    /// grey viewports. The visibility of a gradient depends on what is behind it.
     /// </para>
     /// </remarks>
     private const int Thickness = 2;
@@ -75,7 +66,7 @@ internal static class Attention
     private static System.Timers.Timer? clock;
     private static bool lit;
 
-    /// <summary>The canvas already being painted, so a second subscription is not added to it.</summary>
+    /// <summary>The canvas already subscribed for painting. Attach checks it and never subscribes twice.</summary>
     private static GH_Canvas? painted;
 
     internal static void Start()
@@ -84,24 +75,24 @@ internal static class Attention
         {
             conduit = new Conduit { Enabled = true };
 
-            // Both, because neither alone is enough. This runs as the plugin loads, and at that moment
-            // there may be no canvas yet - Grasshopper builds it when its window first opens, which is
-            // usually after. Subscribing only to the event misses a canvas that already exists; only
-            // attaching now misses every canvas made later, which was the whole of it: the border worked
-            // in Rhino and never once appeared on the canvas, because the handler had been hung on null.
+            // Attach both ways, because neither alone covers every case. This runs on the UI thread after the
+            // plugin loads: attaching to ActiveCanvas covers a canvas that already exists, and CanvasCreated covers
+            // every canvas created later. ActiveCanvas can be null at this point. With ActiveCanvas alone the
+            // handler would then never reach a canvas, and the border would appear in Rhino viewports but never
+            // on the canvas.
             Attach(Grasshopper.Instances.ActiveCanvas);
             Grasshopper.Instances.CanvasCreated += Attach;
 
-            // Polled rather than driven by the requests themselves: the border has to go out when nothing
-            // happens, and "nothing happens" raises no event. Twice a second is under the threshold at
-            // which a light looks like it is flickering, and costs nothing while dark.
+            // A timer polls the state, because the border must clear when nothing happens and nothing happening
+            // raises no event. Twice a second is below the flicker threshold and costs nothing while the border is
+            // dark.
             clock = new System.Timers.Timer(500) { AutoReset = true };
             clock.Elapsed += (_, _) => Tick();
             clock.Start();
         });
     }
 
-    /// <summary>Hangs the border on a canvas, once per canvas.</summary>
+    /// <summary>Subscribes the border painter to a canvas, once per canvas.</summary>
     private static void Attach(GH_Canvas? canvas)
     {
         if (canvas is null || ReferenceEquals(canvas, painted)) return;
@@ -121,13 +112,11 @@ internal static class Attention
     }
 
     /// <summary>
-    /// Whether an agent is working, not merely attached.
+    /// Whether an agent is working. Being connected is not enough.
     /// </summary>
     /// <remarks>
-    /// LastAction rather than LastRequest: a paired client polls the journal every couple of seconds
-    /// whether or not it is doing anything, so a border keyed to requests would be lit for as long as
-    /// anybody was connected - which is a light that means "somebody is in the building", and nobody
-    /// needs telling that twice a second for an afternoon.
+    /// Uses LastAction. A paired client polls the journal every couple of seconds whether or not it is acting,
+    /// and a border keyed to LastRequest would stay lit for the whole connection.
     /// </remarks>
     private static bool Busy => DateTime.Now - LinkServer.LastAction < Hold;
 
@@ -138,8 +127,8 @@ internal static class Attention
 
         lit = now;
 
-        // Only on the change: redrawing every half second whether or not anything altered would put a
-        // constant load on a machine whose whole job is elsewhere.
+        // Redraw only on a change. Redrawing every half second regardless would load a machine that is busy with
+        // other work.
         Rhino.RhinoApp.InvokeOnUiThread(() =>
         {
             Rhino.RhinoDoc.ActiveDoc?.Views.Redraw();
@@ -157,14 +146,12 @@ internal static class Attention
         Rectangle frame = canvas.ClientRectangle;
         if (frame.Width <= Thickness * 2 || frame.Height <= Thickness * 2) return;
 
-        // The overlay stage still carries the canvas's own transform - it is where objects are drawn, in
-        // document coordinates. A border belongs to the window, not to the document: left as it was, it
-        // scrolled and scaled with the definition, which is the one thing a frame must never do.
+        // The overlay stage keeps the canvas transform, in document coordinates. The border is drawn in window
+        // coordinates; with the transform left on, it would scroll and scale with the definition.
         GraphicsState state = graphics.Save();
         graphics.ResetTransform();
 
-        // Inset by half the pen, so the whole line lands inside the control instead of half of it being
-        // clipped away by the edge it is drawn on.
+        // Inset by half the pen width. The whole line then falls inside the control, and its edge clips nothing.
         using Pen pen = new(Glow, Thickness);
         graphics.DrawRectangle(
             pen,
@@ -176,7 +163,7 @@ internal static class Attention
         graphics.Restore(state);
     }
 
-    /// <summary>The same border in every Rhino viewport, drawn over the scene rather than in it.</summary>
+    /// <summary>The same border in every Rhino viewport, drawn in the foreground over the scene.</summary>
     private sealed class Conduit : DisplayConduit
     {
         protected override void DrawForeground(DrawEventArgs e)

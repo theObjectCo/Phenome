@@ -8,49 +8,36 @@ namespace Phenome.Apps.GrasshopperLink.Definition;
 /// the boundary except through them.
 /// </summary>
 /// <remarks>
-/// This is the discipline that makes a group behave like a function rather than a coloured rectangle. Every
-/// wire that enters is re-landed on a floating parameter just inside the left edge, and every wire that
-/// leaves departs from one at the right edge; the members then talk only to their own inlets and outlets.
-/// A reader - or an agent editing later - can then take in what a group needs and what it yields without
-/// reading a single component inside it, and moving or replacing the innards touches nothing outside.
+/// Ports are floating parameters at a group boundary. Wires entering or leaving the group are redirected through
+/// them, and internal members connect only to the group's inlets and outlets. The interface can then be inspected
+/// without reading the implementation, and internal changes do not modify external wiring.
 /// <para>
-/// Written as a verb rather than left to doctrine on purpose: a rule that nothing performs is a rule that
-/// loses to convenience, which is exactly what the first agent-built definitions showed.
+/// The rule is enforced by an operation because a convention that nothing enforces is easily bypassed.
 /// </para>
 /// </remarks>
 internal static class Signature
 {
     /// <summary>
-    /// What marks a parameter as a port this verb planted, so running it again recognises its own work.
+    /// The text that marks a parameter as a port this verb planted. A second run recognises its own ports by it.
     /// </summary>
     /// <remarks>
-    /// Idempotence is not a nicety here. Without a mark, a second call cannot tell a port from any other
-    /// parameter, so it plants another one - and a third call another - each carrying a copy of the wires
-    /// through the boundary. A canvas then holds parallel chains that share endpoints: disconnecting one
-    /// appears to do nothing (the twin still feeds the target), data arrives doubled, and deleting the
-    /// "unused" copies severs the live ones. That is precisely the wreck reported from the field, and it
-    /// traces back to this one missing mark.
+    /// Without the marker, a repeated call cannot identify the ports planted earlier and may plant more. The
+    /// resulting parallel paths can share endpoints: a disconnection then appears to have no effect, data is
+    /// duplicated, and deleting a port that looks unused severs live connections.
     /// </remarks>
     private const string Mark = "phenome-link:port";
 
     /// <summary>
-    /// Marks a parameter as a group's inlet or outlet, for whoever planted it.
+    /// Marks a parameter as a group's inlet or outlet, for the verb that planted it to recognise later.
     /// </summary>
     /// <remarks>
-    /// The <c>group</c> verb plants ports too, when it is given inlets and outlets to declare, and it was not
-    /// marking them - so a port a caller had *asked for by name* was indistinguishable from any parameter that
-    /// happened to be lying in the group. Two consequences, both met in practice: <c>signature</c> could plant
-    /// a second port in front of a declared one, which is the doubling the remark above is about; and a
-    /// declared outlet with nothing downstream was not recognised as an outlet at all, so the terminal group
-    /// of every definition reported an empty signature.
+    /// Ports declared by the <c>group</c> verb must receive the same marker as ports planted by
+    /// <see cref="Signature"/>. Otherwise <c>signature</c> may plant a duplicate port, and an unwired declared
+    /// outlet can be omitted from a terminal group's reported signature.
     /// <para>
-    /// The side is written down rather than worked out later. <see cref="Ports"/> used to derive it from the
-    /// wires alone, on the reasoning that a port fed from outside is an inlet and one read from outside is an
-    /// outlet. That is true of a port in use and no help at all before it is wired, which is most of a
-    /// signature-first build: a declared inlet holding a constant instead of a wire came back as neither
-    /// side, and a whole signature declared a moment ago and not yet filled came back as no signature at
-    /// all. The second was the worse of the two, because <c>peek</c> then advised calling <c>signature</c> -
-    /// the very thing that had just been done.
+    /// The side is recorded explicitly, and wires are not the only source for it. Wire-based inference fails before
+    /// a port is wired, which is normal during a signature-first build: an inlet containing a constant could be
+    /// classified as neither side, and a newly declared signature could be reported as having no ports.
     /// </para>
     /// </remarks>
     internal static void MarkAsPort(IGH_Param parameter, string planter, string side) =>
@@ -63,10 +50,9 @@ internal static class Signature
     /// The side a port was planted as, or null for one that never recorded it.
     /// </summary>
     /// <remarks>
-    /// Null is the honest answer for a port planted by a version that wrote "edge" and no side: nothing was
-    /// stored, so there is nothing to read, and <see cref="Ports"/> falls back to the wires as before. A
-    /// document built before this is therefore no worse off - and no better, because <c>signature</c> reuses
-    /// the ports it finds rather than re-marking them.
+    /// Null is returned for ports created by an older version that recorded only that the parameter was an edge
+    /// port. In that case <see cref="Ports"/> falls back to wire-based classification. Existing documents keep
+    /// working, and they get the explicit side only when their ports are replanted.
     /// </remarks>
     private static string? DeclaredSide(IGH_Param parameter) =>
         !IsPort(parameter) ? null
@@ -75,17 +61,16 @@ internal static class Signature
         : null;
 
     /// <summary>
-    /// A parameter already standing at a boundary, whoever put it there.
+    /// A parameter already standing at a boundary, however it got there.
     /// </summary>
     /// <remarks>
-    /// The mark recognises this verb's own work; this recognises an author's. A lone relay whose wires all
-    /// come from outside and go inside is an inlet by construction, and planting a second one in front of
-    /// it is how a canvas ends up with pairs of parameters chained nose to tail - which is exactly what
-    /// happened to an author who named their own ports.
+    /// This recognizes boundary parameters created by an author, as opposed to ports marked by this verb. A relay
+    /// fed from outside the group and read inside it works as an inlet, and planting another port before it creates
+    /// a redundant chained pair.
     /// </remarks>
     private static bool StandsAtEdge(IGH_Param parameter, HashSet<Guid> inside)
     {
-        // A slider, a panel, a swatch: things with values of their own, not relays.
+        // Sliders, panels, swatches and toggles hold values of their own and are never relays.
         if (parameter is Grasshopper.Kernel.Special.GH_NumberSlider
             or Grasshopper.Kernel.Special.GH_Panel
             or Grasshopper.Kernel.Special.GH_ColourSwatch
@@ -100,7 +85,7 @@ internal static class Signature
         bool fedFromOutside = parameter.SourceCount > 0 && parameter.Sources.All(Outside);
         bool readInside = parameter.Recipients.Count > 0 && parameter.Recipients.All(reader => !Outside(reader));
 
-        // An inlet: everything in from outside, everything out to inside. An outlet is the mirror.
+        // An inlet takes every source from outside and feeds only readers inside. An outlet is the reverse.
         if (fedFromOutside && readInside)
         {
             return true;
@@ -125,10 +110,9 @@ internal static class Signature
                 : $"No group {only} on the canvas.");
         }
 
-        // Refused outright while any object belongs to two groups. Both owners consider it theirs and each
-        // wants a port for it, and the port one plants is an outsider to the other - so every run adds two
-        // more, forever. A field report counted twenty-six strays and hours of hand-rewiring from exactly
-        // this. It cannot be signed sensibly; it has to be un-shared first, and review says which objects.
+        // Reject shared objects before signing. Each owner may create a port for the shared member, and a port
+        // belonging to one owner is external to the other: each pass can add more duplicates. Shared objects
+        // must be removed from all but one group before signing.
         List<string> shared = [];
 
         foreach (GH_Group group in document.Objects.OfType<GH_Group>())
@@ -213,8 +197,8 @@ internal static class Signature
         float left,
         float top)
     {
-        // Grouped by the far end of the wire: two members fed by the same slider share one inlet, which is
-        // the point - the group takes one value, not one per use.
+        // Group crossings by external source. Members fed by the same source share one inlet, and the group
+        // exposes one input for that source however many members use it.
         Dictionary<IGH_Param, List<IGH_Param>> crossings = [];
 
         foreach (IGH_DocumentObject member in members)
@@ -245,9 +229,8 @@ internal static class Signature
 
         foreach ((IGH_Param source, List<IGH_Param> sinks) in crossings)
         {
-            // A port of ours is *supposed* to take a wire from outside - that is its whole job. Leaving it
-            // in this list is how a second run told a port to stop listening to the slider and listen to
-            // itself instead, which GH refuses, leaving the port fed by nothing at all.
+            // Exclude existing ports from the consumers needing redirection. Otherwise a later run can attempt to
+            // route a port's external source back into that same port, leaving it disconnected.
             List<IGH_Param> needy = [.. sinks.Where(sink => !IsPort(sink) && !StandsAtEdge(sink, inside))];
 
             if (needy.Count == 0)
@@ -255,7 +238,7 @@ internal static class Signature
                 continue;
             }
 
-            // A port of ours already carries this source in - reuse it rather than planting a twin.
+            // Reuse an existing marked port that already carries this source instead of planting a duplicate.
             if (members.OfType<IGH_Param>()
                     .FirstOrDefault(port => IsPort(port) && port.Sources.Contains(source))
                 is { } known)
@@ -271,9 +254,8 @@ internal static class Signature
 
             IGH_Param inlet = Like(needy[0], NameFor(source, needy[0]), "inlet");
 
-            // Only when the constructor left none - a second CreateAttributes on a component orphans its
-            // parameters' parent attributes (the long version is on `add`); on a floating param it is
-            // merely wasted, and one rule is easier to hold than two.
+            // Create attributes only when absent. A second CreateAttributes call can orphan linked parameter
+            // attributes; see the explanation in the `add` verb.
             if (inlet.Attributes is null)
             {
                 inlet.CreateAttributes();
@@ -316,13 +298,11 @@ internal static class Signature
         {
             foreach (IGH_Param output in OutputsOf(member))
             {
-                // Readers outside the group, ports of other groups included. Another group's inlet reading
-                // this output straight from a member is a wire that crosses this group's edge with no outlet
-                // on it, and it is what every producer was left with when its consumer happened to be signed
-                // first: the consumer's inlet took the wire, this group then counted that inlet as "the
-                // signature already working", and five producing groups ended with no outlets at all, run
-                // after run. Ports do not beget ports here, because an outlet of this group is inside it and
-                // never in this list, and once the outlet stands the other group's inlet reads the outlet.
+                // Consider all readers outside this group, including ports owned by other groups. If an external
+                // port reads an internal member directly, the wire crosses this group's boundary without an outlet.
+                // When a consumer is signed before its producer, the producer would otherwise take the consumer's
+                // inlet for an existing signature and stay without outlets. Once this group's outlet exists, the
+                // external inlet reads that outlet.
                 List<IGH_Param> readers = [.. output.Recipients
                     .Where(reader => !inside.Contains(
                         (reader.Attributes?.GetTopLevel?.DocObject ?? reader).InstanceGuid))];
@@ -332,13 +312,13 @@ internal static class Signature
                     continue;
                 }
 
-                // Already a port - ours by the mark, or the author's by where it stands.
+                // Treat an output already marked as a port, or already functioning as a boundary port, as signed.
                 if (member is IGH_Param bare && (IsPort(bare) || StandsAtEdge(bare, inside)))
                 {
                     continue;
                 }
 
-                // A port of ours already carries this output out - send the outside readers to it.
+                // Reuse an existing marked outlet that carries this output and redirect external readers to it.
                 if (members.OfType<IGH_Param>()
                         .FirstOrDefault(port => IsPort(port) && port.Sources.Contains(output))
                     is { } known)
@@ -354,7 +334,7 @@ internal static class Signature
 
                 IGH_Param outlet = Like(output, NameFor(output, output), "outlet");
 
-                // Only when the constructor left none, for the same reason as the inlets above.
+                // Create attributes only when absent, for the reason described for inlets.
                 if (outlet.Attributes is null)
                 {
                     outlet.CreateAttributes();
@@ -382,7 +362,7 @@ internal static class Signature
         return made;
     }
 
-    /// <summary>Every object the group holds, through one level of nesting or ten.</summary>
+    /// <summary>Every object the group holds, at any depth of nesting.</summary>
     internal static HashSet<Guid> Members(GH_Document document, GH_Group group)
     {
         HashSet<Guid> inside = [];
@@ -442,19 +422,14 @@ internal static class Signature
     }
 
     /// <summary>
-    /// A group's ports as they stand right now: what comes in, what goes out, and the shape of the data on
-    /// each. The group's current type, in other words, read rather than declared.
+    /// Determine a group's current inlets and outlets by inspecting port markers and boundary wiring.
     /// </summary>
     /// <remarks>
-    /// This lives here because this file owns what a port <em>is</em>. Two kinds count: one this verb
-    /// planted, which carries the mark, and one an author planted themselves, which is recognised the same
-    /// way <see cref="StandsAtEdge"/> recognises it while signing - otherwise a hand-built group would look
-    /// like it had no signature at all.
+    /// This operation belongs here because port classification is defined by this file. Ports are recognized either
+    /// by this verb's marker or by boundary wiring, and hand-built ports are included.
     ///
-    /// A planted port says which side it is, and that answer is taken over anything the wires suggest - see
-    /// <see cref="MarkAsPort"/> for what went wrong while the side was only ever derived. The wires still
-    /// decide for the two cases that carry no declaration: a port an author planted by hand, and one planted
-    /// before the side was recorded.
+    /// A declared port's recorded side takes precedence over wire-based inference; see <see cref="MarkAsPort"/>.
+    /// Wire inference is retained for hand-built ports and for older ports that did not record their side.
     /// </remarks>
     internal static (List<IGH_Param> Inlets, List<IGH_Param> Outlets) Ports(GH_Document document, GH_Group group)
     {
@@ -468,31 +443,28 @@ internal static class Signature
         bool Outside(IGH_Param end) =>
             !inside.Contains((end.Attributes?.GetTopLevel?.DocObject ?? end).InstanceGuid);
 
-        // A port with nothing downstream is still an outlet, and it is the one that matters most: the group
-        // at the end of a definition is the product, and nothing consumes it because it is the answer. Asking
-        // for a recipient outside the group meant every terminal group reported no outlets at all - so peek
-        // hid the values worth reading, and the preview sweep, which keeps "the outlets of the red and yellow
-        // groups" drawing, darkened the very geometry it exists to leave on screen.
+        // A marked port with no recipients is an outlet. Terminal groups produce the definition's output, which
+        // no object consumes. Requiring an external recipient would make every terminal group report no outlets,
+        // which hides their values in <c>peek</c> and leaves their geometry out of the preview sweep.
         //
-        // Restricted to ports this or the group verb planted, on the mark in their description. An unmarked
-        // parameter fed from inside and read by nobody is just as likely to be a relay somebody left behind.
+        // This fallback is restricted to marked ports. An unmarked parameter fed internally but not read could be
+        // a leftover relay and must not be inferred as an outlet.
         bool Terminal(IGH_Param port) =>
             IsPort(port)
                 && port.Recipients.Count == 0
                 && port.SourceCount > 0
                 && port.Sources.All(source => !Outside(source));
 
-        // Terminal's mirror, and missing for as long as Terminal has been here: a port with nothing upstream
-        // is still an inlet. Nothing feeds it because the value is typed into its socket rather than wired
-        // in - which is what a knob is - and the body downstream is what it feeds.
+        // The counterpart of <c>Terminal</c>: a marked port with no sources is still an inlet when internal members
+        // read it. The value may be stored in the parameter itself, as with a knob, and no wire supplies it.
         bool Initial(IGH_Param port) =>
             IsPort(port)
                 && port.SourceCount == 0
                 && port.Recipients.Count > 0
                 && port.Recipients.All(reader => !Outside(reader));
 
-        // Declared first, derived second. A port wired both ways is an inlet: it takes from outside first,
-        // and calling it both would put one object twice into a signature meant to read as a type.
+        // Prefer the declared side. If a port has both external sources and external readers, classify it as an
+        // inlet and include it only once, because a signature must not place one parameter in both lists.
         string? Side(IGH_Param port) =>
             DeclaredSide(port)
                 ?? (port.Sources.Any(Outside) || Initial(port) ? "inlet"

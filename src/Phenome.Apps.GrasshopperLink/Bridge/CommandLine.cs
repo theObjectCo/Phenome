@@ -7,62 +7,60 @@ namespace Phenome.Apps.GrasshopperLink.Bridge;
 /// The tail of Rhino's command line, kept so an agent can read what Rhino said.
 /// </summary>
 /// <remarks>
-/// The command line has been one-way until now: this plugin writes a line into it on every request, so
-/// the human watching Rhino can see an agent's hands move, and nothing comes back the other way. But
-/// that is where Rhino answers. "56 curves added to selection" is the answer to a selection; a script's
-/// print is the answer to a script; a warning about what a command is about to do is the reason a
-/// command did something surprising. An agent working through this link could see none of it, and had
-/// to arrange for every fact it needed to come back some other way - usually by writing a file.
+/// This plugin writes a line to the command line on every request, and the user watching Rhino sees what the
+/// agent is doing. Nothing comes back that way by itself; Rhino's answers are read here. "56 curves added to
+/// selection" answers a selection, a script's print answers a script, and a warning about what a command is
+/// about to do explains why a command did something surprising. Without this class an agent sees none of it
+/// and has to route every fact it needs some other way, usually through a file.
 /// <para>
-/// Rhino will capture what goes through Write and WriteLine if asked. The buffer is drained on idle
-/// into a ring here, because <c>CapturedCommandWindowStrings</c> clears as it reads: two readers of the
-/// same buffer steal from each other, so there is exactly one, and everyone else reads the ring.
+/// Rhino captures what goes through Write and WriteLine when asked. The buffer is drained on idle into a ring
+/// here, because <c>CapturedCommandWindowStrings</c> clears as it reads: two readers of the same buffer take
+/// lines from each other. There is exactly one reader, and everyone else reads the ring.
 /// </para>
 /// <para>
-/// What this cannot do: show you the command line <em>while</em> the UI thread is blocked, because the
-/// drain runs on that thread. A long script's output arrives in one piece when the script ends. Pulse
-/// is the verb for the meantime - it says whether there will be an end.
+/// This cannot read the command line <em>while</em> the UI thread is blocked, because the drain runs on that
+/// thread. A long script's output arrives in one piece when the script ends. In the meantime <c>pulse</c>
+/// says whether there will be an end.
 /// </para>
 /// </remarks>
 internal static class CommandLine
 {
-    /// <summary>Long enough to hold what a command said, short enough to stay cheap. Oldest lines fall off.</summary>
+    /// <summary>500 lines hold what a command said and stay cheap to keep. The oldest lines fall off.</summary>
     private const int Kept = 500;
 
     private static readonly Queue<string> lines = new();
 
     /// <summary>
-    /// The link's own lines, kept separately rather than thrown away.
+    /// The link's own lines, kept in a ring of their own.
     /// </summary>
     /// <remarks>
-    /// Filtering the plugin's own voice out of the console is right: an agent reading its own requests back
-    /// as though Rhino had said them is the one thing this must not do. But discarding them made the link's
-    /// own faults unreadable *through the link*, which is exactly when they are wanted -- diagnosing why a
-    /// second Rhino complained at startup meant no way to see whether the complaint was even ours. Kept in
-    /// their own ring and served on request.
+    /// The plugin's own lines are filtered out of the console: an agent must not read its own requests back as
+    /// though Rhino had said them. Discarded entirely, they would leave the link's own faults unreadable through
+    /// the link, when they are needed most. When a second Rhino complains at startup, these lines tell whether
+    /// the complaint came from the link. They are kept in their own ring and served on request.
     /// </remarks>
     private static readonly Queue<string> mine = new();
 
     private static readonly object gate = new();
 
-    /// <summary>Lines this plugin itself wrote, so the echo of a request is not read back as news.</summary>
+    /// <summary>Lines this plugin itself wrote, which the drain leaves out of the console.</summary>
     private static readonly ConcurrentDictionary<string, byte> ours = new();
 
     private static long dropped;
 
     /// <summary>
-    /// One client for the whole process, rather than one per call.
+    /// One client for the whole process instead of one per call.
     /// </summary>
     /// <remarks>
-    /// A fresh <see cref="HttpClient"/> per request leaves its socket in TIME_WAIT after disposal, so a verb
-    /// polled in a loop -- which reading the console is -- eventually runs the ephemeral port range down and
-    /// starts failing for a reason that has nothing to do with either end. One long-lived client is the
-    /// documented shape and there is nothing here that needs per-call configuration.
+    /// A fresh <see cref="HttpClient"/> per request leaves its socket in TIME_WAIT after disposal. A verb
+    /// polled in a loop, as reading the console is, eventually exhausts the ephemeral port range and starts
+    /// failing for a reason unrelated to either end. One long-lived client is the documented pattern, and
+    /// nothing here needs per-call configuration.
     /// </remarks>
     private static readonly HttpClient Loopback = new() { Timeout = TimeSpan.FromSeconds(3) };
 
     /// <summary>
-    /// True when the Rhino-side plugin got here first and owns the capture, so this one reads from it.
+    /// True when the Rhino-side plugin owns the capture. This plugin then reads the lines from that plugin.
     /// </summary>
     private static bool borrowed;
 
@@ -70,9 +68,9 @@ internal static class CommandLine
     {
         Rhino.RhinoApp.InvokeOnUiThread(() =>
         {
-            // Capture already on means the Rhino plugin is loaded and draining. Starting a second drain
-            // would not double the lines - it would halve them, because the buffer clears as it is read
-            // and whichever idle handler ran first would take that instalment for itself.
+            // Capture already on means the Rhino plugin is loaded and draining. The buffer clears as it is
+            // read, and whichever idle handler runs first takes that instalment: with a second drain each
+            // reader would get about half the lines.
             if (Rhino.RhinoApp.CommandWindowCaptureEnabled)
             {
                 borrowed = true;
@@ -84,23 +82,22 @@ internal static class CommandLine
         });
     }
 
-    /// <summary>Remembers a line this plugin is about to write, so the drain can leave it out.</summary>
+    /// <summary>Remembers a line this plugin is about to write. The drain leaves it out.</summary>
     internal static void Ours(string line) => ours[line.TrimEnd()] = 0;
 
     /// <summary>
-    /// Whether a captured line is this plugin's own voice rather than Rhino's.
+    /// Whether a captured line was written by this plugin and not by Rhino.
     /// </summary>
     /// <remarks>
-    /// Three ways, because one is not enough. The exact line is claimed before it is written, which
-    /// catches it when the capture hands it back whole. Anything this plugin announces about itself
-    /// starts with its own name. And the request echo has a fixed shape - a bracketed clock, first thing
-    /// on the line - which is worth matching directly, since an agent reading its own requests back as if
-    /// Rhino had said them is the one thing this must not do.
+    /// There are three tests, because no single one catches every line. The exact line is claimed before it is
+    /// written, which catches it when capture returns it whole. Anything the plugin announces about itself
+    /// starts with its own name. The request echo has a fixed shape, a bracketed clock at the start of the
+    /// line, and is matched directly: an agent must not read its own requests back as Rhino's answers.
     /// <para>
-    /// This check and <see cref="LinkServer.Echo"/> are one decision written in two places, and the only
-    /// two places it can be written: the capture hands back a string with nothing attached to say who
-    /// wrote it. So a change to the echo's shape has to change this, and the way to find out is that
-    /// <c>/console</c> starts answering with the link's own lines in it.
+    /// This check and <see cref="LinkServer.Echo"/> are one decision, written in the only two places it can be
+    /// written: capture returns a string with nothing attached to say who wrote it. Changing the echo's shape
+    /// means changing this too; the symptom of forgetting is <c>/console</c> answering with the link's own
+    /// lines in it.
     /// </para>
     /// </remarks>
     private static bool IsOurs(string line)
@@ -115,7 +112,7 @@ internal static class CommandLine
             return true;
         }
 
-        // [hh:mm:ss] - the opening bracket, six digits and two colons in fixed places, then the close.
+        // [hh:mm:ss]: the opening bracket, six digits and two colons in fixed places, then the close.
         return line.Length > 10
             && line[0] == '['
             && line[3] == ':'
@@ -147,8 +144,8 @@ internal static class CommandLine
         {
             foreach (string raw in captured)
             {
-                // Rhino writes partial lines too - a prompt, then its answer - so what arrives is not
-                // always one line per entry. Blank entries are the newlines between them.
+                // Rhino writes partial lines too (a prompt, then its answer), and an entry is not always one
+                // line. Blank entries are the newlines between them.
                 string line = raw.TrimEnd('\r', '\n');
                 if (line.Length == 0)
                 {
@@ -157,7 +154,7 @@ internal static class CommandLine
 
                 if (IsOurs(line))
                 {
-                    // The request echo is noise even to us; anything the plugin says about itself is not.
+                    // The request echo is dropped; the plugin's own notices go to their own ring.
                     if (line.StartsWith("Phenome Link:", StringComparison.Ordinal))
                     {
                         mine.Enqueue(line);
@@ -185,13 +182,13 @@ internal static class CommandLine
     /// <summary>The last lines, newest last.</summary>
     /// <param name="tail">How many lines back to return.</param>
     /// <param name="ours">
-    /// True for the link's own lines instead of Rhino's - the plugin's account of itself, which is what to
-    /// read when the suspicion is that the bridge rather than Rhino is at fault.
+    /// True for the link's own lines instead of Rhino's. They are the plugin's account of itself, to be read
+    /// when the bridge is suspected and Rhino is not.
     /// </param>
     internal static string Tail(int tail, bool ours = false)
     {
-        // Not borrowed for our own lines: the Rhino half keeps its own account, and this ring holds what this
-        // assembly said.
+        // The link's own lines are never borrowed: the Rhino half keeps its own account, and this ring holds
+        // what this assembly wrote.
         if (!ours && borrowed && FromRhinoLink(tail) is { } answer)
         {
             return answer;
@@ -226,21 +223,21 @@ internal static class CommandLine
         json.Append(",\"dropped\":").Append(lost);
         json.Append(",\"note\":").Append(Json.Quote(ours
             ? "The link's own lines, which /console leaves out so an agent does not read its requests back as Rhino's answers."
-            : "Drained when the UI thread breathes, so a long command's output arrives when it ends. Ask /pulse for what is happening now."));
+            : "Drained when the UI thread is idle; a long command's output arrives when it ends. Ask /pulse for what is happening now."));
         json.Append('}');
 
         return json.ToString();
     }
 
     /// <summary>
-    /// The same tail, read from the Rhino-side link in this very process.
+    /// The same tail, read from the Rhino-side link in this process.
     /// </summary>
     /// <remarks>
-    /// Loopback rather than a method call, because the two plugins are separate assemblies that know
-    /// nothing of each other by design - the Rhino one must not need Grasshopper, and this is the seam
-    /// that keeps it that way. The port file is named by process id, and the process is this one, so
-    /// there is no discovery to get wrong. Null when it cannot be reached, and the caller falls back to
-    /// its own ring, which for a session that started this way is empty but honest.
+    /// Read over loopback, without a method call. The two plugins are separate assemblies with no reference to
+    /// each other by design: the Rhino one must not need Grasshopper. The port file is named by process id, and
+    /// the process is this one; there is no discovery step to get wrong. Returns null when the Rhino-side link
+    /// cannot be reached. The caller then falls back to its own ring, which for a session that started this way
+    /// is empty but accurate.
     /// </remarks>
     private static string? FromRhinoLink(int tail)
     {

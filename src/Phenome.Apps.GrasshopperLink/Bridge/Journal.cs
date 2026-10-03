@@ -3,15 +3,14 @@ using System.Text;
 namespace Phenome.Apps.GrasshopperLink.Bridge;
 
 /// <summary>
-/// The append-only record of what happened on the canvas: the thing every client reads from its own place.
+/// Append-only record of canvas events, polled by each client from its own position.
 /// </summary>
 /// <remarks>
-/// The journal is the whole answer to "how does an agent see what the human is doing" - and the other way
-/// around. There is no subscriber list and no push: every entry gets a sequence number, and a client asks
-/// for everything after the last number it saw. A client that was not running when something happened reads
-/// it later; ten clients cost the server exactly what one does. Entries carry <c>author</c>, so a change
-/// made by the human, by one agent or by another are distinguishable - which is also what lets a client
-/// skip its own echo.
+/// This is how an agent sees what the user is doing, and the other way round. There is no subscriber
+/// list and no push: every entry gets a sequence number and a client asks for everything after the last
+/// number it saw. A client that was not running reads it later, and ten clients cost the server exactly what
+/// one does. Entries carry <c>author</c>: changes by the user and by different agents can be told apart, and a
+/// client can skip its own echo.
 /// </remarks>
 internal static class Journal
 {
@@ -23,7 +22,7 @@ internal static class Journal
     private static readonly List<(string Author, string Text, string? To)> Messages = [];
     private static long next = 1;
 
-    /// <summary>Raised after an entry lands, with its kind - off the caller's thread, take care.</summary>
+    /// <summary>Raised after an entry is appended, with its kind. Handlers run on the appending thread and must marshal.</summary>
     internal static event Action<string>? Appended;
 
     /// <summary>Appends one entry. <paramref name="fields"/> is extra JSON, starting with a comma, or empty.</summary>
@@ -39,8 +38,8 @@ internal static class Journal
 
             if (Entries.Count > Kept)
             {
-                // The cap is a courtesy to memory, not a contract: a client further behind than this has
-                // missed things, and the gap in sequence numbers tells it so honestly - re-read /canvas.
+                // The cap bounds memory and costs no correctness. A client further behind has missed entries,
+                // the gap in sequence numbers reports that, and the client should then re-read /canvas.
                 Entries.RemoveRange(0, Entries.Count - Kept);
             }
         }
@@ -48,7 +47,7 @@ internal static class Journal
         Appended?.Invoke(kind);
     }
 
-    /// <summary>A message entry, kept twice: once on the wire, once readable for the canvas component.</summary>
+    /// <summary>A message entry, stored twice: in the journal for clients, and as a readable list for the canvas component.</summary>
     internal static void AppendMessage(string author, string text, string? to)
     {
         lock (Gate)
@@ -65,7 +64,7 @@ internal static class Journal
             $",\"text\":{Json.Quote(text)}{(to is null ? "" : $",\"to\":{Json.Quote(to)}")}");
     }
 
-    /// <summary>The recent messages, oldest first, for whoever shows a conversation.</summary>
+    /// <summary>The recent messages, oldest first, for the canvas conversation view.</summary>
     internal static IReadOnlyList<(string Author, string Text, string? To)> RecentMessages()
     {
         lock (Gate)

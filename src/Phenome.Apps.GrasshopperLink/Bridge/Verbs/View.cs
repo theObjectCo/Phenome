@@ -10,24 +10,24 @@ using static Phenome.Apps.GrasshopperLink.Bridge.Verbs.Plumbing;
 
 namespace Phenome.Apps.GrasshopperLink.Bridge.Verbs;
 
-/// <summary>What is drawn, and where it is looked at from.</summary>
+/// <summary>What is drawn, and from where it is viewed.</summary>
 /// <remarks>
-/// The canvas as an image, the Rhino viewport as an image, which objects preview, and where the camera
-/// stands. None of it changes a definition - a preview flag is how a thing is shown, not what it is.
+/// These verbs capture the canvas and the Rhino viewport as images, set which objects preview, and place the
+/// camera. None of this changes a definition: a preview flag is how a thing is shown, not what it is.
 /// </remarks>
 internal static class View
 {
     /// <summary>
-    /// The Grasshopper canvas as a picture, so an author can see whether their layout reads.
+    /// The Grasshopper canvas as an image, for checking whether the layout is legible.
     /// </summary>
     /// <remarks>
-    /// Two agents in a row said the same thing: they could see the geometry but never the canvas, so
-    /// "is this readable" had to be inferred from coordinates and a lint. Captured through the control's own
-    /// DrawToBitmap rather than Grasshopper's export pipeline, which answers a failed render with a modal
-    /// message box - a dialog nobody is there to dismiss would hang Rhino behind it.
+    /// Without it an agent sees the geometry but not the canvas, and legibility has to be inferred from
+    /// coordinates and a lint. The image is captured through the control's DrawToBitmap. Grasshopper's export
+    /// pipeline reports a failed render with a modal message box, and a dialog that cannot be dismissed would
+    /// hang Rhino.
     /// <para>
-    /// Fitted to the whole document for the capture and the view put back afterwards, on the same principle
-    /// as the viewport screenshot: the canvas belongs to the human.
+    /// Fitted to the whole document for the capture and restored afterwards, as with the viewport screenshot: the
+    /// canvas belongs to the user.
     /// </para>
     /// </remarks>
     internal static string CanvasImage(HttpListenerRequest request)
@@ -41,16 +41,15 @@ internal static class View
         string png = OnUi(() =>
         {
             Grasshopper.GUI.Canvas.GH_Canvas canvas = global::Grasshopper.Instances.ActiveCanvas
-                ?? throw new InvalidOperationException("There is no canvas - a headless session has no view.");
+                ?? throw new InvalidOperationException("There is no canvas: a headless session has no view.");
 
-            // A minimised editor shrinks the canvas to nothing, and GDI+ answers a bitmap of no size with
-            // "Parameter is not valid." - six times in a row in the friction log, with no hint of the cause.
-            // The window belongs to the human and is not restored from here.
+            // A minimised editor shrinks the canvas to nothing, and GDI+ rejects a zero-size bitmap with
+            // "Parameter is not valid." The window belongs to the user and is not restored here.
             if (canvas.Width < 1 || canvas.Height < 1)
             {
                 throw new InvalidOperationException(
                     $"The canvas is {canvas.Width} x {canvas.Height} pixels, which is what a minimised "
-                    + "Grasshopper window gives, so there is nothing to draw. Ask the human to restore the "
+                    + "Grasshopper window gives, and there is nothing to draw. Ask the user to restore the "
                     + "Grasshopper window, then ask again.");
             }
 
@@ -86,9 +85,8 @@ internal static class View
                 }
             }
 
-            // White for the capture: the canvas's own grey wash turns to mud at a tenth of the size, and a
-            // picture meant for judging a layout should show the layout. Grasshopper's skin is static, so
-            // it is put back immediately afterwards.
+            // White for the capture: the canvas grey wash becomes indistinct when scaled down, and the image is
+            // for judging the layout. Grasshopper's skin is static and is restored afterwards.
             System.Drawing.Color keptBack = Grasshopper.GUI.Canvas.GH_Skin.canvas_back;
             System.Drawing.Color keptGrid = Grasshopper.GUI.Canvas.GH_Skin.canvas_grid;
             System.Drawing.Color keptEdge = Grasshopper.GUI.Canvas.GH_Skin.canvas_edge;
@@ -107,8 +105,8 @@ internal static class View
 
                 int height = Math.Max(120, (int)((double)width / Math.Max(1, full.Width) * full.Height));
 
-                // Onto white: the canvas grid is a pale wash that turns to mud when scaled down, and a
-                // picture meant for judging a layout should show the layout, not the tablecloth.
+                // Composite onto white: the pale canvas grid becomes indistinct when scaled down, and the image
+                // should show the layout, not the grid.
                 using System.Drawing.Bitmap scaled = new(width, height);
 
                 using (System.Drawing.Graphics paint = System.Drawing.Graphics.FromImage(scaled))
@@ -139,7 +137,7 @@ internal static class View
         return $"{{\"ok\":true,\"png\":{Json.Quote(png)}}}";
     }
 
-    /// <summary>The eyes, kept cheap on purpose: a low resolution says plenty and costs the reader little.</summary>
+    /// <summary>Viewport screenshots, intentionally low resolution: enough detail at low cost to the reader.</summary>
     internal static string Screenshot(HttpListenerRequest request)
     {
         int width = int.TryParse(request.QueryString["width"], out int asked)
@@ -156,14 +154,14 @@ internal static class View
             System.Drawing.Size full = view.ClientRectangle.Size;
             int height = Math.Max(120, (int)((double)width / Math.Max(1, full.Width) * Math.Max(1, full.Height)));
 
-            // Framed for the capture, put back after: the picture should show the geometry, but the
-            // camera belongs to the human and stays where they left it.
+            // Frame for the capture and restore after: the image should show the geometry, but the camera is the
+            // user's and stays where they left it.
             Rhino.DocObjects.ViewportInfo? kept = frame
                 ? new Rhino.DocObjects.ViewportInfo(view.ActiveViewport)
                 : null;
 
-            // The target is kept apart: restoring the projection alone recomputes it from the frustum, and
-            // the human would come back to their own camera aimed somewhere new.
+            // The target is saved separately: restoring the projection alone recomputes it from the frustum,
+            // leaving the camera aimed somewhere new.
             Rhino.Geometry.Point3d target = view.ActiveViewport.CameraTarget;
 
             if (frame)
@@ -210,7 +208,7 @@ internal static class View
                 ?? throw new InvalidOperationException("There is no document.");
 
             Grasshopper.GUI.Canvas.GH_Canvas canvas = global::Grasshopper.Instances.ActiveCanvas
-                ?? throw new InvalidOperationException("There is no canvas to move - headless sessions have no view.");
+                ?? throw new InvalidOperationException("There is no canvas to move: headless sessions have no view.");
 
             System.Drawing.RectangleF? union = null;
 
@@ -254,45 +252,34 @@ internal static class View
     /// Quiets the preview: only the outlets of the red and yellow groups draw, and nothing else does.
     /// </summary>
     /// <remarks>
-    /// A finished definition previews everything it ever computed: the boxes a difference already ate, the
-    /// construction curves, the profile that was extruded away. The product is in there somewhere, and the
-    /// human is left picking it out of the scaffolding - or worse, reads the scaffolding as the answer.
+    /// This leaves only the intended output drawing. A finished definition otherwise previews every intermediate
+    /// result: consumed cutting boxes, construction curves, and profiles that were extruded away.
     /// <para>
-    /// The colours already say which geometry was ever meant to be looked at: red is what gets baked as the
-    /// product, yellow is preview-only, and grey and blue are machinery. So a sweep over the whole document
-    /// leaves exactly the outlets of the red and yellow groups drawing - what those groups yield - and
-    /// hides everything else, machinery and intermediates alike. Naming one group instead quiets that one
-    /// on its own terms, whatever colour it wears, which is how you look inside a function again.
+    /// Group colours define the rule: red is baked output, yellow is preview-only geometry, and grey and blue are
+    /// machinery. A document-wide sweep leaves only the outlets of red and yellow groups drawing and hides all other
+    /// objects. Naming a group keeps that group's outlets drawing, whatever its colour.
     /// </para>
     /// <para>
-    /// A verb rather than doctrine because doing it by hand is a click per component and the next edit
-    /// undoes it.
+    /// It is a verb because setting each component by hand is slow and the next edit can reset it.
     /// </para>
     /// <para>
-    /// <b>An id may name a group or a single object, and <c>ids</c> takes a list of either.</b> Group and
-    /// document were the only granularities at first, and that left one real case out: an intermediate
-    /// component whose output floods the viewport while the rest of its group has to keep drawing. It was
-    /// reported from a facade of 960 panels interpolated through 24 points each - 23,040 preview markers
-    /// standing over the building, so the viewport and every screenshot of it were useless. That is why the
-    /// list matters as much as the widening: the fault arrives in bulk, and quieting it one call at a time is
-    /// the click-per-component this verb exists to replace.
+    /// <b>An id may name a group or a single object, and <c>ids</c> accepts either.</b> Group and document scope
+    /// alone miss the common case where one intermediate component floods the viewport while its group must keep
+    /// drawing. A facade of 960 panels interpolated through 24 points each gives 23,040 preview markers, and batch
+    /// selection is what makes the feature practical there.
     /// </para>
     /// <para>
-    /// One verb rather than two, and that was a decision. A second verb for objects would have said the same
-    /// thing in a second vocabulary, and every caller would have had to know which of them a given id wanted
-    /// before it could ask - having to know something the server can simply look up. What differs between a
-    /// group and an object here is only the policy over its members, and only the sweep has a policy at all.
+    /// One verb handles both cases. A separate object verb would duplicate the API and require callers to know the
+    /// object kind before asking. Only the group sweep has a member-selection policy.
     /// </para>
     /// <para>
-    /// <b>The sweep takes objects in no group too.</b> An object outside every group is nobody's outlet, and
-    /// the colour rule leaves only the outlets of red and yellow groups drawing. On a canvas with no groups
-    /// at all, a scratch definition, the sweep quiets everything.
+    /// <b>The document-wide sweep also processes ungrouped objects.</b> Objects outside every group are not outlets
+    /// of a coloured group, and the sweep hides them. On a document with no groups, it disables all preview output.
     /// </para>
     /// <para>
-    /// <b>A named object that draws nothing is skipped.</b> The answer lists it under <c>skipped</c> and the
-    /// rest of the list goes ahead; a batch of 29 was once refused whole over one SDF Union with no preview.
-    /// An id that is not on the canvas still refuses the whole list, because a missing id means the caller's
-    /// list is stale.
+    /// <b>A named object with no preview is skipped.</b> It is returned in <c>skipped</c>, and the rest of the
+    /// batch proceeds. An id absent from the canvas still rejects the whole list, because that indicates a stale
+    /// caller list.
     /// </para>
     /// </remarks>
     internal static string Quiet(JsonDocument request)
@@ -336,8 +323,8 @@ internal static class View
             }
             else
             {
-                // Every id checked before any flag moves, and every missing one named in one answer. A caller
-                // holding a list wants to fix the whole list once, not discover it an id at a time.
+            // Validate all ids before changing flags, and report all missing ids together: the caller fixes the
+            // list once.
                 List<string> missing = [];
 
                 foreach (Guid id in asked)
@@ -365,7 +352,7 @@ internal static class View
                 if (missing.Count > 0)
                 {
                     throw new KeyNotFoundException(
-                        $"{missing.Count} of {asked.Count} id(s) are not on the canvas, so nothing was quieted: "
+                        $"{missing.Count} of {asked.Count} id(s) are not on the canvas, and nothing was quieted: "
                         + string.Join(", ", missing));
                 }
             }
@@ -373,27 +360,25 @@ internal static class View
             System.Text.StringBuilder json = new("{\"ok\":true,\"groups\":[");
             bool first = true;
 
-            // Across all groups, so the document is marked changed only if some flag actually moved. A preview
-            // flag is saved in the .gh file, so flipping one is a real change - but this verb is run over an
-            // already-quiet document often enough that marking unconditionally would produce a save prompt for
-            // having looked.
+            // Count changed flags across all groups and mark the document modified only if one changed. Preview
+            // flags are saved in the .gh file, but running this on an already-quiet document must not create a save
+            // prompt.
             int flipped = 0;
 
             foreach (Grasshopper.Kernel.Special.GH_Group group in groups)
             {
                 (_, List<IGH_Param> outlets) = Signature.Ports(document, group);
 
-                // Named on its own, a group is quieted on its own terms. Swept over the whole document,
-                // only the groups whose colour says "this is geometry to look at" keep their outlets.
+                // A named group is processed by its own membership. A document-wide sweep preserves outlets only
+                // for groups whose colour marks their output as shown geometry.
                 bool shows = asked.Count > 0 || Shows(group.Colour);
 
                 HashSet<Guid> drawing = shows
                     ? [.. outlets.Select(outlet => outlet.InstanceGuid)]
                     : [];
 
-                // A group with no outlet still has a product: whatever it computes last. Without this a red
-                // group whose answer is its final component, with no port after it, went wholly dark, and the
-                // product had to be switched back on by id.
+                // A group with no outlet still has final output: its members whose results are not read inside the
+                // group. Without this, a red group ending in a component has no drawable output.
                 bool byEnd = shows && outlets.Count == 0;
 
                 if (byEnd)
@@ -415,10 +400,8 @@ internal static class View
 
                     bool hide = !on && !drawing.Contains(member);
 
-                    // Counted from where things end up, not from what this call altered. Reporting the delta
-                    // is what made an answer of zero ambiguous between "nothing needed quieting" and "nothing
-                    // is drawing" -- and on the restoring path the drawing count was hardcoded to zero, which
-                    // reads as failure when the truth is that everything came back.
+                    // Report the resulting state, not this call's delta. A count of zero then unambiguously means
+                    // no member is drawing. A delta would make the restore path look like a failure.
                     if (hide)
                     {
                         quieted++;
@@ -460,10 +443,8 @@ internal static class View
                 flipped += changed;
             }
 
-            // And the objects named on their own. No policy here and none wanted: a single object has no
-            // members to have a rule about, so the flag is simply written. This is the granularity the group
-            // sweep could not reach - one intermediate component quieted while the group it belongs to keeps
-            // drawing everything else.
+            // Objects named individually have no member-selection policy; set the preview flag directly. This
+            // provides the granularity needed to hide one intermediate component while its group continues drawing.
             json.Append("],\"objects\":[");
             first = true;
 
@@ -491,8 +472,8 @@ internal static class View
 
             json.Append(']');
 
-            // The ungrouped objects are counted and not listed: on a scratch definition they are every object
-            // in the document, and a list would repeat the caller's own request back at length.
+            // Count ungrouped objects but do not list them individually: on an ungrouped document this would repeat
+            // the caller's full object list.
             if (asked.Count == 0)
             {
                 int changed = 0;
@@ -582,12 +563,12 @@ internal static class View
     }
 
     /// <summary>
-    /// Whether a group's colour says its geometry is meant to be seen: red baked as the product, yellow
-    /// there to be looked at. Grey is a function and blue is a knob; neither owes the viewport anything.
+    /// Whether a group colour marks geometry intended for display: red is baked output and yellow is preview-only.
+    /// Grey functions and blue inputs are not expected to draw.
     /// </summary>
     private static bool Shows(System.Drawing.Color colour)
     {
-        // Grasshopper's own colour picker rounds, and so does a human eye - the same tolerance review uses.
+        // The tolerance accommodates rounding by Grasshopper's colour picker; it matches the tolerance used by review.
         static bool Near(int one, int other) => Math.Abs(one - other) <= 12;
 
         return (Near(colour.R, 255) && Near(colour.G, 60) && Near(colour.B, 60))
@@ -619,14 +600,12 @@ internal static class View
     /// Aims the active viewport, changing only what was asked for.
     /// </summary>
     /// <remarks>
-    /// The way to frame a view deliberately. Rhino's own <c>Zoom</c> is an interactive command: run it
-    /// from a script with a magnification it does not recognise and it sits waiting for a pick that will
-    /// never arrive, which holds the UI thread and so fails every other verb here at once, with a message
-    /// about being busy rather than about being stuck. Setting the camera outright asks nothing of the
-    /// user and cannot wait for them.
+    /// Rhino's <c>Zoom</c> command is interactive: scripted use can wait for a selection that never arrives and
+    /// block the UI thread; other verbs then report that Rhino is busy. Setting the viewport properties directly
+    /// does not require interaction.
     ///
-    /// Location and target are set together when both are given, because setting one at a time makes
-    /// Rhino recompute the other and the second call then undoes half of the first.
+    /// Location and target are applied together when both are supplied. Applied separately, each makes Rhino
+    /// recompute the other value, and the second call can undo part of the first.
     /// </remarks>
     internal static string AimCamera(JsonDocument request)
     {
@@ -695,9 +674,8 @@ internal static class View
                 viewport.Camera35mmLensLength = millimetres;
             }
 
-            // Clipping planes are not the caller's business but they are the caller's problem: moving a
-            // camera without them leaves geometry outside a frustum that was fitted to where it used to
-            // be, and the view comes back empty for a reason that looks nothing like the cause.
+            // Adjust clipping planes whenever the camera changes. Otherwise geometry can fall outside a frustum
+            // sized for the previous camera position, producing an apparently empty view.
             viewport.SetClippingPlanes(Rhino.RhinoDoc.ActiveDoc.Objects.BoundingBox);
 
             view.Redraw();

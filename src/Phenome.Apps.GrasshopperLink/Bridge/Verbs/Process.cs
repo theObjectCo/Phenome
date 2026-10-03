@@ -10,12 +10,11 @@ using static Phenome.Apps.GrasshopperLink.Bridge.Verbs.Plumbing;
 
 namespace Phenome.Apps.GrasshopperLink.Bridge.Verbs;
 
-/// <summary>Rhino as a process rather than as a document.</summary>
+/// <summary>Verbs that treat Rhino as a process, not as a document.</summary>
 /// <remarks>
-/// Saying something on its command line, answering the dialog that is holding it, cancelling what it is
-/// waiting for, and writing down what went wrong. The last of those is here rather than in the friction
-/// log because what a caller reports is a request like any other; the log itself is in the namespace
-/// above.
+/// They write to its command line, answer the dialog holding it, cancel what it waits on and record what went
+/// wrong. Reporting is a verb here because a report is a request like any other; the friction log itself lives
+/// in the namespace above.
 /// </remarks>
 internal static class Process
 {
@@ -30,7 +29,7 @@ internal static class Process
     }
 
     /// <summary>
-    /// Answers the dialog Rhino is waiting on. Journalled like any other hand on the machine.
+    /// Answers the dialog Rhino is waiting on, journalled like any other action.
     /// </summary>
     internal static string Dismissed(JsonDocument request)
     {
@@ -46,7 +45,7 @@ internal static class Process
         return answer;
     }
 
-    /// <summary>Answers the open dialog, with nothing assumed when nothing was said.</summary>
+    /// <summary>Answers the open dialog; nothing is assumed when no action is given.</summary>
     internal static string AnswerDialog(JsonDocument request)
     {
         string author = Author(request);
@@ -87,8 +86,8 @@ internal static class Process
 
         Friction.Reported(author, expected, got, Field(request, "notes"));
 
-        // Into the journal as well, so the human watching sees the complaint as it is made rather than
-        // discovering it in a file later.
+        // Also journalled: a user watching sees the complaint when it is made and does not have to find it in
+        // a file later.
         Journal.Append(author, "report", $",\"expected\":{Json.Quote(expected)},\"got\":{Json.Quote(got)}");
 
         return $"{{\"ok\":true,\"log\":{Json.Quote(Friction.Path)}}}";

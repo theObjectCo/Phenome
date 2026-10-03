@@ -2,41 +2,42 @@ using System.Net;
 
 namespace Phenome.Apps;
 
-/// <summary>Keeps a web page from driving the link, which binding to loopback does not.</summary>
+/// <summary>
+/// Keeps a web page from driving the link, which binding to loopback alone does not.
+/// </summary>
 /// <remarks>
-/// The link binds <c>127.0.0.1</c>, and it is tempting to read that as "only this machine, therefore only
-/// something the user already trusts". It is not. A browser is a process on this machine, and a page the
-/// user merely visits can issue <c>fetch('http://127.0.0.1:53812/place', {mode:'no-cors', ...})</c>. The
-/// request leaves the user's own computer, arrives on loopback, and looks exactly like a local client. The
-/// address never enters into it: an attacker does not need to reach the port from outside, only to get the
-/// page opened.
+/// The link binds <c>127.0.0.1</c>. That does not limit callers to programs the user already trusts: a
+/// browser is a process on this machine, and a page the user merely visits can
+/// issue <c>fetch('http://127.0.0.1:53812/place', {mode:'no-cors', ...})</c>. That request leaves the user's
+/// own computer, arrives on loopback, and looks exactly like a local client. The attacker does not need to
+/// reach the port from outside, only to get the page opened.
 /// <para>
-/// That matters here more than it would almost anywhere else, because this API compiles and runs C# inside
-/// Rhino. Reachable from a page means arbitrary code execution by visiting a website, while Rhino happens to
-/// be open - which for somebody working is all day.
+/// The API compiles and runs C# inside Rhino. A link reachable from a page allows arbitrary code execution
+/// whenever a page is visited while Rhino is open.
 /// </para>
 /// <para>
-/// The defence is therefore a header, not an address. Three of them are sent by browsers and by nothing
-/// else we speak to:
+/// The defence is a header check, since the address is the same for a page and a local client. Three headers
+/// are sent by browsers and by none of the local clients the link serves (the MCP server, the extension, a
+/// script, curl):
 /// <list type="bullet">
-/// <item><c>Origin</c> - on cross-origin requests, including the "simple" POST that <c>no-cors</c> allows.</item>
-/// <item><c>Sec-Fetch-Site</c> and its siblings - on every fetch from a page, same-origin ones included, and
-/// a page cannot suppress or forge them.</item>
-/// <item><c>Referer</c> - usually present, and a referrer policy can remove it, so it is the weakest of the
-/// three and is here for completeness rather than as the load-bearing one.</item>
+/// <item><c>Origin</c> is sent on cross-origin requests, including the "simple" POST that <c>no-cors</c>
+/// allows.</item>
+/// <item><c>Sec-Fetch-Site</c> and <c>Sec-Fetch-Dest</c> are sent on every fetch from a page, including
+/// same-origin ones, and a page cannot suppress or forge them. The rest of the family is not checked: Node's
+/// fetch sends <c>Sec-Fetch-Mode</c>.</item>
+/// <item><c>Referer</c> is usually present, but a referrer policy can remove it. It is the weakest of the three
+/// and is checked for completeness only.</item>
 /// </list>
-/// A local client - the MCP server, the extension, a script, curl - sends none of them.
 /// </para>
 /// <para>
-/// <c>Host</c> is checked separately and answers a different attack: DNS rebinding, where a page's own
-/// domain is made to resolve to 127.0.0.1 so that the browser considers the request same-origin and sends
-/// no <c>Origin</c> at all. The header then still carries the attacker's name rather than ours, so a link
-/// that insists on being addressed as loopback refuses it.
+/// <c>Host</c> is checked separately, against DNS rebinding: a page's own domain is made to resolve to
+/// 127.0.0.1, and the browser treats the request as same-origin and sends no <c>Origin</c>. The Host header
+/// still carries the attacker's domain name. Requiring a loopback Host refuses the request.
 /// </para>
 /// <para>
 /// A POST must also carry <c>Content-Type: application/json</c>, which a <c>no-cors</c> request cannot set.
-/// That closes the same door a second time and is the better check of the two. The clients send it from
-/// 0.32.0; older ones send none or Node's default <c>text/plain</c>, and the refusal says which.
+/// It blocks the same request a second way and is the stronger of the two checks. Clients send it from 0.32.0;
+/// older ones send none or Node's default <c>text/plain</c>, and the refusal says which.
 /// </para>
 /// </remarks>
 internal static class Browser
@@ -54,15 +55,14 @@ internal static class Browser
             }
         }
 
-        // Two named headers rather than the whole Sec-Fetch- family, and the difference was found by
-        // measurement rather than reading: **Node's fetch sends Sec-Fetch-Mode**, so rejecting the family
-        // would have refused our own MCP server and extension - every POST and every poll. The first
-        // version of this did exactly that and was caught by putting a listener in front of the real
-        // client instead of testing with curl, which sends none of these and proves nothing about them.
+        // Two named headers, not the whole Sec-Fetch- family: **Node's fetch sends Sec-Fetch-Mode**.
+        // Rejecting the family would refuse the link's own MCP server and extension on every POST and every
+        // poll. This was measured with a listener in front of the real client; curl sends none of these
+        // headers and proves nothing about them.
         //
-        // Site and Dest are sent by browsers on every request and by nothing else we speak to. If a Node
-        // release ever adds one, this refuses our own clients again - so it is defence in depth and the
-        // content type below is the check that carries the weight.
+        // Browsers send Site and Dest on every request, and no other client of the link sends them. If a Node
+        // release adds one, this refuses the link's own clients. The check is defence in depth, and the
+        // content-type check below carries the weight.
         foreach (string header in new[] { "Sec-Fetch-Site", "Sec-Fetch-Dest" })
         {
             if (!string.IsNullOrEmpty(request.Headers[header]))
@@ -71,32 +71,30 @@ internal static class Browser
             }
         }
 
-        // Empty is fine: HTTP/1.0 and some minimal clients omit it. Present and wrong is not.
+        // Empty is allowed (HTTP/1.0 and some minimal clients omit Host); present but wrong is not.
         string host = request.Headers["Host"] ?? "";
 
         if (host.Length != 0 && !Addressed(host, port))
         {
-            return $"Host '{host}' is not this link: expected 127.0.0.1:{port} or localhost:{port}.";
+            return $"Host '{host}' is not this link: expected 127.0.0.1:{port}, localhost:{port} or [::1]:{port}.";
         }
 
-        // The one check a page cannot satisfy, and the only one of these that is positive: the request has
-        // to prove something rather than merely lack a header. A no-cors request may carry text/plain,
-        // x-www-form-urlencoded or multipart/form-data and nothing else; asking for JSON makes it
-        // non-simple, so the browser sends a preflight first, and a server that does not answer preflights
-        // with permission ends the matter there. The checks above depend on browsers continuing to send
-        // headers they send today, and would fail open if one ever stopped. This one fails closed.
+        // This is the only check a page cannot satisfy and the only positive one here: the request has to
+        // carry a header, where the checks above require one to be absent. A no-cors request may only be
+        // text/plain, x-www-form-urlencoded or multipart/form-data. Requiring JSON makes the request
+        // non-simple. The browser then sends a preflight first, and a server that never grants preflight ends
+        // it there. The checks above fail open if a browser stops sending a given header, and this one fails
+        // closed.
         if (request.HttpMethod == "POST")
         {
             string kind = request.Headers["Content-Type"] ?? "";
 
             if (!kind.StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
             {
-                // Named for the likeliest cause rather than the literal fault. From 0.32.0 the clients send
-                // this header. Before that they sent none, or text/plain, which is what Node's fetch puts on
-                // a string body. A browser is refused on the headers above and never gets this far, which
-                // leaves an old client as the usual sender of either. The one seen in the field was a workspace's
-                // .phenome/gh-mcp.js planted by the previous extension: Teach Agents had been run minutes
-                // before the new extension was installed, and every GET kept working.
+                // The message names the likeliest cause as well as the literal fault. Clients send this header
+                // from 0.32.0; older ones send none or Node's text/plain default. The checks above refuse a
+                // browser before it gets here. The usual sender is an old client, most often a workspace's
+                // .phenome/gh-mcp.js left by a previous extension, on which every GET keeps working.
                 bool old = kind.Length == 0 || kind.StartsWith("text/plain", StringComparison.OrdinalIgnoreCase);
 
                 return old

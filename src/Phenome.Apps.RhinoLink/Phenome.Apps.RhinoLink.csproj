@@ -3,13 +3,12 @@
   <!--
     The half of the link that belongs to Rhino rather than to the canvas.
 
-    A .gha only exists once Grasshopper has been started, and Grasshopper is started by opening it - so
-    everything that happens before that is out of reach of the other plugin. That includes the one thing
-    an agent most needs a way out of: a dialog on startup, which holds Rhino before any canvas exists and
-    leaves nothing listening to say so.
+    A .gha exists only after Grasshopper starts, and Grasshopper starts by being opened. Anything before
+    that is out of reach of the other plugin, including a dialog on startup, which blocks Rhino before any
+    canvas exists, with nothing listening to report it.
 
-    This one loads with Rhino itself and answers about the process: whether the UI thread is free, what is
-    blocking it, and how to answer that. It references no Phenome library and not Grasshopper either.
+    This plugin loads with Rhino and reports on the process: whether the UI thread is free, what is blocking
+    it, and how to answer that. It references no Phenome library and not Grasshopper either.
   -->
   <PropertyGroup>
     <TargetFramework>net7.0</TargetFramework>
@@ -17,9 +16,9 @@
     <AssemblyName>Phenome.Apps.RhinoLink</AssemblyName>
 
     <!-- What Rhino shows in PlugInManager. Without it the SDK defaults the assembly title to the assembly
-         name, so the human saw "Phenome.Apps.RhinoLink" - which is how Yak came to report the mismatch that
-         led here, since it reads the same name. This is the name the plugin already gives itself when it
-         speaks to a person: OnLoad says "Phenome Rhino Link did not start". -->
+         name, and a person sees "Phenome.Apps.RhinoLink". Yak reads the same name and reports the mismatch.
+         The title matches the name the plugin already shows a person: OnLoad says "Phenome Rhino Link did
+         not start". -->
     <Title>Phenome Rhino Link</Title>
 
     <Version>0.34.0</Version>
@@ -39,9 +38,8 @@
   </ItemGroup>
 
   <!--
-    The same shared source the canvas half compiles in, which is why nothing there may touch Grasshopper:
-    this plugin answers about a dialog that appears before Grasshopper has loaded, so it cannot be made to
-    depend on it. See the README there.
+    The same shared source the canvas half compiles. Nothing there may use Grasshopper: this plugin answers
+    about a dialog that appears before Grasshopper loads and cannot depend on it. See the README there.
   -->
   <ItemGroup>
     <Compile Include="..\Phenome.Apps.Shared\**\*.cs" LinkBase="Shared" />

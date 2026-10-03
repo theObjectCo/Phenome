@@ -6,31 +6,29 @@ using Rhino.FileIO;
 namespace Phenome.Apps.RhinoInsideLink;
 
 /// <summary>
-/// Reading, writing and converting documents in a Rhino that was never opened.
+/// Reads, writes and converts documents in a Rhino that was never opened.
 /// </summary>
 /// <remarks>
-/// Every document is opened headless, read or written, and disposed within the one call. Nothing is kept
-/// between requests, which is the opposite of the other two links: they answer about a document somebody is
-/// looking at, and this one has no such document - the file on disk is the state.
+/// Each document is opened headless, read or written, and disposed within one call. Nothing is kept between
+/// requests. Unlike the other two links, there is no document being viewed: the file on disk is the state.
 /// <para>
-/// Every write suppresses dialogs, and that is not defensive habit. Measured: a headless core with
-/// <c>WindowStyle.NoWindow</c> still puts up a modal, and asking for file version 7 on a document holding
-/// Rhino 8 data is enough to do it - "the model contains information that cannot be saved in a Rhino 7
-/// file", three buttons, nobody there to press one. The write returned false and the server thread would
-/// have sat there. An application with no window can still have a window.
+/// Every .3dm write suppresses dialogs, because a headless core with <c>WindowStyle.NoWindow</c> can still open a
+/// window and show a modal. Without suppression, saving a document holding Rhino 8 data as file version 7 would
+/// raise "the model contains information that cannot be saved in a Rhino 7 file" with three buttons and no user
+/// to answer it; the write would return false and the server thread would block.
 /// </para>
 /// </remarks>
 internal static class Documents
 {
-    /// <summary>Options for every write: no dialogs, no prompts, nothing that waits for a person.</summary>
+    /// <summary>Options for every write. Dialogs and input are suppressed, and nothing waits for a user.</summary>
     static FileWriteOptions Writing(int version) => new()
     {
         FileVersion = version,
         SuppressDialogBoxes = true,
         SuppressAllInput = true,
 
-        // The path a caller asked for, not a new home for the document: a conversion should not make the
-        // source forget where it came from.
+        // Keep the document's path as the caller gave it. A conversion must not change the source document's
+        // path.
         UpdateDocumentPath = false,
     };
 
@@ -64,9 +62,8 @@ internal static class Documents
         json.Append("],\"contents\":[");
         first = true;
 
-        // Counted by kind rather than listed one by one: a document with forty thousand objects would
-        // otherwise answer with forty thousand lines, and the question this verb is asked is "what is in
-        // there", not "name everything".
+        // Objects are counted by kind. Listed one by one, a document with forty thousand objects would return
+        // forty thousand lines. The verb answers "what is in there", and naming everything is outside its scope.
         foreach (IGrouping<string, Rhino.DocObjects.RhinoObject> kind in doc.Objects
             .GroupBy(o => o.ObjectType.ToString())
             .OrderByDescending(g => g.Count()))
@@ -84,13 +81,13 @@ internal static class Documents
     }
 
     /// <summary>
-    /// Reads one file and writes another, in whatever format the target's extension asks for.
+    /// Reads one file and writes another, in the format the target's extension specifies.
     /// </summary>
     /// <remarks>
-    /// The formats are Rhino's, not this assembly's: <c>.3dm</c> goes through the archive writer and anything
-    /// else through the exporter registered for that extension. Verified working headless for <c>.stl</c>,
-    /// <c>.obj</c>, <c>.dxf</c> and <c>.step</c> - which is worth stating, because the exporters are plugins
-    /// and a Rhino with no window is not obviously a Rhino with plugins.
+    /// The formats are Rhino's own: <c>.3dm</c> goes through the archive writer, and anything else through the
+    /// exporter registered for that extension. Export was verified headless for <c>.stl</c>, <c>.obj</c>,
+    /// <c>.dxf</c> and <c>.step</c>. The exporters are plugins and a Rhino with no window may not load plugins,
+    /// which is why this was checked and is recorded here.
     /// </remarks>
     internal static string Convert(string from, string to, int version)
     {
@@ -114,29 +111,27 @@ internal static class Documents
 
         long size = File.Exists(target) ? new FileInfo(target).Length : 0;
 
-        // Rhino answers a bool and the disk answers a size, and they can disagree - an exporter that wrote
-        // nothing still returns true for some formats. Both go back, so a caller can tell.
+        // Rhino returns a bool and the disk returns a size, and they can disagree: some exporters return true
+        // without writing anything. Both are returned, and a caller can tell the cases apart.
         if (!written && size == 0)
         {
             throw new IOException(
-                $"Rhino would not write {target}. Nothing landed on disk. " +
+                $"Rhino did not write {target}, and no file was created. " +
                 "An extension Rhino has no exporter for is the usual reason.");
         }
 
-        // An extension Rhino does not recognise does not get refused: Export writes a Rhino file under
-        // whatever name it was handed and answers true. Measured - converting to '.zzz' produced a perfectly
-        // good .3dm called .zzz, reported as a success. A caller who asked for one format and got another
-        // under its name has been lied to, and the lie only surfaces wherever that file is opened next.
-        //
-        // So the file is asked what it is. A .3dm opens with a fixed banner, which is cheap to read and does
-        // not need a list of Rhino's formats kept in step by hand.
+        // Rhino does not refuse an unrecognized extension: Export writes a Rhino file under whatever name it is
+        // given and returns true. Converting to '.zzz' produces a valid .3dm named .zzz, reported as a success.
+        // A caller that asked for one format and received another under that name finds out only when the file
+        // is opened. The file's contents are checked here instead: a .3dm begins with a fixed banner, which is
+        // cheap to read and needs no hand-maintained list of Rhino's formats.
         if (!asRhino && size > 0 && LooksLikeRhino(target))
         {
             File.Delete(target);
 
             throw new IOException(
                 $"Rhino has no exporter for '{Path.GetExtension(target)}' - it wrote a Rhino file under that " +
-                "name instead, so nothing was kept. Ask for an extension Rhino knows: .3dm, .stl, .obj, " +
+                "name instead, and nothing was kept. Ask for an extension Rhino supports: .3dm, .stl, .obj, " +
                 ".dxf, .step and the rest of its export list.");
         }
 
@@ -152,10 +147,10 @@ internal static class Documents
         return json.ToString();
     }
 
-    /// <summary>Whether a file opens with the banner every .3dm opens with.</summary>
+    /// <summary>Whether a file begins with the banner every .3dm begins with.</summary>
     /// <remarks>
-    /// "3D Geometry File Format" is the first thing in an openNURBS archive, and has been since the format
-    /// existed. Read as bytes rather than as text so an encoding guess cannot come into it.
+    /// "3D Geometry File Format" is the first content in an openNURBS archive, unchanged since the format
+    /// existed. It is read as bytes, which involves no guess at an encoding.
     /// </remarks>
     static bool LooksLikeRhino(string path)
     {
@@ -171,7 +166,7 @@ internal static class Documents
         }
         catch (Exception)
         {
-            // Unreadable is not the question being asked; let the caller keep whatever landed.
+            // An unreadable file does not answer the question; keep whatever was written.
             return false;
         }
     }

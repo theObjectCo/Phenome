@@ -9,16 +9,14 @@ namespace Phenome.Apps.GrasshopperLink.Definition;
 /// Reads and writes the source of script components, both generations, without referencing either.
 /// </summary>
 /// <remarks>
-/// Rhino 8 has two C# script components living side by side: the RhinoCode one
-/// (<c>BaseScriptComponent</c>, with <c>TryGetSource</c>/<c>SetSource</c>) and the legacy one
-/// (<c>Component_CSNET_Script</c>, whose <c>ScriptSource</c> carries the code in parts). Both are foreign
-/// assemblies this plugin must not reference - the members were read out of them with a decompiler, and
-/// reflection reaches them at run time. Which generation a component is travels in the answer, so a client
-/// knows what dialect of source it is holding.
+/// Rhino 8 provides two C# script component implementations: RhinoCode (<c>BaseScriptComponent</c>, with
+/// <c>TryGetSource</c> and <c>SetSource</c>) and legacy (<c>Component_CSNET_Script</c>, whose
+/// <c>ScriptSource.ScriptCode</c> holds the source). Neither assembly is referenced, and their members are
+/// accessed through reflection. The returned <c>generation</c> field identifies which implementation is being used.
 /// </remarks>
 internal static class Scripts
 {
-    /// <summary>Every script component on the canvas, with its generation.</summary>
+    /// <summary>Lists every script component on the canvas with its generation.</summary>
     internal static string List(GH_Document? document)
     {
         StringBuilder json = new("{\"scripts\":[");
@@ -49,7 +47,7 @@ internal static class Scripts
         return json.Append("]}").ToString();
     }
 
-    /// <summary>The source of one script component.</summary>
+    /// <summary>Reads the source of one script component.</summary>
     internal static string Read(GH_Document? document, Guid id)
     {
         IGH_DocumentObject thing = Find(document, id);
@@ -65,7 +63,7 @@ internal static class Scripts
     }
 
     /// <summary>
-    /// New source into one script component, one solve, and the component's own complaints back.
+    /// Replaces a script component's source, runs one solution and returns its compile and runtime messages.
     /// </summary>
     internal static string Write(GH_Document? document, Guid id, string source)
     {
@@ -90,8 +88,8 @@ internal static class Scripts
         thing.ExpireSolution(false);
         Bridge.Verbs.Plumbing.Solve(document!);
 
-        // The push's whole feedback: what the component itself says after compiling and running the new
-        // source - the same words its balloon would show, delivered to whoever cannot see the balloon.
+        // Return the messages from compiling and running the new source. They are the messages shown on the
+        // component, returned to a caller that cannot inspect the canvas directly.
         StringBuilder json = new("{\"ok\":true");
 
         if (thing is IGH_ActiveObject active)
@@ -142,7 +140,7 @@ internal static class Scripts
         return holder.GetType().GetProperty("ScriptCode")?.GetValue(holder) as string ?? "";
     }
 
-    /// <summary>Which script component this is, if it is one at all - decided by shape, not by name.</summary>
+    /// <summary>Identifies the script generation from its API shape, not from the component name.</summary>
     private static string? GenerationOf(IGH_DocumentObject thing)
     {
         Type type = thing.GetType();

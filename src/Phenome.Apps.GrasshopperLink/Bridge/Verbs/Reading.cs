@@ -10,15 +10,15 @@ using static Phenome.Apps.GrasshopperLink.Bridge.Verbs.Plumbing;
 
 namespace Phenome.Apps.GrasshopperLink.Bridge.Verbs;
 
-/// <summary>What the canvas and Rhino say back when asked.</summary>
+/// <summary>Read-only queries: what the canvas and Rhino report back.</summary>
 /// <remarks>
-/// Read-only, all of it, which is why these are the verbs an agent may call freely: describing an
-/// object, following its wires, peeking at the data on them, and naming what is installed.
+/// None of these changes anything, and an agent may call them freely. They describe an object, follow its
+/// wires, peek at the data on them and list what is installed.
 /// </remarks>
 internal static class Reading
 {
     /// <summary>
-    /// One object's parameters by name, so nobody has to search the catalogue for something already placed.
+    /// An object's parameters by name. A placed object then needs no second lookup in the catalogue.
     /// </summary>
     internal static string Describe(Guid id)
     {
@@ -34,10 +34,9 @@ internal static class Reading
         json.Append(",\"name\":").Append(Json.Quote(thing.Name));
         json.Append(",\"nickname\":").Append(Json.Quote(thing.NickName));
 
-        // Why an object holds no data is the question describe is reached for, and until now it could not
-        // answer it: a locked object has every wire it should and computes nothing, which looks from the
-        // outside exactly like a solver that never ran. Hidden is here for the same reason - it explains an
-        // absence in the viewport rather than in the data.
+        // Report enabled and drawing because they explain why an object holds no data: a locked object has its
+        // wires but computes nothing, which looks like a solver that never ran. Hidden explains an absence in the
+        // viewport, not in the data.
         if (thing is IGH_ActiveObject active)
         {
             json.Append(",\"enabled\":").Append(active.Locked ? "false" : "true");
@@ -50,8 +49,7 @@ internal static class Reading
 
         if (thing is IGH_ActiveObject { RuntimeMessageLevel: not GH_RuntimeMessageLevel.Blank } said)
         {
-            // The component's own complaint, which is often the whole answer and was previously only
-            // readable by looking at the canvas.
+            // The component's runtime messages, which are often the whole answer.
             json.Append(",\"messages\":[");
 
             bool firstMessage = true;
@@ -79,9 +77,8 @@ internal static class Reading
             json.Append(']');
         }
 
-        // A note has no ports, so describing it by its ports described nothing: the answer was
-        // {inputs:[],outputs:[]} and an agent had nothing to aim at. What a note has instead is its wording
-        // and where it sits, and both are what go wrong with notes - so both are said here.
+        // A note has no ports: describing its ports returns {inputs:[],outputs:[]} and gives nothing to aim at.
+        // Report its wording and position instead, which is what goes wrong with notes.
         if (thing is Grasshopper.Kernel.Special.GH_Scribble note)
         {
             json.Append(",\"annotation\":{\"kind\":\"scribble\",\"text\":").Append(Json.Quote(note.Text));
@@ -90,8 +87,8 @@ internal static class Reading
         }
         else if (thing is Grasshopper.Kernel.Special.GH_Panel panel)
         {
-            // A panel is both: a parameter with ports and a thing somebody reads. Its typed text is not
-            // reachable through the ports either, so it is said the same way.
+            // A panel is both a parameter with ports and readable text. Its typed text is not reachable through
+            // the ports and is reported the same way.
             json.Append(",\"annotation\":{\"kind\":\"panel\",\"text\":").Append(Json.Quote(panel.UserText));
             Placement(panel, json);
             json.Append('}');
@@ -142,9 +139,9 @@ internal static class Reading
     /// Where an annotation sits and what it covers, plus the group it belongs to if any.
     /// </summary>
     /// <remarks>
-    /// A pivot alone cannot answer "does this note overlap that group", and overlap is the thing that goes
-    /// wrong with notes: they sit outside the layout pass, so one lands on a group's sliders and nobody finds
-    /// out until a human looks at the screen. A box can be checked without a picture.
+    /// A pivot alone cannot answer whether a note overlaps a group, and overlap is the common note defect: notes
+    /// are placed after the dataflow layout, and one can land on a group's sliders and go unnoticed until seen
+    /// on screen. A bounding box can be checked without an image.
     /// </remarks>
     private static void Placement(IGH_DocumentObject note, StringBuilder json)
     {
@@ -165,8 +162,8 @@ internal static class Reading
             .Append(Json.Number((long)bounds.Width)).Append(',')
             .Append(Json.Number((long)bounds.Height)).Append(']');
 
-        // The group it is in, when it is in one: a note explaining a function belongs to that function, and a
-        // reader holding the id can ask what else is in there.
+        // Report the group it belongs to, if any: a note explaining a function belongs to that function, and the
+        // caller can then query the group's other members.
         if (note.OnPingDocument() is not { } document)
         {
             return;
@@ -184,7 +181,7 @@ internal static class Reading
         }
     }
 
-    /// <summary>Every wire in the document - the whole picture, which no per-input peek adds up to.</summary>
+    /// <summary>Every wire in the document, which per-input peeks do not add up to.</summary>
     internal static string Wires()
     {
         GH_Document document = ActiveDocument()
@@ -226,7 +223,7 @@ internal static class Reading
         return json.Append("]}").ToString();
     }
 
-    /// <summary>The whole of one parameter's data, branch by branch - the numbers an assertion stands on.</summary>
+    /// <summary>One parameter's full data, branch by branch, for asserting against.</summary>
     internal static string Peek(HttpListenerRequest request)
     {
         Guid id = Guid.Parse(request.QueryString["id"] ?? throw new ArgumentException("peek needs ?id=guid."));
@@ -241,10 +238,9 @@ internal static class Reading
             IGH_DocumentObject thing = document.FindObject(id, topLevelOnly: true)
                 ?? throw new KeyNotFoundException($"No object {id} on the canvas.");
 
-            // A group is a function, so peeking at one answers with its type as it stands: every port, and
-            // the shape of the data on each. The alternative was a verb of its own, but every tool costs
-            // its description in every session whether or not anybody calls it - and this is the same
-            // question, "what data is here", asked of a bigger thing.
+            // A group is a function, and peeking at it reports its current type: every port and the shape of
+            // the data on each. This answers the same question, "what data is here", at group scope. A separate
+            // verb would cost a description in every session whether it was used or not.
             if (thing is Grasshopper.Kernel.Special.GH_Group group)
             {
                 return PeekGroup(group, document);
@@ -310,13 +306,12 @@ internal static class Reading
     }
 
     /// <summary>
-    /// A group's current signature, measured: every inlet and outlet, with the branch and item counts that
-    /// are the specification, and a few values off each outlet so a result can be recognised.
+    /// A group's current signature, measured: every port with its branch and item counts, plus a few values from
+    /// each outlet to recognise the result.
     /// </summary>
     /// <remarks>
-    /// Counts rather than full data on purpose. Peeking at a group with six outlets of a thousand branches
-    /// each would flood the very context this verb exists to protect - and the counts are what an assertion
-    /// is written against anyway. Whoever needs the values takes the port's own id and peeks at that.
+    /// Counts, not full data: a group with six thousand-branch outlets would flood the context this verb
+    /// protects, and assertions are written against counts anyway. Use a port's own id with peek for full values.
     /// </remarks>
     private static string PeekGroup(Grasshopper.Kernel.Special.GH_Group group, GH_Document document)
     {
@@ -389,11 +384,11 @@ internal static class Reading
         Side("inlets", inlets, withSample: false);
         Side("outlets", outlets, withSample: true);
 
-        // Said out loud rather than left to be inferred from two empty arrays: a group with no ports has
-        // either not been signed yet or is not a function, and both are worth knowing before reading on.
+        // State it explicitly instead of leaving two empty arrays to interpret: a portless group is either
+        // unsigned or not a function, and the caller should know which before continuing.
         if (inlets.Count == 0 && outlets.Count == 0)
         {
-            json.Append(",\"note\":\"no ports - this group has no signature yet; call signature first\"");
+            json.Append(",\"note\":\"no ports: this group has no signature yet; call signature first\"");
         }
 
         return json.Append('}').ToString();
@@ -409,7 +404,7 @@ internal static class Reading
         json.Append(Json.Quote(string.IsNullOrEmpty(doc.Name) ? "unsaved" : doc.Name));
         json.Append(",\"objects\":").Append(Json.Number(doc.Objects.Count));
 
-        // Where the human is looking, so an empty screenshot can be diagnosed rather than guessed at.
+        // Report the active camera, which explains an empty screenshot without guessing.
         if (doc.Views.ActiveView is { } view)
         {
             Rhino.Geometry.Point3d eye = view.ActiveViewport.CameraLocation;
@@ -457,11 +452,18 @@ internal static class Reading
         return json.Append("]}").ToString();
     }
 
+    /// <summary>
+    /// What is loaded: Grasshopper libraries and Rhino plug-ins, with where each came from.
+    /// </summary>
+    /// <remarks>
+    /// Without this list, a console message naming a plug-in cannot be attributed without starting a second
+    /// Rhino and reproducing the fault. A component's library is already visible in the catalogue; this lists
+    /// everything present, for when the suspect is a plug-in and not a component.
+    /// </remarks>
     internal static string Plugins()
     {
-        // Reported, because it is the prefix the 'shipped' flag is decided against and a reader
-        // wondering why something is or is not marked has no other way to see it. Empty means the
-        // flag falls back to Grasshopper's own IsCoreLibrary alone.
+        // rhinoRoot is the prefix the 'shipped' flag is tested against; without it a caller cannot tell why a
+        // library is or is not marked. Empty means the flag falls back to IsCoreLibrary alone.
         StringBuilder json = new("{\"ok\":true,\"rhinoRoot\":");
         json.Append(Json.Quote(RhinoRoot)).Append(",\"grasshopper\":[");
 
@@ -482,12 +484,11 @@ internal static class Reading
             json.Append(",\"author\":").Append(Json.Quote(library.AuthorName ?? ""));
             json.Append(",\"path\":").Append(Json.Quote(library.Location ?? ""));
 
-            // Core libraries are the ones shipped with Grasshopper; saying so keeps a list of thirty from
-            // reading as thirty things somebody installed.
+            // Mark core (shipped) libraries; unmarked, a list of thirty reads as thirty installs.
             //
-            // IsCoreLibrary alone is not enough: GhPython.gha lives under the Rhino installation and
-            // reports false, so a reader trusting the flag would go looking for who installed a component
-            // that came in the box. Anything under the Rhino directory is shipped whatever the flag says.
+            // IsCoreLibrary alone is insufficient: GhPython.gha lives under the Rhino installation but reports
+            // false, and a reader would go looking for an install of a component that came in the box. Anything
+            // under the Rhino directory is shipped regardless of the flag.
             bool shipped = library.IsCoreLibrary
                 || (RhinoRoot.Length > 0
                     && library.Location is { Length: > 0 } where
@@ -506,8 +507,8 @@ internal static class Reading
                 continue;
             }
 
-            // Only what is actually loaded: an installed-but-never-loaded plug-in cannot be the thing
-            // writing to the console, and listing it would bury the ones that can.
+            // List only loaded plug-ins: an installed-but-unloaded plug-in cannot write to the console and would
+            // bury the ones that can.
             if (!info.IsLoaded)
             {
                 continue;
@@ -529,27 +530,17 @@ internal static class Reading
     }
 
     /// <summary>
-    /// What is loaded: Grasshopper libraries and Rhino plug-ins, with where each came from.
+    /// Where Rhino itself is installed, or empty when it cannot be determined.
     /// </summary>
     /// <remarks>
-    /// Added because a message in Rhino's console named a plug-in and there was no way to ask which one that
-    /// was, where it lived, or whether it was even still loaded - attributing it took starting a second Rhino
-    /// and reproducing the fault. A component's own library shows up in the catalogue already; what was
-    /// missing was the list of everything present, which is what you need when the suspect is a plug-in
-    /// rather than a component.
-    /// </remarks>
-    /// <summary>
-    /// Where Rhino itself is installed, or empty when it cannot be worked out.
-    /// </summary>
-    /// <remarks>
-    /// Found by walking up from RhinoCommon's own location until a directory holds a <c>Plug-ins</c>
-    /// folder, rather than by hardcoding a path with a version number in it or by counting levels.
-    /// Counting was the first attempt and it was wrong: RhinoCommon sits in <c>System</c> for the .NET
-    /// Framework load and in <c>System\netcore</c> for .NET 7, so one hop up landed on <c>System</c>
-    /// and every plug-in path failed to match. A landmark does not care how deep it started.
+    /// Found by walking up from RhinoCommon's location until a directory contains a <c>Plug-ins</c> folder. The
+    /// search neither hardcodes a versioned path nor counts levels. Counting fails because RhinoCommon sits in
+    /// <c>System</c> for the .NET Framework load and in <c>System\netcore</c> for .NET 7: a fixed number of hops
+    /// lands on <c>System</c>, and every plug-in path fails to match. A landmark does not depend on the starting
+    /// depth.
     /// <para>
-    /// Empty is a meaningful answer and callers must check for it: a blank prefix passes StartsWith for
-    /// every path there is, which would label every library on the machine as shipped.
+    /// Empty is a meaningful value callers must check: a blank prefix passes StartsWith for every path, which would
+    /// label every library on the machine as shipped.
     /// </para>
     /// </remarks>
     private static readonly string RhinoRoot = ResolveRhinoRoot();
@@ -570,8 +561,8 @@ internal static class Reading
         }
         catch (Exception)
         {
-            // Reflection-only or single-file hosting can leave Location empty; the flag then falls
-            // back to Grasshopper's own, which is the pre-existing behaviour rather than a regression.
+            // Reflection-only or single-file hosting can leave Location empty; the flag then falls back to
+            // IsCoreLibrary alone.
         }
 
         return string.Empty;

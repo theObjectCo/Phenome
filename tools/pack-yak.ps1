@@ -1,35 +1,32 @@
-# Packs both Grasshopper plugins for a private Yak source.
+# Packs Grasshopper plugin packages for a private Yak source.
 #
-# A private source is simply a folder full of .yak files that a Rhino adds as a package source: whoever can
-# read the folder can install, whoever cannot, cannot. That is the whole of the access control, and it is
-# why this exists - Yak itself has no notion of who may install what.
+# A private source is a folder of .yak files added as a package source in Rhino. Yak has no separate permission
+# model, so file-system access controls installation.
 #
-#   pwsh tools/pack-yak.ps1                        # to the remembered destination, or dist/yak
-#   pwsh tools/pack-yak.ps1 -Destination <folder>  # somewhere else, this once
-#   pwsh tools/pack-yak.ps1 -From dist             # pack what a build already produced, without rebuilding
+#   pwsh tools/pack-yak.ps1                        # remembered destination, default dist/yak
+#   pwsh tools/pack-yak.ps1 -Destination <folder>  # pack to a specific folder
+#   pwsh tools/pack-yak.ps1 -From dist             # pack existing build output without rebuilding
 #
-# Where "remembered" is tools/yak-destination.txt (gitignored) or the PHENOME_YAK_DESTINATION variable:
-# the share is somebody's own path, and a path with a person's name in it does not belong in a repository.
+# The remembered destination is stored in tools/yak-destination.txt (gitignored) or PHENOME_YAK_DESTINATION.
+# Machine-specific share paths are not stored in the repository.
 #
-# The link package carries the VS Code extension beside its .gha, so one install is the whole install: the
-# pair button hands the vsix to VS Code before the first pairing.
+# The link package includes the VS Code extension beside the .gha. The pair button passes the vsix to VS Code
+# before the first pairing, and one package installs both parts.
 #
-# -From exists so that this is the only place that knows what a package contains. It used to be three: this
-# script, the yak job in CI, and tools/build.ps1 deciding what landed in dist. Three descriptions of one thing
-# disagree eventually, and this set did - see the note on $packages below. CI now calls this with -From dist,
-# so the list of what a package must hold is stated once and checked the same way however the files got there.
+# -From keeps the definition of package contents in this one script, and every caller shares its content rules
+# and checks (see Requires below). No CI job runs this script; it is run by hand.
 
 [CmdletBinding()]
 param(
     [string] $Destination,
     [string] $Yak = 'C:\Program Files\Rhino 8\System\Yak.exe',
 
-    # A folder holding what a build already produced. Given, nothing is rebuilt and these files are the
-    # package's contents; omitted, the projects are built and their outputs gathered.
+    # A folder containing prior build output. When provided, those files are used as package inputs and nothing
+    # is rebuilt. When omitted, the projects are built and their outputs are collected.
     [string] $From,
 
-    # The version the package is expected to carry, when the caller has an opinion of its own - a tag, in CI.
-    # Checked against the name Yak gives the file, which is the evidence that the right manifest was used.
+    # Expected package version, typically the CI tag. The Yak output filename is checked against it to confirm
+    # that the expected manifest was used.
     [string] $ExpectVersion
 )
 
@@ -52,35 +49,32 @@ if (-not (Test-Path $Yak)) {
 New-Item -ItemType Directory -Force $Destination | Out-Null
 $Destination = (Resolve-Path $Destination).Path
 
-# For now the link travels alone. The components plugin carries the kernel and is not distributed yet -
-# its manifest is written and this list is where it joins, when it is time.
+# Only the link package is distributed now. The components plugin contains the kernel and has a manifest, but is
+# not distributed yet; add it to this list when packaging starts.
 $packages = @(
     @{
         Name    = 'phenome-link'
         Project = 'src/Phenome.Apps.GrasshopperLink'
-        # What the package contains, by the name each file has inside it. This is the single description the
-        # comment at the top is about: it is checked after the staging folder is filled, whether the files were
-        # built here or handed over with -From, so the two ways of making a package cannot disagree about what
-        # one is. {version} is filled from the manifest.
+        # Required package contents, by each file's staged name. This is the one definition checked after
+        # staging, for -From and for local builds alike. {version} is filled from the manifest.
         #
-        # Worth stating why it is a list of demands rather than a list of places. The extension used to be
-        # looked for by wildcard in the folder that packages it, and tools/build.ps1 *moves* it out of there
-        # into dist/ - so running the two in their natural order produced a package with no .vsix in it, no
-        # complaint, and a README inside promising the pair button would install one. A wildcard also picks by
-        # string order, where 0.9.0 sorts above 0.22.0, so a leftover from an older version would have won over
-        # the current build. Naming what must be there, and refusing without it, closes both.
+        # These are requirements and not search paths. tools/build.ps1 moves the VS Code extension to dist/, and
+        # a wildcard search in the packaging folder could then produce a package without a .vsix and without an
+        # error, while the README still says the pair button installs one. Wildcard matching also selects by
+        # string order, where 0.9.0 sorts above 0.22.0, and an old leftover file could replace the current build.
+        # Naming the required files and failing without them prevents both cases.
         #
-        # The Rhino plugin is in this list because it travels in the same package as the canvas one: they
-        # version together, and the half that reports on a stuck Rhino is no use sitting on a disk uninstalled.
+        # The Rhino plugin is included because the components ship together, and the plugin that reports a stuck
+        # Rhino is no use when it is not installed.
         Requires = @(
             'Phenome.Apps.GrasshopperLink.gha',
             'Phenome.Apps.RhinoLink.rhp',
             'phenome-link-{version}.vsix',
             'manifest.yml')
 
-        # Where to find each of those when building from source. Several entries may name the same file: the
-        # extension sits in dist/ after a full build and beside its own project after a bare vsce run, and
-        # either will do - so these are candidates, and Requires is what decides whether enough turned up.
+        # Candidate source locations when building from source. Several entries may match the same file: the
+        # extension can be in dist/ after a full build or beside its project after a bare vsce run. Requires
+        # decides whether the staged package is complete.
         Sources  = @(
             'src/Phenome.Apps.RhinoLink/bin/Release/net7.0/Phenome.Apps.RhinoLink.rhp',
             'dist/phenome-link-{version}.vsix',
@@ -88,54 +82,51 @@ $packages = @(
         Readme  = @'
 # Phenome Link
 
-Your Grasshopper canvas, over loopback HTTP, so an AI agent can work on it beside you: it sees what you
-see, edits what you edit, and every change either of you makes is journalled with a name against it.
+Phenome Link lets an AI agent read and edit the Grasshopper definition open in Rhino. Changes appear on the
+canvas, and the journal records whether the agent or the user made them.
 
 ## Starting a session
 
-1. Open Grasshopper. Bottom-left of the canvas is a **Pair with VS Code** button - it shows while nobody
-   is connected.
-2. Click it. VS Code opens (installing the extension carried in this package if it is not there yet) and
-   a terminal starts an agent session, already told where the canvas is.
-3. Say what you want built. The agent reads the canvas, builds, and talks back.
+1. Open Grasshopper. If no client is connected, the canvas shows a **Pair with VS Code** button in the
+   lower-left area.
+2. Click it. VS Code opens, installing the bundled extension if needed, and a terminal starts an agent session
+   with the canvas address.
+3. Describe what to build. The agent reads the canvas, makes changes, and reports results.
 
-No button? Nothing is lost: the canvas answers on the port written in
-`%TEMP%\phenome-link-<pid>.port`, and `GET /` on it describes the whole protocol. Any agent that can make
-an HTTP request is a peer here - the pairing button is a shortcut, not a requirement.
+If the button is absent, the canvas is still available on the port in
+`%TEMP%\phenome-link-<pid>.port`. `GET /` on that port documents the protocol. Any client that can make HTTP
+requests can connect; the button is a convenience, not a requirement.
 
-## Your document stays yours
+## Unsaved changes and the autosave copy
 
-**New in 0.22.0: an agent's edit marks the document modified.** So when you close Rhino it offers to save,
-the same as it would for your own edits, and the Grasshopper title carries the usual asterisk while there is
-work outstanding. Before this the link changed a document and left the flag alone, which meant Rhino closed
-it without asking and an agent's work could disappear with no prompt at all.
+**New in 0.22.0: agent edits mark the document modified.** Closing Rhino now offers to save after agent
+changes, and the Grasshopper title shows the unsaved-work asterisk. Before 0.22.0, link edits did not set the
+modified flag, and Rhino could close without prompting and lose agent changes.
 
-Reading never marks it, and neither does selecting or zooming. There is also an autosave into `%TEMP%` before
-an agent's first edit of any document — a net under the undo stack, not a substitute for saving.
+Reading does not modify the document, nor does selecting or zooming. Before an agent's first edit of a
+document, the link saves an autosave copy to `%TEMP%`. This complements undo; it does not replace saving.
 
-## Talking to your agent from the canvas
+## Messages to the agent from the canvas
 
-The **Phenome > Link** panel has two components: *Send to Agent* (wire a button to it and your text goes
-into the journal, where the agent reads it) and *Agent Replies* (wire a panel to it to read what came
-back).
+The **Phenome > Link** panel has two components: *Send to Agent* sends connected text to the journal when
+`Send` is true, where the agent can read it, and *Agent Replies* returns agent responses to a connected panel.
 
 ## For the agent's benefit
 
-In VS Code, run **Phenome Link: Teach Agents in This Workspace** once per project. It writes the pairing
-notes into `AGENTS.md`, plants an MCP server in `.phenome/`, registers it in `.mcp.json` and trusts it in
-`.claude/settings.local.json` - after which the agent has named tools instead of shell commands. Restart the
-agent session afterwards: MCP servers load at session start.
+In VS Code, run **Phenome Link: Teach Agents in This Workspace** once per project. It writes pairing notes to
+`AGENTS.md`, installs an MCP server in `.phenome/`, registers it in `.mcp.json`, and trusts it in
+`.claude/settings.local.json`. The agent then uses named tools instead of shell commands. Restart the agent
+session after this because MCP servers load at session start.
 
-**That trust is one rule for the whole server**, which matters more than it sounds: there are 46 verbs, and a
-client left to ask per tool will ask 46 times, once for each the first time it is used. The rule it writes is
-`"allow": ["mcp__grasshopper"]` - every verb at once, including any a later version adds. If you have already
-been clicking allow one verb at a time, this supersedes those; the entries left behind do no harm.
+**The trust rule covers the whole server.** With 53 verbs, per-tool approvals would prompt for each verb on
+first use. The rule is `"allow": ["mcp__phenome"]`, permitting every verb, including verbs added in later
+versions. This supersedes earlier `mcp__grasshopper` and per-verb entries; older entries remain harmless.
 
 ## When something goes wrong
 
-Refused requests are logged locally to `%LOCALAPPDATA%\Phenome\link-friction.jsonl` - what was asked, what
-was said back, which build. Nothing is sent anywhere. **Phenome Link: Report a Problem…** in VS Code
-assembles that into one readable file and offers a mail draft you send yourself, after reading it.
+Refused requests are logged locally to `%LOCALAPPDATA%\Phenome\link-friction.jsonl`: request, response, and
+build. Nothing is transmitted. **Phenome Link: Report a Problem…** in VS Code assembles a readable report and
+creates a mail draft for review before sending.
 '@
     }
 )
@@ -150,8 +141,8 @@ foreach ($package in $packages) {
     New-Item -ItemType Directory -Force $staging | Out-Null
 
     if ($From) {
-        # Handed over rather than built. Named extensions rather than everything in the folder, so a stray
-        # .yak from an earlier run cannot join the staging folder and then be mistaken for the one just built.
+        # Pack existing input files instead of building. Filter by extension so a stray .yak from an earlier run
+        # cannot enter the staging folder and be mistaken for the current package.
         $inputs = Join-Path $root $From
         if (-not (Test-Path $inputs)) { $inputs = $From }
         if (-not (Test-Path $inputs)) { throw "There is no folder at $From to pack from." }
@@ -169,8 +160,8 @@ foreach ($package in $packages) {
             throw "$($package.Name): the Release build failed."
         }
 
-        # The .gha and every assembly beside it: a memory-loaded multi-assembly plugin cannot resolve its
-        # siblings, so they travel together and load from disk.
+        # Copy the .gha and adjacent assemblies together. A memory-loaded multi-assembly plugin cannot resolve
+        # sibling assemblies; they must ship together and load from disk.
         Get-ChildItem (Join-Path $projectPath 'bin\Release\net7.0') -File |
             Where-Object { $_.Extension -in '.gha', '.dll' } |
             Copy-Item -Destination $staging
@@ -178,13 +169,12 @@ foreach ($package in $packages) {
         Copy-Item (Join-Path $projectPath 'manifest.yml') $staging
     }
 
-    # The version the manifest declares, read from the staging folder so it is the one about to be packed
-    # rather than the one in the working tree. CI refuses a build where the five declarations disagree, so
-    # reading any one of them reads all of them.
+    # Read the version from the staged manifest: the value is then the package version and not a working-tree
+    # value. CI rejects builds whose version declarations disagree, and checking one staged declaration is enough.
     $manifest = Join-Path $staging 'manifest.yml'
 
     if (-not (Test-Path $manifest)) {
-        throw "$($package.Name): no manifest.yml among the files to pack, so there is no version to pack as."
+        throw "$($package.Name): no manifest.yml among the files to pack, and no version to pack as."
     }
 
     $version = (Get-Content $manifest | Select-String '^version:\s*(.+)$').Matches.Groups[1].Value.Trim()
@@ -195,7 +185,8 @@ foreach ($package in $packages) {
         throw "$($package.Name): the manifest says $version and the caller expected $ExpectVersion."
     }
 
-    # Candidates, when building from source. Missing ones are not an error here; Requires below decides.
+    # Copy candidate files when building from source. Missing candidates are not errors here; Requires below
+    # decides whether the package is complete.
     if (-not $From) {
         foreach ($pattern in $package.Sources) {
             Get-ChildItem (Join-Path $root ($pattern -replace '\{version\}', $version)) -ErrorAction SilentlyContinue |
@@ -204,18 +195,18 @@ foreach ($package in $packages) {
         }
     }
 
-    # And the one check that matters, run the same way whichever road the files came by.
+    # Verify required contents after staging, regardless of whether files came from a build or from -From.
     foreach ($required in $package.Requires) {
         $leaf = $required -replace '\{version\}', $version
 
         if (-not (Test-Path (Join-Path $staging $leaf))) {
-            throw "$($package.Name): the package promises $leaf and it is not there. " +
+            throw "$($package.Name): the package requires $leaf and it is not there. " +
                 "Build it first - pwsh tools/build.ps1 leaves everything in dist/."
         }
     }
 
-    # Travels inside the package and lands in the installed folder: the guide for after the install, as
-    # opposed to the one in the distribution folder, which is the guide for before it.
+    # Write the package README. It is installed with the package and describes use after installation; the
+    # distribution folder README describes installation before the package is used.
     if ($package.Readme) {
         Set-Content (Join-Path $staging 'README.md') $package.Readme
     }
@@ -233,8 +224,7 @@ foreach ($package in $packages) {
         Pop-Location
     }
 
-    # Both of these came from the yak job in CI, which used to do its own staging and its own checking. They
-    # belong wherever the packing happens rather than beside one caller of it.
+    # These checks belong with packaging, and every caller runs the same ones.
     $built = @(Get-ChildItem $staging -Filter '*.yak')
 
     if ($built.Count -eq 0) {
@@ -245,8 +235,8 @@ foreach ($package in $packages) {
         throw "$($package.Name): more than one .yak in the staging folder: $($built.Name -join ', ')"
     }
 
-    # Yak names the file from the manifest, so the name is the evidence that the right manifest was used.
-    # Checked rather than assumed, because the wrong one is not obvious until somebody installs it.
+    # Yak names the file from the manifest, and the filename shows whether the expected manifest was used. A
+    # mismatch is otherwise easy to miss until the package is installed.
     $yakFile = $built[0]
 
     if ($yakFile.Name -notlike "*-$version-*") {
@@ -259,35 +249,33 @@ foreach ($package in $packages) {
     Get-ChildItem $staging -File | ForEach-Object { Write-Host "    contained: $($_.Name)" }
 }
 
-# The note that turns a folder into instructions, refreshed on every pack.
+# Write installation instructions next to the packed packages.
 @"
 # Phenome packages
 
-## If you can see this folder
+## Installing from this folder
 
-1. Rhino: **Tools > Options > Packages** (or run ``_PackageManagerSettings``) and add this folder's path
-   as a source.
-2. Run ``_PackageManager``, search for **phenome-link**, install, restart Rhino.
+1. In Rhino, open **Tools > Options > Packages** or run ``_PackageManagerSettings`` and add this folder's path
+   as a package source.
+2. Run ``_PackageManager``, search for **phenome-link**, install, then restart Rhino.
 
-Whoever can read this folder can install; whoever cannot, cannot. That is the access control - Yak has no
-notion of permissions of its own.
+Everyone who can read this folder can install packages. Yak has no separate permission model.
 
-## If somebody sent you the .yak file
+## Installing from a single .yak file
 
-A package source has to be a folder on your own machine or network - a web link will not do. So:
+A package source must be a local or network folder path; a web link cannot be used.
 
-1. Put the ``.yak`` file in any folder of your own, e.g. ``Documents\Phenome``.
-2. **Unblock it first** if it arrived by mail or download: right-click > Properties > tick *Unblock*.
-   Windows marks downloaded files, and Grasshopper refuses to load a blocked assembly - silently.
-3. Add that folder as a package source (step 1 above) and install (step 2 above).
+1. Place the ``.yak`` file in a local or network folder, for example ``Documents\Phenome``.
+2. If it arrived by mail or download, unblock it first: right-click > Properties > tick *Unblock*.
+   Windows marks downloaded files, and Grasshopper silently refuses to load blocked assemblies.
+3. Add that folder as a package source, using step 1 above, then install using step 2 above.
 
 ## What comes with it
 
-**phenome-link** carries the VS Code extension (``phenome-link-*.vsix``) inside the package. The canvas's
-*Pair with VS Code* button hands it to VS Code before the first pairing, so there is nothing else to
-install by hand.
+**phenome-link** includes the VS Code extension (``phenome-link-*.vsix``). The canvas's *Pair with VS Code*
+button passes it to VS Code before the first pairing. No separate extension install is needed.
 
-Then: open Grasshopper, look for the *Pair with VS Code* button in the bottom-left of the canvas.
+Then open Grasshopper and look for the *Pair with VS Code* button in the lower-left canvas area.
 
 Packed $(Get-Date -Format 'yyyy-MM-dd HH:mm').
 "@ | Set-Content (Join-Path $Destination 'README.md')

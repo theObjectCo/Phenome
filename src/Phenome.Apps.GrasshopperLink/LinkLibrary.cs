@@ -32,7 +32,7 @@ public class LinkLibrary : GH_AssemblyInfo
         ?? "0.1.0";
 }
 
-/// <summary>Where it says things: the command line, and the same log file the components plugin writes.</summary>
+/// <summary>Writes to the command line and to the same log file the components plugin writes.</summary>
 internal static class LinkLog
 {
     internal static void Say(string line)
@@ -47,18 +47,18 @@ internal static class LinkLog
         }
         catch (Exception)
         {
-            // The log is a courtesy; failing to write it must not become its own incident.
+            // Writing the log is best effort: a write failure must not become an error of its own.
         }
     }
 }
 
 /// <summary>
-/// Starts the bridge as the plugin loads: the server, the watcher, the discovery file.
+/// Starts the bridge as the plugin loads: the server, the document watcher and the discovery file.
 /// </summary>
 /// <remarks>
-/// The discovery file is the protocol's only fixed point: <c>%TEMP%\phenome-link-&lt;pid&gt;.port</c> holds
-/// the port, one file per Rhino, deleted when Rhino closes. A client globs for the files, checks the pids
-/// are alive, and knows every session on the machine - no configuration, no collisions.
+/// The discovery file is the protocol's only fixed point. <c>%TEMP%\phenome-link-&lt;pid&gt;.port</c> holds
+/// the port; there is one file per Rhino, deleted when Rhino closes. A client globs the files, checks that each
+/// pid is alive and finds every session on the machine without configuration or collisions.
 /// </remarks>
 public class LinkRegistration : GH_AssemblyPriority
 {
@@ -86,18 +86,18 @@ public class LinkRegistration : GH_AssemblyPriority
                 }
                 catch (Exception)
                 {
-                    // A stale file is caught by the pid check on the client side; best effort is enough.
+                    // Deleting is best effort: a leftover file is caught by the client-side pid check.
                 }
             };
 
-            // The invitation rides on every canvas, and puts itself away once someone is paired.
+            // Adds the pairing button to every canvas; it hides itself once an agent is paired.
             global::Grasshopper.GUI.Canvas.GH_Canvas.WidgetListCreated += (_, gathering) =>
                 gathering.AddWidget(new PairWidget());
 
-            // Asks once, in the background, whether this version has been withdrawn, and says so if it has.
-            // The link is already serving by the time an answer arrives - deliberately, because waiting on
-            // the network before Grasshopper can draw would be worse than the problem. Nothing is sent: the
-            // notice is a static file, compared here. PHENOME_IGNORE_ADVISORY=1 turns it off.
+            // Checks once, in the background, whether this version has been withdrawn, and reports it if so.
+            // The link is already serving when the answer arrives, because blocking Grasshopper's first draw on
+            // the network would be worse than the problem. Nothing is sent: the notice is a static file, and the
+            // comparison happens here. PHENOME_IGNORE_ADVISORY=1 disables the check.
             Advisory.Watch(notice =>
             {
                 LinkLog.Say(notice.Sentence);
@@ -112,11 +112,11 @@ public class LinkRegistration : GH_AssemblyPriority
             }
 
             LinkLog.Say($"Phenome Link: listening on http://127.0.0.1:{LinkServer.Port}/ ({discovery}).");
-            LinkLog.Say($"Phenome Link: friction log at {Friction.Path} - local only, share it if you want the bridge fixed.");
+            LinkLog.Say($"Phenome Link: friction log at {Friction.Path} - local only. Sharing it helps get the bridge fixed.");
         }
         catch (Exception failure)
         {
-            // Said out loud and out of the way: a bridge that fails to open must not take Grasshopper down.
+            // Report and continue: a bridge that fails to open must not take Grasshopper down.
             LinkLog.Say($"Phenome Link: could not start. {failure}");
         }
 
@@ -124,19 +124,16 @@ public class LinkRegistration : GH_AssemblyPriority
     }
 
     /// <summary>
-    /// Deletes discovery files and autosaves belonging to Rhinos that are gone.
+    /// Deletes discovery files and autosaves from Rhinos that have exited.
     /// </summary>
     /// <remarks>
-    /// The Closing handler above removes this session's port file, and that covers the ordinary exit.
-    /// It does not cover a kill -- and anything driving Rhino from outside kills it sooner or later,
-    /// because installing a plugin means closing a Rhino that is holding the assembly. Left alone the
-    /// files accumulate: 28 of them had gathered here, 27 for processes that no longer existed, along
-    /// with fifty autosaves. The client side survives it by checking each pid, so nothing was broken;
-    /// it was simply litter that nobody had made anybody's job.
+    /// The Closing handler above removes this session's port file on a normal exit, and a killed Rhino leaves
+    /// its file behind. An external driver kills Rhino sooner or later, because installing a plugin means closing
+    /// a Rhino that holds the assembly. Orphaned files accumulate (27 dead port files and about 50 autosaves in
+    /// one observed case). The client-side pid check tolerates them, but they are still litter.
     /// <para>
-    /// Sweeping on start rather than on exit is the whole point: exit is precisely the moment that does
-    /// not always happen. Every fault is swallowed -- a link that will not start because it could not
-    /// delete somebody else's leftover file would be a far worse trade.
+    /// The sweep runs on start because exit is the step that may not happen. Every fault is swallowed: refusing
+    /// to start because a leftover file could not be deleted would be worse.
     /// </para>
     /// </remarks>
     private static void SweepStaleFiles()
@@ -156,7 +153,7 @@ public class LinkRegistration : GH_AssemblyPriority
 
                 try
                 {
-                    // Still running means still valid, whichever plugin wrote it.
+                    // A live pid means the file is still valid, whichever plugin wrote it.
                     using (System.Diagnostics.Process.GetProcessById(owner))
                     {
                         continue;
@@ -173,12 +170,12 @@ public class LinkRegistration : GH_AssemblyPriority
                 }
                 catch (Exception)
                 {
-                    // Another session may be sweeping the same file; whoever wins, it goes.
+                    // Another session may be deleting the same file, and either deletion removes it.
                 }
             }
 
-            // Autosaves are named by document, not by process, so there is no pid to test. Age is the
-            // only honest signal, and a week is long enough that anything still wanted has been noticed.
+            // Autosaves are named by document and carry no pid to test. Age is the only signal, and a week is
+            // long enough for anything still wanted to have been noticed.
             DateTime cutoff = DateTime.Now.AddDays(-7);
 
             foreach (string file in Directory.EnumerateFiles(temp, "phenome-autosave-*.gh"))
@@ -192,7 +189,7 @@ public class LinkRegistration : GH_AssemblyPriority
                 }
                 catch (Exception)
                 {
-                    // As above.
+                    // Best effort, as for the port files above.
                 }
             }
         }

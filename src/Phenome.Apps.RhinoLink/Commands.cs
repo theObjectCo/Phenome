@@ -4,22 +4,19 @@ using System.Text.Json;
 namespace Phenome.Apps.RhinoLink;
 
 /// <summary>
-/// The two things an agent asks of Rhino when no canvas is involved: run a command, and say what the
-/// document holds.
+/// The verbs that use Rhino without a canvas: run a command, and report what the document holds.
 /// </summary>
 /// <remarks>
-/// Both need the UI thread, which makes them the opposite of everything else in this plugin - pulse and
-/// dismiss exist precisely because they do not. That is not a contradiction: a held thread is why pulse
-/// answers, and these are what an agent runs once pulse says the thread is free.
+/// Both need the UI thread. Pulse and dismiss avoid it and can answer while it is held. An agent uses these
+/// once pulse reports the thread is free.
 /// <para>
-/// The canvas link answers the same two verbs, and will go on doing so. This copy is here so that Rhino
-/// without Grasshopper is a session an agent can actually work in, rather than one that can only report
-/// on itself.
+/// The canvas link answers the same two verbs and keeps doing so. With this copy an agent can work in Rhino
+/// without Grasshopper, beyond reporting on the process.
 /// </para>
 /// </remarks>
 internal static class Commands
 {
-    /// <summary>Runs a Rhino command script and says whether Rhino accepted it.</summary>
+    /// <summary>Runs a Rhino command script and reports whether Rhino accepted it.</summary>
     internal static string Run(string payload)
     {
         if (string.IsNullOrWhiteSpace(payload))
@@ -40,7 +37,7 @@ internal static class Commands
         return $"{{\"ok\":{(ran ? "true" : "false")}}}";
     }
 
-    /// <summary>The document: what it is called, what it holds, and where the human is looking.</summary>
+    /// <summary>Reports the document: name, object count, modified flag, layers and the active camera.</summary>
     internal static string Document() => Ui.On(() =>
     {
         Rhino.RhinoDoc doc = Rhino.RhinoDoc.ActiveDoc
