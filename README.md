@@ -444,6 +444,11 @@ writes the pairing notes into `AGENTS.md`, registers the MCP server in `.mcp.jso
 }
 ```
 
+A taught workspace stays current without running the command again. At startup the extension compares the
+workspace's `.phenome/gh-mcp.js` and the notes section in `AGENTS.md` with the ones it carries, and when either
+differs it writes them again and shows one message. A workspace that was never taught is not touched, and the
+setting `phenomeLink.updateTaughtWorkspaces` turns the update off.
+
 **One rule names the whole server** and trusts every verb at once, including verbs added in a later version.
 Restart the agent session afterwards: MCP servers load at session start.
 

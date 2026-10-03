@@ -1183,7 +1183,7 @@ async function handle(line) {
             reply(id, {
                 protocolVersion: params?.protocolVersion ?? '2024-11-05',
                 capabilities: { tools: {} },
-                serverInfo: { name: 'phenome', version: '0.34.0' },
+                serverInfo: { name: 'phenome', version: '0.34.1' },
                 instructions: instructions(),
             });
             break;

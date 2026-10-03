@@ -2,7 +2,7 @@
   "name": "phenome-link",
   "displayName": "Phenome Link",
   "description": "The VS Code end of a Grasshopper canvas: session status, the live journal, canvas recipes and script editing over loopback HTTP.",
-  "version": "0.34.0",
+  "version": "0.34.1",
   "publisher": "phenome",
   "private": true,
   "engines": {
@@ -56,6 +56,11 @@
           "type": "string",
           "default": "claude",
           "description": "The command that starts an agent session when pairing with Grasshopper; the handshake prompt is appended as one quoted argument. Left as 'claude', the command is resolved automatically: PATH first, then the CLI bundled inside the Claude Code extension. Set a full path or a different agent CLI to override."
+        },
+        "phenomeLink.updateTaughtWorkspaces": {
+          "type": "boolean",
+          "default": true,
+          "description": "At startup, update the copy of the MCP server (.phenome/gh-mcp.js) and the pairing notes in a workspace that Teach Agents has written before, when this version of the extension carries different ones. A workspace that was never taught is not touched."
         }
       }
     }

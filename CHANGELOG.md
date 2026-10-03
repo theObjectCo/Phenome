@@ -11,6 +11,18 @@ who installed the last version which six things they are about to notice.
 Each release block lists only the changes a user can see. Implementation that nobody outside sees belongs in
 the commit that made it.
 
+## 0.34.1
+
+### Added
+
+- **A taught workspace is updated at startup.** When VS Code opens a workspace that Teach Agents has written
+  before, the extension compares the workspace's `.phenome/gh-mcp.js` and the notes section in `AGENTS.md` and
+  `CLAUDE.md` with the ones it carries. When either differs it writes them again and shows one message. An
+  extension update no longer leaves an old MCP server copy behind in every workspace. Line endings alone do not
+  count as a difference. A workspace that was never taught is not touched, and the setting
+  `phenomeLink.updateTaughtWorkspaces` turns the update off. An agent session already running keeps the old
+  server until it reconnects (`/mcp` in Claude Code) or restarts.
+
 ## 0.34.0
 
 ### Added

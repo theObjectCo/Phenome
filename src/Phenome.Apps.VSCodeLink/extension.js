@@ -631,6 +631,63 @@ async function teachAgents(quiet) {
     }
 }
 
+/// Brings a taught workspace up to this version of the extension, at startup.
+///
+/// A workspace taught by an older extension keeps its copy of the MCP server and its notes until somebody runs
+/// Teach Agents again, and a stale `.phenome/gh-mcp.js` fails in ways that point nowhere near the cause: a
+/// 0.31.0 copy sent no content type, and every POST was refused while every GET still worked. This compares the
+/// copy and the notes section with what this extension carries and, when either differs, teaches the workspace
+/// again and says so once. A workspace that was never taught has no `.phenome/gh-mcp.js` and is left alone.
+/// The setting `phenomeLink.updateTaughtWorkspaces` turns it off.
+async function refreshTeaching() {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+
+    if (!folder || !vscode.workspace.getConfiguration('phenomeLink').get('updateTaughtWorkspaces', true)) {
+        return;
+    }
+
+    const copy = path.join(folder.uri.fsPath, '.phenome', 'gh-mcp.js');
+
+    if (!fs.existsSync(copy)) {
+        return;
+    }
+
+    // Line endings are ignored: a workspace that commits its copy gets CRLF back from git on Windows, and a
+    // difference in line endings alone would update the workspace and announce it on every start.
+    const same = (one, other) => one.split('\r\n').join('\n') === other.split('\r\n').join('\n');
+
+    const bundled = fs.readFileSync(path.join(context.extensionUri.fsPath, 'mcp.js'), 'utf8');
+    const serverStale = !same(fs.readFileSync(copy, 'utf8'), bundled);
+
+    // The notes are compared where they are held in full. A CLAUDE.md that imports AGENTS.md holds none.
+    const notesStale = ['AGENTS.md', 'CLAUDE.md'].some(name => {
+        const file = path.join(folder.uri.fsPath, name);
+
+        if (!fs.existsSync(file)) {
+            return false;
+        }
+
+        const text = fs.readFileSync(file, 'utf8');
+        const start = text.indexOf(TEACH_START);
+        const end = text.indexOf(TEACH_END);
+
+        return start >= 0 && end > start && !same(text.slice(start, end + TEACH_END.length), TEACHING());
+    });
+
+    if (!serverStale && !notesStale) {
+        return;
+    }
+
+    await teachAgents(true);
+
+    const version = context.extension?.packageJSON?.version ?? 'this version';
+
+    linkLog(`updated the agent files in ${folder.name} to ${version}`);
+    vscode.window.showInformationMessage(
+        `Phenome Link: updated the agent files in this workspace to ${version}. An agent session that is `
+            + 'already running keeps the old MCP server until it reconnects (/mcp in Claude Code) or restarts.');
+}
+
 /// Offered once per workspace, on the first live session, which is when the notes become useful.
 async function offerTeaching() {
     const folder = vscode.workspace.workspaceFolders?.[0];
@@ -824,6 +881,8 @@ function activate(extensionContext) {
         vscode.workspace.onDidSaveTextDocument(document => {
             pushSavedScript(document).catch(failed => linkLog(`script push failed: ${failed.message}`));
         }));
+
+    refreshTeaching().catch(failed => linkLog(`updating the agent files failed: ${failed.message}`));
 
     // Grasshopper heartbeat every 2.5 seconds. A poll costs little with a session and less without one.
     paintLinkStatus();
