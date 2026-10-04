@@ -11,6 +11,18 @@ who installed the last version which six things they are about to notice.
 Each release block lists only the changes a user can see. Implementation that nobody outside sees belongs in
 the commit that made it.
 
+## Unreleased
+
+### Added
+
+- **`pillscript` works on a PillScript component.** PillScript is a separate plug-in with a C# script component
+  whose sources are a project of files, and `script_read` and `script_write` do not reach it. The verb calls
+  PillScript in the same Rhino and offers its tools: list the components, read, write, rename and delete their
+  files, add and remove packages and assembly references, compile with the diagnostics back, solve with the
+  printed output back, and open the editor. Before this an agent needed PillScript's own port, opened only
+  when `PILLSCRIPT_BRIDGE` was set before Rhino started, and a second MCP server. The verb needs PillScript
+  0.5.0 or later. With PillScript missing or older, the refusal says which and where to get it.
+
 ## 0.34.1
 
 ### Added

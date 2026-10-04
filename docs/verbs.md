@@ -1,6 +1,6 @@
 # Every verb, and which half answers it
 
-The list is as of 0.34.0: fifty-three tools over two HTTP servers and one client.
+The list is as of 0.35.0: fifty-four tools over two HTTP servers and one client.
 
 The MCP server is registered as `phenome`, and a host presents these tools as `mcp__phenome__<name>`. The
 prefix comes from the registration key the pairing writes, not from the name the server reports in its
@@ -34,7 +34,7 @@ Start with `launch grasshopper:false` for all of these.
 | `screenshot` | `GET /screenshot` | the active viewport as PNG, framed for the capture and the camera put back *(also on `.gha`)* |
 | `camera` | `GET`/`POST /camera` | read or aim the active viewport; only the fields passed change *(also on `.gha`)* |
 
-## GrasshopperLink: 39 verbs about the canvas
+## GrasshopperLink: 40 verbs about the canvas
 
 ### Reading
 
@@ -71,6 +71,7 @@ Start with `launch grasshopper:false` for all of these.
 | `undo` | `POST /undo` | one step back through Grasshopper's own stack |
 | `redo` | `POST /redo` | one step forward |
 | `script_write` | `POST /script` | new source into a script component, with its compile errors back |
+| `pillscript` | `POST /pillscript` | a PillScript component through PillScript itself: its files, references, compile and solve. Needs PillScript 0.5.0 or later in the same Rhino |
 
 ### Documents
 

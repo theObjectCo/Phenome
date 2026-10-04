@@ -118,7 +118,7 @@ In VS Code, run **Phenome Link: Teach Agents in This Workspace** once per projec
 `.claude/settings.local.json`. The agent then uses named tools instead of shell commands. Restart the agent
 session after this because MCP servers load at session start.
 
-**The trust rule covers the whole server.** With 53 verbs, per-tool approvals would prompt for each verb on
+**The trust rule covers the whole server.** With 54 verbs, per-tool approvals would prompt for each verb on
 first use. The rule is `"allow": ["mcp__phenome"]`, permitting every verb, including verbs added in later
 versions. This supersedes earlier `mcp__grasshopper` and per-verb entries; older entries remain harmless.
 
