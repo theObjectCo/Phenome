@@ -1386,7 +1386,11 @@ async function handle(line) {
 
                 const text = typeof answer === 'string' ? answer : JSON.stringify(answer, null, 2);
 
-                reply(id, { content: [{ type: 'text', text }] });
+                // A refusal from the link arrives as ok:false in an answer that did arrive. Marked as an error, a
+                // host shows it as one, and an agent does not read it as a result to build on.
+                reply(id, answer?.ok === false
+                    ? { content: [{ type: 'text', text }], isError: true }
+                    : { content: [{ type: 'text', text }] });
             } catch (failed) {
                 reply(id, { content: [{ type: 'text', text: failed.message }], isError: true });
             }

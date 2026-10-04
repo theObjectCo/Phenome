@@ -86,21 +86,48 @@ internal static class PillScripts
         };
     }
 
-    /// <summary>PillScript's entry point, or a refusal that says what is missing.</summary>
+    /// <summary>PillScript's entry point, or a refusal that says what is missing and how to get it.</summary>
+    /// <remarks>
+    /// The refusal is read by an agent, which then has to tell a user what to do. It names the file, the command
+    /// and the restart, because PillScript is not on the Rhino package server and the Package Manager does not
+    /// find it by name. It also says that the user installs it: a plug-in that runs code in Rhino is not
+    /// installed by an agent on its own.
+    /// </remarks>
     private static MethodInfo Locate()
     {
-        Assembly pill = AppDomain.CurrentDomain.GetAssemblies()
-            .FirstOrDefault(assembly => assembly.GetName().Name == "PillScript")
-            ?? throw new InvalidOperationException(
-                "PillScript is not loaded in this Rhino. It is a separate plug-in, released at " + Releases +
-                ". Install it, restart Rhino, and the verb answers.");
+        Assembly? pill = AppDomain.CurrentDomain.GetAssemblies()
+            .FirstOrDefault(assembly => assembly.GetName().Name == "PillScript");
+
+        if (pill is null)
+        {
+            Version rhino = Rhino.RhinoApp.Version;
+
+            // PillScript 0.5.0 is built for Rhino 8.30. Installing it into an older Rhino would fail in a way
+            // that names neither, so the version is checked here and named first.
+            string tooOld = rhino.Major == 8 && rhino.Minor < 30
+                ? $" This Rhino is {rhino.Major}.{rhino.Minor}, and PillScript needs 8.30 or newer, so Rhino has to be updated first."
+                : "";
+
+            throw new InvalidOperationException(
+                "PillScript is not loaded in this Rhino, which usually means it is not installed, and the pillscript "
+                + "tool works only through it. "
+                + "PillScript is a separate plug-in for Rhino 8.30 or newer on Windows." + tooOld + " "
+                + Install("To install it")
+                + " Ask the user before installing it.");
+        }
 
         return pill.GetType("PillScript.Bridge.Entry")
                 ?.GetMethod("Run", BindingFlags.Public | BindingFlags.Static, [typeof(string), typeof(string)])
             ?? throw new InvalidOperationException(
-                $"PillScript {pill.GetName().Version?.ToString(3)} is loaded, and this verb needs 0.5.0 or later. " +
-                $"Update it from {Releases} and restart Rhino.");
+                $"PillScript {pill.GetName().Version?.ToString(3)} is installed in this Rhino, and the pillscript tool "
+                + "needs 0.5.0 or newer. " + Install("To update it"));
     }
+
+    /// <summary>The installation steps from PillScript's release page, as one paragraph.</summary>
+    private static string Install(string purpose) =>
+        $"{purpose}, download the .yak file from {Releases} into a folder of its own, run "
+        + "\"C:\\Program Files\\Rhino 8\\System\\Yak.exe\" install --source <that folder> pillscript, "
+        + "and restart Rhino. Rhino loads a plug-in only when it starts.";
 
     private static string Invoke(MethodInfo entry, string tool, string arguments)
     {

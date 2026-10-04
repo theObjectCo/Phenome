@@ -33,7 +33,14 @@ the commit that made it.
   files, add and remove packages and assembly references, compile with the diagnostics back, solve with the
   printed output back, and open the editor. Before this an agent needed PillScript's own port, opened only
   when `PILLSCRIPT_BRIDGE` was set before Rhino started, and a second MCP server. The verb needs PillScript
-  0.5.0 or later. With PillScript missing or older, the refusal says which and where to get it.
+  0.5.0 or later. With PillScript missing or older, the refusal says which, and gives the release page, the
+  `Yak.exe install` command and the restart, because the Package Manager does not find PillScript by name. In
+  a Rhino older than 8.30 it also says that Rhino has to be updated before PillScript can be installed.
+
+### Changed
+
+- **A refusal reaches the agent as an error.** When the link refuses a request, the MCP server marks the
+  answer with `isError`, and a host shows it as a failed call. The text is the same as before.
 
 ### Fixed
 
