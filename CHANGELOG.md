@@ -45,6 +45,13 @@ the commit that made it.
   A definition signed by an earlier version keeps its copies. To repair it, wire the readers back to the
   original objects, delete the copies and run `signature` again.
 
+- **`dialog` answers a window owned by Grasshopper.** A modal opened from the Grasshopper editor is owned by the
+  editor and not by Rhino's main window. `pulse` reported it as an untitled dialog, and `dialog` then answered
+  "No dialog is open"; Grasshopper's breakpoint window showed exactly this. Both now find such a window and
+  name it, and `dialog` closes it.
+  When the window holding Rhino still cannot be identified, `pulse` adds `identified: false` and `dialog` says
+  so, instead of contradicting each other.
+
 ## 0.34.1
 
 ### Added

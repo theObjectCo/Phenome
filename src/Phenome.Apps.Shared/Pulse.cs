@@ -134,6 +134,13 @@ internal static class Pulse
         {
             json.Append("{\"present\":true,\"title\":").Append(Json.Quote(dialog.Title ?? ""));
 
+            // No window to answer. Without this, an empty button list reads as "answer with a key", and dialog
+            // then refuses.
+            if (dialog.Handle == IntPtr.Zero)
+            {
+                json.Append(",\"identified\":false");
+            }
+
             // Listing the answer options here saves a round trip between choosing and pressing.
             json.Append(",\"buttons\":[");
             string[] labels = dialog.Handle == IntPtr.Zero
@@ -200,6 +207,9 @@ internal static class Pulse
     private static string Advice(string verdict, string? command, Dialog dialog) => verdict switch
     {
         "idle" => "Rhino is free.",
+        "blocked" when dialog.Handle == IntPtr.Zero =>
+            "Something modal holds the UI thread, but its window could not be identified, and dialog cannot "
+            + "answer it. Ask the user to look at the screen.",
         "blocked" => string.IsNullOrEmpty(dialog.Title)
             ? "A dialog is open. It blocks the UI thread until an agent answers it or the user clicks it."
             : $"The dialog \"{dialog.Title}\" is open. It blocks the UI thread until an agent answers it or the user clicks it.",
@@ -283,9 +293,18 @@ internal static class Pulse
 
         Dialog dialog = ModalDialog();
 
-        if (!dialog.Present || dialog.Handle == IntPtr.Zero)
+        if (!dialog.Present)
         {
             throw new InvalidOperationException("No dialog is open.");
+        }
+
+        // pulse reports this case as blocked, and "no dialog is open" here contradicted it.
+        if (dialog.Handle == IntPtr.Zero)
+        {
+            throw new InvalidOperationException(
+                "Rhino's main window is disabled, so something modal is open, but no window of Rhino's could be "
+                + "identified as the one holding it, and there is nothing here to answer. Ask the user to look at "
+                + "the screen.");
         }
 
         if (!string.IsNullOrEmpty(expect) &&
@@ -485,6 +504,14 @@ internal static class Pulse
             string? title = null;
             IntPtr dialog = IntPtr.Zero;
 
+            // An enabled window of this process that matched neither test below. A modal disables every other
+            // top-level window of its thread, so while the frame is disabled the enabled ones are the modal
+            // and what it owns. Grasshopper's breakpoint window was such a case: owned by the Grasshopper
+            // editor and not by the frame, and not of the dialog class, so pulse reported a dialog it could
+            // not name and dialog answered that none was open.
+            string? looseTitle = null;
+            IntPtr loose = IntPtr.Zero;
+
             EnumWindows(
                 (handle, unused) =>
                 {
@@ -503,9 +530,14 @@ internal static class Pulse
                     // still standing is the one holding the process.
                     if (!destroyed)
                     {
-                        bool owned = GetWindow(handle, (IntPtr)GwOwner) == main;
-                        if (!owned && ClassOf(handle) != DialogClass)
+                        if (!OwnedBy(handle, main) && ClassOf(handle) != DialogClass)
                         {
+                            if (handle != main && (loose == IntPtr.Zero || string.IsNullOrEmpty(looseTitle)))
+                            {
+                                loose = handle;
+                                looseTitle = TitleOf(handle);
+                            }
+
                             return true;
                         }
                     }
@@ -519,6 +551,12 @@ internal static class Pulse
                 },
                 IntPtr.Zero);
 
+            if (dialog == IntPtr.Zero && loose != IntPtr.Zero)
+            {
+                dialog = loose;
+                title = looseTitle;
+            }
+
             // With the frame gone and nothing visible left there is no dialog to name: the process is exiting,
             // and reporting "blocked" would mislead more than reporting nothing.
             return dialog == IntPtr.Zero && destroyed
@@ -531,6 +569,28 @@ internal static class Pulse
             // needs to know the thread is not free, whatever else is wrong.
             return new Dialog(false, null);
         }
+    }
+
+    /// <summary>Whether a window's chain of owners reaches <paramref name="main"/>.</summary>
+    /// <remarks>
+    /// A dialog opened from a dialog, or from a window that is itself owned by the frame, is owned by the frame
+    /// only through its owner. The depth is bounded because an owner chain is not guaranteed to end.
+    /// </remarks>
+    private static bool OwnedBy(IntPtr handle, IntPtr main)
+    {
+        IntPtr at = GetWindow(handle, (IntPtr)GwOwner);
+
+        for (int depth = 0; depth < 8 && at != IntPtr.Zero; depth++)
+        {
+            if (at == main)
+            {
+                return true;
+            }
+
+            at = GetWindow(at, (IntPtr)GwOwner);
+        }
+
+        return false;
     }
 
     private static string TitleOf(IntPtr handle)
