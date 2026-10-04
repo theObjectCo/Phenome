@@ -12,6 +12,8 @@
     and nothing else can report on a dialog that appears while Rhino is still starting, which is when nothing
     else can answer.
 
+    The .mcpb is the Claude Desktop extension, packed last from the other files by tools/pack-mcpb.ps1.
+
     Nothing here talks to a package server. Publishing is a separate, deliberate act.
 
 .PARAMETER Configuration
@@ -71,6 +73,9 @@ $vsix = Get-ChildItem $extension -Filter 'phenome-link-*.vsix' |
     Select-Object -First 1
 if (-not $vsix) { throw 'Packaging produced no .vsix.' }
 Move-Item $vsix.FullName $dist
+
+Write-Host 'Packing the Claude Desktop extension...' -ForegroundColor Cyan
+& (Join-Path $PSScriptRoot 'pack-mcpb.ps1') -Dist $dist
 
 Write-Host ''
 Write-Host 'dist/' -ForegroundColor Green

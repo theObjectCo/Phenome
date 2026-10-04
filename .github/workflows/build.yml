@@ -86,9 +86,13 @@ jobs:
           # Add the build step and the copy together, when the project exists, and add its version to the
           # version check below as well: a declaration missing from that check is never compared.
 
+          # The Claude Desktop extension carries the plug-ins collected above, so it is packed after them.
+          # The script is the one place that says what goes into it; tools/build.ps1 calls it too.
+          ./tools/pack-mcpb.ps1 -Dist dist
+
           Get-ChildItem dist | ForEach-Object { "  $($_.Name)  $([int]($_.Length/1KB)) KB" }
 
-      # All five version declarations must agree: the parts only work together, and they carry one number.
+      # All six version declarations must agree: the parts only work together, and they carry one number.
       # Yak cross-checks the first two, and the friction log stamps its reports with the assembly version,
       # which lets a report name a build. The extension is checked because v0.1.0 shipped a 0.17.0 vsix, two
       # histories in one release, and nothing flagged it.
@@ -110,6 +114,8 @@ jobs:
             'package.json' = (Get-Content src/Phenome.Apps.VSCodeLink/package.json -Raw | ConvertFrom-Json).version.Trim()
             'mcp.js' = (Get-Content src/Phenome.Apps.VSCodeLink/mcp.js |
               Select-String "name: 'phenome', version: '(.+?)'").Matches.Groups[1].Value.Trim()
+            'mcpb manifest.json' = (Get-Content src/Phenome.Apps.ClaudeDesktopLink/manifest.json -Raw |
+              ConvertFrom-Json).version.Trim()
           }
           $versions.GetEnumerator() | ForEach-Object { "  $($_.Key): $($_.Value)" }
 
@@ -161,13 +167,13 @@ jobs:
   # cannot be relied on is worse than one that is honestly absent, because it makes the install instructions
   # conditional on something the reader cannot check.
   #
-  # A release carries the three files and nothing else, and a package is built on demand:
+  # A release carries the three files and the Claude Desktop extension, and a Yak package is built on demand:
   #   pwsh tools/pack-yak.ps1 -From dist -Destination <a folder you can read>
   # This is also the only sensible way to distribute it across a studio: a Yak source is a folder, and read
   # access to the folder is what permits install. tools/pack-yak.ps1 keeps working and is covered by no CI;
   # a green tick here does not mean it still packs.
 
-  # Uploads the same three files to the company SharePoint library. An internal machine can pick up a build
+  # Uploads the same four files to the company SharePoint library. An internal machine can pick up a build
   # there without going to a public release page, and the library keeps a record of every version released.
   #
   # The job runs on a hosted runner on purpose. Graph is ordinary HTTPS and nothing here is local, and the
@@ -220,7 +226,7 @@ jobs:
           # version. It is listed before it exists on purpose: this job selects by extension and says nothing
           # about what it skipped, and an artefact added later would otherwise be missing here unnoticed. A
           # pattern that matches nothing costs nothing.
-          $files = Get-ChildItem dist -Include *.gha, *.rhp, *.vsix, *.zip -Recurse
+          $files = Get-ChildItem dist -Include *.gha, *.rhp, *.vsix, *.mcpb, *.zip -Recurse
           if (-not $files) { throw 'nothing to upload' }
 
           $token = (Invoke-RestMethod -Method POST `
@@ -289,6 +295,7 @@ jobs:
             dist/*.gha
             dist/*.rhp
             dist/*.vsix
+            dist/*.mcpb
             # The gateway, once it is built here: a separate, deliberate download, outside the yak package
             # but part of this release and on this release's version. Unmatched globs are not an error, so
             # naming it now costs nothing and prevents the gateway being left out without a trace.
@@ -296,8 +303,8 @@ jobs:
           body: |
             ${{ needs.build.outputs.security == 'true' && '> **This release fixes a security problem. The `### Security` block in `CHANGELOG.md` says what it was, what an attacker could do with it, and whether you were exposed. Read it before deciding to install this later.**' || '' }}
 
-            The release is three files, the `.gha`, the `.rhp` and the `.vsix`, installed by hand. No package
-            is published on any server, and there is no plan for one. For Rhino's Package Manager,
+            The release is four files. The `.gha`, the `.rhp` and the `.vsix` are installed by hand, and the
+            `.mcpb` for Claude Desktop installs the first two itself. No package is published on any server, and there is no plan for one. For Rhino's Package Manager,
             `tools/pack-yak.ps1` in the repository builds a `.yak` into a folder, and everyone who can read
             that folder can install from it.
 
@@ -316,6 +323,12 @@ jobs:
             Then restart Rhino. `GET /` on the port in `%TEMP%\phenome-link-<pid>.port` describes the canvas
             protocol. The port in `%TEMP%\phenome-rhino-<pid>.port` answers when the canvas cannot: it says
             whether Rhino is free, what dialog is holding it and how to answer that.
+
+            **The .mcpb** is the Claude Desktop extension: open it, or drag it onto Settings › Extensions in
+            Claude Desktop. It carries the `.gha` and the `.rhp` and installs them into Rhino's package folder
+            when it first starts, so with it the three steps above are not needed. A `.gha` already copied into
+            `Grasshopper\Libraries` by hand stops it: the extension then installs nothing and says so, because
+            Grasshopper would load both copies.
 
             What changed since the installed version is in `CHANGELOG.md`.
 

@@ -13,6 +13,7 @@ version number.
 | [`src/Phenome.Apps.GrasshopperLink`](src/Phenome.Apps.GrasshopperLink) | The canvas end: a Grasshopper plugin that exposes the live document, and verbs to edit it. |
 | [`src/Phenome.Apps.RhinoLink`](src/Phenome.Apps.RhinoLink) | The Rhino end: a plugin that loads with Rhino itself, reports whether the UI thread is free and which dialog is holding it, answers dialogs, runs command scripts, and loads plug-ins. |
 | [`src/Phenome.Apps.VSCodeLink`](src/Phenome.Apps.VSCodeLink) | The editor end: a VS Code extension with an MCP server that offers the protocol to an agent as named tools. |
+| [`src/Phenome.Apps.ClaudeDesktopLink`](src/Phenome.Apps.ClaudeDesktopLink) | The same MCP server packed as a Claude Desktop extension, with both plugins inside it; it installs them into Rhino's package folder. |
 
 Both plugins listen on 127.0.0.1 only, and the link needs no account, no service and no other Phenome
 library. The protocol is plain HTTP and JSON, and any agent or script that can send a request can use it
@@ -345,6 +346,15 @@ from a package folder. Nobody has run it on a Mac. The code has been prepared fo
 Grasshopper, and call `pulse`, `canvas`, `place`, `measure`, `screenshot` and `canvas_image`. Send what each
 one returned or refused to [hi+phenomelogs@object.pl](mailto:hi+phenomelogs@object.pl) or file an issue. A
 refusal is as useful as a success.
+
+### Claude Desktop
+
+The release carries `phenome-link-<version>.mcpb`, an extension for Claude Desktop on Windows. Opening it in
+Claude Desktop installs the MCP server, and the server copies the `.gha` and the `.rhp` into Rhino's package
+folder when it first starts. Rhino loads them at its next start, so a Rhino that was open during the install
+has to be restarted once. VS Code and Node.js are not needed for this route. A `.gha` already copied into
+`%APPDATA%\Grasshopper\Libraries` by hand stops the install, and `sessions` then says which file to remove.
+[docs/distribution.md](docs/distribution.md) describes the rest.
 
 ### From the release (recommended)
 

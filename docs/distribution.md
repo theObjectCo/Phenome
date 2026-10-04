@@ -28,14 +28,14 @@ blocking it, and how to answer that.
 pwsh tools/build.ps1
 ```
 
-The script release-builds both plugins, packages the extension, and leaves the `.gha`, the `.rhp`, the
-`.vsix` and `manifest.yml` in `dist/`. Release builds carry no symbols and no machine paths, as configured by
+The script release-builds both plugins, packages the extension, packs the Claude Desktop extension, and
+leaves the `.gha`, the `.rhp`, the `.vsix`, the `.mcpb` and `manifest.yml` in `dist/`. Release builds carry no symbols and no machine paths, as configured by
 `PathMap` and `DebugType=none` in `Directory.Build.props`. Both settings are there because the repository is
 public.
 
-**Five version declarations have to agree**, and CI refuses a build where they do not: `manifest.yml`, both
-plugins' `<Version>`, the extension's `package.json`, and the version `mcp.js` reports as its server. On a
-tag, the tag is a sixth and the loudest. The check names its subjects one by one, and a new project has to
+**Six version declarations have to agree**, and CI refuses a build where they do not: `manifest.yml`, both
+plugins' `<Version>`, the extension's `package.json`, the version `mcp.js` reports as its server, and the
+Claude Desktop extension's `manifest.json`. On a tag, the tag is a seventh and the loudest. The check names its subjects one by one, and a new project has to
 be added to it by hand. An unnamed project is not checked and ships with whatever number it happened to have;
 v0.1.0 shipped a 0.17.0 `.vsix` this way.
 
@@ -54,6 +54,37 @@ missing changelog entry is indistinguishable from a release with no changes to r
 2. `code --install-extension dist\phenome-link-<version>.vsix`, or let the canvas's *Pair with VS Code*
    button do it on the first pairing.
 3. Restart Rhino.
+
+## Claude Desktop
+
+`src/Phenome.Apps.ClaudeDesktopLink` holds the manifest and the icon of a Claude Desktop extension (`.mcpb`).
+`tools/pack-mcpb.ps1` packs it from `dist/`: `mcp.js` goes into `server/`, and the `.gha`, the `.rhp` and
+`manifest.yml` go into `server/rhino/`. The build script and the workflow both call it, and it is the one
+place that says what the extension contains. The packer is `@anthropic-ai/mcpb`, pinned.
+
+The extension installs the plug-ins itself. When `mcp.js` starts and finds `rhino/manifest.yml` beside it,
+it copies the folder to `%APPDATA%\McNeel\Rhinoceros\packages\8.0\phenome-link\<version>\` and writes the
+version into `manifest.txt` one level up. This is the layout Yak leaves after an install, and the Package
+Manager lists the result as an installed package. Rhino reads it only at startup. The copy that Teach Agents
+writes into a workspace has no `rhino/` folder and installs nothing.
+
+Three cases install nothing, and `sessions` reports which one applied under `plugins`. The answers that
+report no session repeat it:
+
+- An installed version equal to or newer than the bundled one stays. It may be a build installed on purpose,
+  and an extension update does not take it away.
+- A `.gha` copied by hand into `%APPDATA%\Grasshopper\Libraries` (or one folder below) blocks the install.
+  Grasshopper would load both copies and stop on a duplicate-assembly dialog at every start, and which copy
+  should go is the user's choice.
+- On anything but Windows nothing is copied, and the manifest offers the extension for `win32` only.
+
+The copy goes through a `.partial` folder renamed into place, so a failure halfway leaves no folder that looks
+complete. Old version folders are not deleted, because a running Rhino may have their assemblies loaded.
+`Zone.Identifier` is removed from each copied file: a `.mcpb` downloaded with a browser can carry the mark
+into its contents, and Grasshopper refuses a marked assembly without a message.
+
+An `.rhp` that was dragged onto Rhino by hand from another folder is not detected. Rhino would then hold two
+records of one plug-in id, and what it does with them has not been tried.
 
 ## Yak, for a private folder
 

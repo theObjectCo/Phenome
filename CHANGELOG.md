@@ -11,6 +11,32 @@ who installed the last version which six things they are about to notice.
 Each release block lists only the changes a user can see. Implementation that nobody outside sees belongs in
 the commit that made it.
 
+## 0.35.0
+
+### Added
+
+- **An extension for Claude Desktop.** The release carries `phenome-link-0.35.0.mcpb`, which Claude Desktop on
+  Windows installs from Settings › Extensions. It holds the same MCP server as the VS Code extension and the
+  two plug-ins. When the server starts it copies the `.gha` and the `.rhp` into
+  `%APPDATA%\McNeel\Rhinoceros\packages\8.0\phenome-link\0.35.0\`, where the Package Manager puts packages,
+  and Rhino loads them at its next start. A Rhino that was open during the install needs one restart. VS Code
+  and Node.js are not needed for this route.
+
+  The server leaves an installed version that is equal or newer where it is. A `.gha` copied by hand into
+  `%APPDATA%\Grasshopper\Libraries` stops the install, because Grasshopper would load both copies; `sessions`
+  then names the file. An organization that limits Desktop extensions to an allowlist has to add the `.mcpb`
+  under Organization settings › Connectors › Desktop first, and each later upload needs a higher version.
+
+### Fixed
+
+- **`signature` gives a slider a Number outlet, not a second slider.** The outlet of a group of inputs was a copy
+  of the object it stood for, and a slider's copy was a new slider with its default domain of 0 to 1. A slider
+  takes no wire in, so the copy ignored the original, and everything past the group read 0.25 while the
+  slider beside it showed 120. A panel, a toggle and a colour swatch were copied the same way. Their outlets are
+  now plain Number, Text, Boolean and Colour parameters, wired from the object, and the value passes through.
+  A definition signed by an earlier version keeps its copies. To repair it, wire the readers back to the
+  original objects, delete the copies and run `signature` again.
+
 ## 0.34.1
 
 ### Added

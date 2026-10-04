@@ -27,7 +27,7 @@ async function ask(pathname, body) {
     }
 
     if (port === null) {
-        throw new Error('No Grasshopper session. Use phenome__launch to start one.');
+        throw new Error(`No Grasshopper session. Use phenome__launch to start one.${bundledNote()}`);
     }
 
     try {
@@ -71,7 +71,7 @@ async function askRhino(pathname, body) {
             return ask(old, body);
         }
 
-        throw new Error('No Rhino session. Use phenome__launch to start one.');
+        throw new Error(`No Rhino session. Use phenome__launch to start one.${bundledNote()}`);
     }
 
     try {
@@ -278,7 +278,11 @@ function rhinoEnvironment(dirs) {
 /// path on either platform, for a Rhino installed elsewhere.
 function rhinoStart(withGrasshopper) {
     const mac = process.platform === 'darwin';
-    const exe = process.env.PHENOME_RHINO || (mac
+
+    // Claude Desktop passes an optional setting the user left empty either as nothing or as the placeholder
+    // itself, unsubstituted. Neither is a path.
+    const configured = process.env.PHENOME_RHINO;
+    const exe = (configured && !configured.startsWith('${') ? configured : null) || (mac
         ? '/Applications/Rhino 8.app/Contents/MacOS/Rhinoceros'
         : 'C:\\Program Files\\Rhino 8\\System\\Rhino.exe');
 
@@ -291,6 +295,162 @@ function rhinoStart(withGrasshopper) {
         : ['/nosplash', ...(withGrasshopper ? ['/runscript="_Grasshopper"'] : [])];
 
     return { exe, args, verbatim: !mac };
+}
+
+// ----------------------------------------------------------------------------------- the bundled plug-ins
+
+/// What installing the bundled plug-ins did when this server started, or null when it carries none.
+///
+/// Only the Claude Desktop extension carries them, in a `rhino` folder beside this file. The copy Teach Agents
+/// writes into a workspace has no such folder, and there this does nothing.
+const bundled = installBundled();
+
+/// Copies the bundled .gha and .rhp into Rhino's package folder, where the Package Manager installs packages.
+///
+/// The layout is the one Yak writes: `packages\8.0\phenome-link\<version>\` with the files, and
+/// `manifest.txt` beside the version folders naming the version Rhino loads. Rhino reads it only at startup,
+/// so a Rhino already running keeps the version it loaded. Nothing loaded is touched: the new version gets a
+/// folder of its own, the old folders stay, and only manifest.txt changes.
+///
+/// An installed version equal to or newer than the bundled one is left alone. It may be a build the user
+/// installed on purpose, and an extension update must not take it away.
+function installBundled() {
+    const bundle = path.join(__dirname, 'rhino');
+    const yml = path.join(bundle, 'manifest.yml');
+
+    if (!fs.existsSync(yml)) {
+        return null;
+    }
+
+    try {
+        const version = /^version:\s*(\S+)/m.exec(fs.readFileSync(yml, 'utf8'))?.[1];
+
+        if (!version) {
+            return { installed: false, why: `${yml} names no version.` };
+        }
+
+        if (process.platform !== 'win32' || !process.env.APPDATA) {
+            return { installed: false, version, why: 'The plug-ins install themselves on Windows only.' };
+        }
+
+        const home = path.join(process.env.APPDATA, 'McNeel', 'Rhinoceros', 'packages', '8.0', 'phenome-link');
+        const active = path.join(home, 'manifest.txt');
+        const current = fs.existsSync(active) ? fs.readFileSync(active, 'utf8').trim() : null;
+
+        if (current && compareVersions(current, version) >= 0
+            && fs.existsSync(path.join(home, current, 'Phenome.Apps.GrasshopperLink.gha'))) {
+            return { installed: true, version: current, folder: path.join(home, current), changed: false };
+        }
+
+        // A .gha copied into Grasshopper's Libraries by hand, as the release notes describe, would load beside
+        // the package copy, and Grasshopper stops on a duplicate-assembly dialog at every start. Which copy
+        // should stay is the user's decision, so nothing is installed until that one is gone.
+        const loose = findFile(path.join(process.env.APPDATA, 'Grasshopper', 'Libraries'),
+            'Phenome.Apps.GrasshopperLink.gha', 2);
+
+        if (loose) {
+            return {
+                installed: false,
+                version,
+                why: `A copy installed by hand is at ${loose}. Grasshopper would load it beside the package and `
+                    + 'stop on a duplicate-assembly dialog. Remove that file and restart Claude Desktop, and the '
+                    + 'extension installs its own copy.',
+            };
+        }
+
+        // Copied into a side folder and renamed into place, so a failure halfway leaves no version folder that
+        // looks complete.
+        const target = path.join(home, version);
+        const partial = `${target}.partial`;
+
+        fs.rmSync(partial, { recursive: true, force: true });
+        fs.mkdirSync(partial, { recursive: true });
+
+        for (const name of fs.readdirSync(bundle)) {
+            const into = path.join(partial, name);
+
+            fs.copyFileSync(path.join(bundle, name), into);
+
+            // CopyFile carries alternate data streams along. A downloaded .mcpb can mark its contents as coming
+            // from the internet, and Grasshopper refuses a marked assembly without a word.
+            try {
+                fs.unlinkSync(`${into}:Zone.Identifier`);
+            } catch {
+                // Not marked.
+            }
+        }
+
+        fs.rmSync(target, { recursive: true, force: true });
+        fs.renameSync(partial, target);
+
+        // No newline, as Yak writes it.
+        fs.writeFileSync(active, version);
+
+        return { installed: true, version, folder: target, changed: true, replaced: current };
+    } catch (failed) {
+        return { installed: false, why: `Installing the plug-ins failed: ${failed.message}` };
+    }
+}
+
+/// Negative, zero or positive as dotted version a is below, equal to or above b.
+function compareVersions(a, b) {
+    const left = a.split('.').map(part => parseInt(part, 10) || 0);
+    const right = b.split('.').map(part => parseInt(part, 10) || 0);
+
+    for (let i = 0; i < Math.max(left.length, right.length); i++) {
+        const difference = (left[i] ?? 0) - (right[i] ?? 0);
+
+        if (difference !== 0) {
+            return difference;
+        }
+    }
+
+    return 0;
+}
+
+/// The first file of this name under a folder, looking `depth` levels deep, or null.
+function findFile(folder, name, depth) {
+    let entries;
+
+    try {
+        entries = fs.readdirSync(folder, { withFileTypes: true });
+    } catch {
+        return null;
+    }
+
+    for (const entry of entries) {
+        if (entry.isFile() && entry.name.toLowerCase() === name.toLowerCase()) {
+            return path.join(folder, entry.name);
+        }
+    }
+
+    if (depth > 0) {
+        for (const entry of entries.filter(one => one.isDirectory())) {
+            const found = findFile(path.join(folder, entry.name), name, depth - 1);
+
+            if (found) {
+                return found;
+            }
+        }
+    }
+
+    return null;
+}
+
+/// A sentence for the answers that report no session, when the plug-ins could be the reason.
+function bundledNote() {
+    if (bundled === null) {
+        return '';
+    }
+
+    if (!bundled.installed) {
+        return ` The bundled plug-ins are not installed: ${bundled.why}`;
+    }
+
+    return bundled.changed
+        ? ` Phenome Link ${bundled.version} was installed into Rhino's packages when this server started; `
+            + 'a Rhino that was already running loads it only after a restart.'
+        : '';
 }
 
 /// The Rhino this server started and has not yet seen answer: {pid, withGrasshopper, before, at}.
@@ -452,7 +612,7 @@ async function waitForBirth(started) {
             + (started.withGrasshopper
                 ? 'Grasshopper may still be loading, or the plugin did not load. '
                 : 'The Rhino plug-in may still be loading, or it did not load. ')
-            + `${again} If it stays like this, the user can check Rhino's command line.`;
+            + `${again} If it stays like this, the user can check Rhino's command line.${bundledNote()}`;
     }
 
     return `NOT UP YET. Rhino (process ${started.pid}) is running, but the link has not answered after `
@@ -924,6 +1084,7 @@ const TOOLS = [
                 chosen,
                 pinned: process.env.PHENOME_GH_PORT ?? null,
                 rhino: { using: rhinoPort, sessions: rhinos },
+                plugins: bundled ?? undefined,
             };
         },
     },
@@ -1183,7 +1344,7 @@ async function handle(line) {
             reply(id, {
                 protocolVersion: params?.protocolVersion ?? '2024-11-05',
                 capabilities: { tools: {} },
-                serverInfo: { name: 'phenome', version: '0.34.1' },
+                serverInfo: { name: 'phenome', version: '0.35.0' },
                 instructions: instructions(),
             });
             break;
