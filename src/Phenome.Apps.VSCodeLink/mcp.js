@@ -972,6 +972,21 @@ const TOOLS = [
         run: args => ask('/script', args),
     },
     {
+        name: 'pillscript',
+        description: "Work on a PillScript component, the C# script component whose inputs and outputs come from its RunScript signature and whose sources are a project of files. script_read and script_write do not reach it; this does, by calling PillScript in the same Rhino. 'tool' names what to do and 'arguments' carries that tool's own fields. 'component' in arguments is the component's id or a unique prefix of it, and may be left out when the canvas holds one. Tools: list_components {} lists them with ids, files and parameters, so start there. list_files {component}. read_file {component, file}. write_file {component, file, content} replaces or creates a file and does not compile. delete_file {component, file} and rename_file {component, from, to}; Script.cs and Script.csproj stay. list_references {component}. add_package {component, id, version?} and remove_package {component, id} for NuGet, restored at the next compile. add_reference {component, path} to a .dll and remove_reference {component, name}. compile {component} builds and answers the diagnostics and the new parameters; the inputs and outputs change here, so wire after compiling. solve {component} recomputes and answers what the script printed. open_editor {component} opens the editor window for the user. Needs PillScript 0.5.0 or later; the refusal says when it is missing or older.",
+        inputSchema: object({
+            tool: {
+                type: 'string',
+                enum: ['list_components', 'list_files', 'read_file', 'write_file', 'delete_file', 'rename_file',
+                    'list_references', 'add_package', 'remove_package', 'add_reference', 'remove_reference',
+                    'compile', 'solve', 'open_editor'],
+                description: 'What to do.',
+            },
+            arguments: { type: 'object', description: "The tool's fields, e.g. {component:'7ef9', file:'Script.cs'}." },
+        }, ['tool']),
+        run: args => ask('/pillscript', args),
+    },
+    {
         name: 'new_document',
         description: 'Open a fresh Grasshopper document on the canvas.',
         inputSchema: object({}),

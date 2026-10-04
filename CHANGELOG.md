@@ -27,6 +27,14 @@ the commit that made it.
   then names the file. An organization that limits Desktop extensions to an allowlist has to add the `.mcpb`
   under Organization settings › Connectors › Desktop first, and each later upload needs a higher version.
 
+- **`pillscript` works on a PillScript component.** PillScript is a separate plug-in with a C# script component
+  whose sources are a project of files, and `script_read` and `script_write` do not reach it. The verb calls
+  PillScript in the same Rhino and offers its tools: list the components, read, write, rename and delete their
+  files, add and remove packages and assembly references, compile with the diagnostics back, solve with the
+  printed output back, and open the editor. Before this an agent needed PillScript's own port, opened only
+  when `PILLSCRIPT_BRIDGE` was set before Rhino started, and a second MCP server. The verb needs PillScript
+  0.5.0 or later. With PillScript missing or older, the refusal says which and where to get it.
+
 ### Fixed
 
 - **`signature` gives a slider a Number outlet, not a second slider.** The outlet of a group of inputs was a copy

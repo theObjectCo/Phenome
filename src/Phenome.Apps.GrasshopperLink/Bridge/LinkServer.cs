@@ -117,7 +117,8 @@ internal static class LinkServer
             "POST /rhino": "{author, script} - run a Rhino command script (layers, blocks, groups: the whole command language)",
             "GET /scripts": "the script components on the canvas, with their generation",
             "GET /script?id=guid": "one script component's source",
-            "POST /script": "{author, id, source} - new source in, one solve, the component's errors and warnings back"
+            "POST /script": "{author, id, source} - new source in, one solve, the component's errors and warnings back",
+            "POST /pillscript": "{author, tool, arguments?} - a PillScript component, through PillScript itself: list_components, list_files, read_file, write_file, delete_file, rename_file, list_references, add_package, remove_package, add_reference, remove_reference, compile, solve, open_editor. 'arguments' is the tool's own object, and 'component' in it names the component by id or a unique prefix of it. Needs PillScript 0.5.0 or later loaded in the same Rhino"
           },
           "discovery": "%TEMP%/phenome-link-<rhino pid>.port holds this port; no file, no session"
         }
@@ -268,6 +269,7 @@ internal static class LinkServer
                     Guid.Parse(context.Request.QueryString["id"]
                         ?? throw new ArgumentException("script needs ?id=guid.")))),
                 ("POST", "/script") => Documents.WriteScript(Read(payload)),
+                ("POST", "/pillscript") => PillScripts.Run(Read(payload)),
                 ("POST", "/report") => Process.Reported(Read(payload)),
                 ("POST", "/feedback") => Process.Feedback(Read(payload)),
                 ("GET", "/friction") => Friction.Tail(

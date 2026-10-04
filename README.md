@@ -1,7 +1,7 @@
 # Phenome Link
 
 Phenome Link lets an AI agent read and edit a live Grasshopper definition in Rhino 8 on Windows (macOS is
-untested). The agent works through 53 MCP tools: it places and wires components, sets values, groups and lays
+untested). The agent works through 54 MCP tools: it places and wires components, sets values, groups and lays
 out the canvas, measures geometry, and runs a review against composition rules. Each change appears on the
 open canvas, and the journal records who made it.
 
@@ -437,11 +437,11 @@ curl http://127.0.0.1:<port>/            # the protocol, in full
 curl http://127.0.0.1:<port>/canvas      # the document
 ```
 
-For an agent, the MCP server is the better entry point: it wraps all 53 verbs as named tools. Point the MCP
+For an agent, the MCP server is the better entry point: it wraps all 54 verbs as named tools. Point the MCP
 client at `mcp.js` in the extension, or let the extension launch the agent, which pins the session to one
 canvas through an environment variable.
 
-### Approve the server once, not 53 times
+### Approve the server once, not 54 times
 
 Run **Phenome Link: Teach Agents in This Workspace** from the VS Code command palette, once per project. It
 writes the pairing notes into `AGENTS.md`, registers the MCP server in `.mcp.json`, and adds a single rule to
@@ -462,7 +462,7 @@ setting `phenomeLink.updateTaughtWorkspaces` turns the update off.
 **One rule names the whole server** and trusts every verb at once, including verbs added in a later version.
 Restart the agent session afterwards: MCP servers load at session start.
 
-Without it, a client that asks per tool prompts once for each verb the first time it is used (roughly 53
+Without it, a client that asks per tool prompts once for each verb the first time it is used (roughly 54
 prompts) and accumulates per-verb rules, and every new verb prompts again. If that has already happened, the
 single `mcp__phenome` rule takes precedence; the leftover per-verb entries are harmless and can be deleted.
 Other agents store permissions elsewhere, and there too one rule should trust the whole server.
