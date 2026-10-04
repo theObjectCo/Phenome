@@ -70,11 +70,8 @@ internal static class Signature
     /// </remarks>
     private static bool StandsAtEdge(IGH_Param parameter, HashSet<Guid> inside)
     {
-        // Sliders, panels, swatches and toggles hold values of their own and are never relays.
-        if (parameter is Grasshopper.Kernel.Special.GH_NumberSlider
-            or Grasshopper.Kernel.Special.GH_Panel
-            or Grasshopper.Kernel.Special.GH_ColourSwatch
-            or Grasshopper.Kernel.Special.GH_BooleanToggle)
+        // Sliders, panels, swatches, toggles and value lists hold values of their own and are never relays.
+        if (HoldsValue(parameter))
         {
             return false;
         }
@@ -390,11 +387,27 @@ internal static class Signature
         return inside;
     }
 
+    /// <summary>A parameter that holds a value of its own and takes no wire in: a slider, a panel and the like.</summary>
+    private static bool HoldsValue(IGH_Param parameter) =>
+        parameter is GH_NumberSlider
+            or GH_Panel
+            or GH_ColourSwatch
+            or GH_BooleanToggle
+            or GH_ValueList
+            or GH_MultiDimensionalSlider;
+
     /// <summary>A floating parameter of the same type as the socket it stands for.</summary>
+    /// <remarks>
+    /// A value holder is the exception. Copying its type planted a second slider as the outlet of a slider:
+    /// a slider takes no wire in, so the copy ignored the one from the original, and every reader past the
+    /// group read the copy's default of 0.25. A value holder's outlet is a plain parameter of the data it
+    /// gives instead.
+    /// </remarks>
     private static IGH_Param Like(IGH_Param shape, string name, string side)
     {
-        IGH_Param made =
-            global::Grasshopper.Instances.ComponentServer.EmitObjectProxy(shape.ComponentGuid)?.CreateInstance()
+        IGH_Param made = HoldsValue(shape)
+            ? Carrier(shape.Type)
+            : global::Grasshopper.Instances.ComponentServer.EmitObjectProxy(shape.ComponentGuid)?.CreateInstance()
                 as IGH_Param
             ?? new Grasshopper.Kernel.Parameters.Param_GenericObject();
 
@@ -405,6 +418,15 @@ internal static class Signature
 
         return made;
     }
+
+    /// <summary>The plain parameter for one kind of data, and a generic one for anything else.</summary>
+    private static IGH_Param Carrier(Type data) =>
+        data == typeof(Grasshopper.Kernel.Types.GH_Number) ? new Grasshopper.Kernel.Parameters.Param_Number()
+        : data == typeof(Grasshopper.Kernel.Types.GH_String) ? new Grasshopper.Kernel.Parameters.Param_String()
+        : data == typeof(Grasshopper.Kernel.Types.GH_Boolean) ? new Grasshopper.Kernel.Parameters.Param_Boolean()
+        : data == typeof(Grasshopper.Kernel.Types.GH_Colour) ? new Grasshopper.Kernel.Parameters.Param_Colour()
+        : data == typeof(Grasshopper.Kernel.Types.GH_Point) ? new Grasshopper.Kernel.Parameters.Param_Point()
+        : new Grasshopper.Kernel.Parameters.Param_GenericObject();
 
     /// <summary>
     /// A name a reader can use: what the wire was called where it came from, or where it lands.
