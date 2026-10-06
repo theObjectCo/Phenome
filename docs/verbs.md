@@ -64,7 +64,7 @@ Start with `launch grasshopper:false` for all of these.
 | `group` | `POST /group` | a named group, declared signature-first with inlets and outlets |
 | `ungroup` | `POST /ungroup` | dissolve a group, keeping its members |
 | `signature` | `POST /signature` | give a group named ports at its edges and re-land the crossing wires |
-| `arrange` | `POST /arrange` | lay the document out in layers; notes become captions. Idempotent |
+| `arrange` | `POST /arrange` | lay the document out in layers; notes become captions; the document's top-left corner goes to (20, 20). Idempotent |
 | `select` | `POST /select` | select objects, replacing the selection unless `add` |
 | `zoom` | `POST /zoom` | frame the canvas view on those objects |
 | `delete` | `POST /delete` | remove objects; refuses when it would cut live wires |

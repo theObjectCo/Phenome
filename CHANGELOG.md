@@ -11,6 +11,25 @@ who installed the last version which six things they are about to notice.
 Each release block lists only the changes a user can see. Implementation that nobody outside sees belongs in
 the commit that made it.
 
+## 0.36.1
+
+### Changed
+
+- **`arrange` moves the whole document to the top-left corner of Grasshopper's page.** The rectangle around
+  everything drawn, group names and notes included, starts at (20, 20). A document that sat at negative
+  coordinates comes out of the page's shadow on the first `arrange`, and a settled document still answers
+  `moved: 0`.
+
+### Fixed
+
+- **A canvas picture that takes in the point (0, 0) no longer shows the edge of Grasshopper's page.** The
+  page's shadow was drawn through the definition, and part of the grid and the group fills went missing. The
+  picture now has a plain white ground with one grid across both sides of the origin.
+
+- **Group names stay above their frames in a tiled canvas picture.** At 7800 pixels across, a name that fell
+  near the edge of a tile was pushed sideways or drawn below the frame. Each tile is now drawn the way
+  Grasshopper draws an export, where a name always sits above the middle of its frame.
+
 ## 0.36.0
 
 ### Added

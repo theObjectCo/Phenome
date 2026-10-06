@@ -133,7 +133,8 @@ internal static class Arrange
 
         LayoutLevel(roots, upstream, BlockGapX, BlockGapY);
 
-        // Anchor to the old top-left so a layout pass does not also move the canvas.
+        // Plan from the old top-left. ToCorner moves the finished document into the corner afterwards, once the
+        // frames and captions it has to clear are drawn.
         PointF origin = nodes
             .Select(thing => thing.Attributes!.Bounds.Location)
             .Aggregate((kept, next) => new PointF(Math.Min(kept.X, next.X), Math.Min(kept.Y, next.Y)));
@@ -198,6 +199,10 @@ internal static class Arrange
 
         Captions(document, groups, blockOfGroup);
 
+        Restack(document, groups, groupById);
+
+        ToCorner(document, groups, before);
+
         // Compare where each object ended with where it started. A settled document reports zero however much was
         // written on the way.
         int moved = 0;
@@ -211,9 +216,104 @@ internal static class Arrange
             }
         }
 
-        Restack(document, groups, groupById);
-
         return moved;
+    }
+
+    /// <summary>Where the top-left corner of the arranged document goes, in canvas pixels.</summary>
+    private const float Corner = 20;
+
+    /// <summary>
+    /// Moves the whole document so that the rectangle around everything drawn starts at (<see cref="Corner"/>,
+    /// <see cref="Corner"/>).
+    /// </summary>
+    /// <remarks>
+    /// The rectangle counts the group frames, the group names drawn above them and every note, which the layout
+    /// itself does not see. A document left at negative coordinates sat across the edge of Grasshopper's page:
+    /// <c>canvas_image</c> drew the page's shadow through it, and an agent moved the document by script to get
+    /// away from the edge.
+    /// <para>
+    /// The layout keeps its own anchor, and this runs after it, on a document whose frames are already laid out.
+    /// On a settled document the rectangle is already in the corner and nothing moves. A difference below
+    /// <see cref="Settled"/> is left alone, because bounds are rounded against the pivot and can differ by a
+    /// pixel between two positions of the same object.
+    /// </para>
+    /// </remarks>
+    private static void ToCorner(
+        GH_Document document,
+        List<GH_Group> groups,
+        Dictionary<IGH_DocumentObject, PointF> before)
+    {
+        RectangleF? all = null;
+
+        foreach (IGH_DocumentObject thing in document.Objects)
+        {
+            if (thing.Attributes is not { } attributes)
+            {
+                continue;
+            }
+
+            RectangleF bounds = attributes.Bounds;
+
+            // A group's name is a balloon drawn above the middle of its frame, outside the frame's bounds. The
+            // size follows GH_GraphicsUtil.RenderBalloonTag.
+            if (thing is GH_Group group && !string.IsNullOrWhiteSpace(group.NickName))
+            {
+                SizeF text = GH_FontServer.MeasureString(
+                    group.NickName,
+                    GH_FontServer.StandardAdjusted);
+
+                bounds = RectangleF.Union(bounds, new RectangleF(
+                    bounds.X + (bounds.Width / 2) - ((text.Width + 6) / 2),
+                    bounds.Y - (text.Height + 8),
+                    text.Width + 6,
+                    text.Height + 2));
+            }
+
+            all = all is null ? bounds : RectangleF.Union(all.Value, bounds);
+        }
+
+        if (all is not { } extent)
+        {
+            return;
+        }
+
+        float dx = Math.Abs(Corner - extent.X) < Settled ? 0 : MathF.Round(Corner - extent.X);
+        float dy = Math.Abs(Corner - extent.Y) < Settled ? 0 : MathF.Round(Corner - extent.Y);
+
+        if (dx == 0 && dy == 0)
+        {
+            return;
+        }
+
+        foreach (IGH_DocumentObject thing in document.Objects)
+        {
+            if (thing is GH_Group || thing.Attributes is not { } attributes)
+            {
+                continue;
+            }
+
+            // Place recorded an undo step for every object it moved, holding where the object stood before this
+            // arrange. An object still at its old pivot has no step yet.
+            if (before.TryGetValue(thing, out PointF was) && attributes.Pivot == was)
+            {
+                document.UndoUtil.RecordGenericObjectEvent("Phenome Link: arrange", thing);
+            }
+
+            attributes.Pivot = new PointF(attributes.Pivot.X + dx, attributes.Pivot.Y + dy);
+            attributes.ExpireLayout();
+            attributes.PerformLayout();
+        }
+
+        foreach (GH_Group group in groups)
+        {
+            group.ExpireCaches();
+
+            if (group.Attributes is { } frame)
+            {
+                frame.ExpireLayout();
+                frame.PerformLayout();
+            }
+        }
     }
 
     /// <summary>

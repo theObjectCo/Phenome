@@ -28,9 +28,9 @@ internal static class View
     /// <para>
     /// DrawToBitmap draws only what fits in the window, and a picture larger than the window used to be the
     /// window's picture stretched, with the text on the components blurred. The picture is now drawn in tiles of
-    /// the window's size at the zoom the asked size needs, and the tiles are joined. The widgets that sit at a
-    /// fixed place in the window, such as the zoom control, are hidden for the capture, or every tile would
-    /// carry one.
+    /// the window's size at the zoom the asked size needs, and the tiles are joined. Each tile is drawn in
+    /// Grasshopper's export mode, which leaves out the widgets that sit at a fixed place in the window and keeps a
+    /// group's name above its frame however near the tile's edge it falls.
     /// </para>
     /// <para>
     /// Fitted to the whole document for the capture and restored afterwards, as with the viewport screenshot: the
@@ -99,31 +99,24 @@ internal static class View
                 subject.X + (subject.Width / 2) - (size.Width / zoom / 2),
                 subject.Y + (subject.Height / 2) - (size.Height / zoom / 2));
 
-            // White for the capture: the canvas grey wash becomes indistinct when scaled down, and the image is
-            // for judging the layout. Grasshopper's skin is static and is restored afterwards.
-            System.Drawing.Color keptBack = Grasshopper.GUI.Canvas.GH_Skin.canvas_back;
-            System.Drawing.Color keptGrid = Grasshopper.GUI.Canvas.GH_Skin.canvas_grid;
-            System.Drawing.Color keptEdge = Grasshopper.GUI.Canvas.GH_Skin.canvas_edge;
-
-            List<(Grasshopper.GUI.Widgets.IGH_Widget Widget, bool Visible)> widgets =
-                [.. canvas.Widgets.Select(widget => (widget, widget.Visible))];
+            // A plain white ground for the capture: the canvas grey wash becomes indistinct when scaled down, and
+            // the image is for judging the layout. Grasshopper's own ground also draws the edge of its page at
+            // (0, 0), a shadow and a hatch across negative coordinates, and a picture that framed the origin
+            // carried that edge through the definition. The monochrome ground is a fill and nothing else, and the
+            // grid is drawn over it by Grid. Grasshopper's skin is static and is restored afterwards.
+            bool keptMono = Grasshopper.GUI.Canvas.GH_Skin.canvas_mono;
+            System.Drawing.Color keptMonoColour = Grasshopper.GUI.Canvas.GH_Skin.canvas_mono_color;
 
             try
             {
-                Grasshopper.GUI.Canvas.GH_Skin.canvas_back = System.Drawing.Color.White;
-                Grasshopper.GUI.Canvas.GH_Skin.canvas_grid = System.Drawing.Color.FromArgb(16, 0, 0, 0);
-                Grasshopper.GUI.Canvas.GH_Skin.canvas_edge = System.Drawing.Color.White;
-
-                foreach ((Grasshopper.GUI.Widgets.IGH_Widget widget, _) in widgets)
-                {
-                    widget.Visible = false;
-                }
+                Grasshopper.GUI.Canvas.GH_Skin.canvas_mono = true;
+                Grasshopper.GUI.Canvas.GH_Skin.canvas_mono_color = System.Drawing.Color.White;
+                canvas.CanvasPaintBackground += Grid;
 
                 int tileWidth = canvas.Width;
                 int tileHeight = canvas.Height;
 
                 using System.Drawing.Bitmap picture = new(size.Width, size.Height);
-                using System.Drawing.Bitmap tile = new(tileWidth, tileHeight);
                 using System.Drawing.Graphics paint = System.Drawing.Graphics.FromImage(picture);
 
                 paint.Clear(System.Drawing.Color.White);
@@ -141,7 +134,16 @@ internal static class View
                                 origin.X + ((left + (tileWidth / 2f)) / zoom),
                                 origin.Y + ((top + (tileHeight / 2f)) / zoom));
 
-                            canvas.DrawToBitmap(tile, new System.Drawing.Rectangle(0, 0, tileWidth, tileHeight));
+                            // Drawn the way Grasshopper draws for an export. On the screen a group's name is a
+                            // balloon kept inside the window: next to an edge it is pushed sideways or flipped
+                            // below the frame, and in a tiled picture every tile edge is a window edge. An export
+                            // places the balloon above the frame wherever it is, and leaves out the widgets that
+                            // sit at a fixed place in the window, such as the zoom control.
+                            using System.Drawing.Bitmap tile = canvas.GetCanvasScreenBuffer(
+                                Grasshopper.GUI.Canvas.GH_CanvasMode.Export)
+                                ?? throw new InvalidOperationException(
+                                    "Grasshopper could not draw the canvas into a picture.");
+
                             paint.DrawImageUnscaled(tile, left, top);
                         }
                     }
@@ -151,20 +153,46 @@ internal static class View
             }
             finally
             {
-                foreach ((Grasshopper.GUI.Widgets.IGH_Widget widget, bool visible) in widgets)
-                {
-                    widget.Visible = visible;
-                }
+                canvas.CanvasPaintBackground -= Grid;
 
-                Grasshopper.GUI.Canvas.GH_Skin.canvas_back = keptBack;
-                Grasshopper.GUI.Canvas.GH_Skin.canvas_grid = keptGrid;
-                Grasshopper.GUI.Canvas.GH_Skin.canvas_edge = keptEdge;
+                Grasshopper.GUI.Canvas.GH_Skin.canvas_mono = keptMono;
+                Grasshopper.GUI.Canvas.GH_Skin.canvas_mono_color = keptMonoColour;
 
                 canvas.Viewport.Zoom = keptZoom;
                 canvas.Viewport.MidPoint = keptMid;
                 canvas.Refresh();
             }
         });
+    }
+
+    /// <summary>A faint grid over the capture's white ground, the same on both sides of the origin.</summary>
+    /// <remarks>
+    /// Spaced as the user's canvas is, and faded with the zoom as Grasshopper fades its own, so that a picture of
+    /// a large document is not covered in lines.
+    /// </remarks>
+    private static void Grid(Grasshopper.GUI.Canvas.GH_Canvas canvas)
+    {
+        int alpha = 16 * Grasshopper.GUI.Canvas.GH_Canvas.ZoomFadeLow / 255;
+        int column = Grasshopper.GUI.Canvas.GH_Skin.canvas_grid_col;
+        int row = Grasshopper.GUI.Canvas.GH_Skin.canvas_grid_row;
+
+        if (alpha < 2 || column < 1 || row < 1 || canvas.Graphics is not { } graphics)
+        {
+            return;
+        }
+
+        System.Drawing.RectangleF region = canvas.Viewport.VisibleRegion;
+        using System.Drawing.Pen pen = new(System.Drawing.Color.FromArgb(alpha, 0, 0, 0));
+
+        for (float x = MathF.Floor(region.Left / column) * column; x <= region.Right; x += column)
+        {
+            graphics.DrawLine(pen, x, region.Top, x, region.Bottom);
+        }
+
+        for (float y = MathF.Floor(region.Top / row) * row; y <= region.Bottom; y += row)
+        {
+            graphics.DrawLine(pen, region.Left, y, region.Right, y);
+        }
     }
 
     /// <summary>Captures the viewport at the size asked for; see <see cref="Picture"/>.</summary>

@@ -887,7 +887,7 @@ const TOOLS = [
     },
     {
         name: 'arrange',
-        description: "Lay the whole document out in layers: sources left, few crossings, even spacing. Within a column, inputs to a component or group are ordered by the sockets they feed, with the source of the first input on top. Groups are laid out as whole blocks, and their frames never overlap. Notes are placed by group: a note in a group becomes that group's caption above its other members; a note in no group becomes the document title above everything. Notes are positioned automatically from the group they are assigned to at placement. It is idempotent: on a settled document it answers moved:0 and changes no coordinates. Run it after building, editing or grouping, and never place anything by hand.",
+        description: "Lay the whole document out in layers: sources left, few crossings, even spacing. Within a column, inputs to a component or group are ordered by the sockets they feed, with the source of the first input on top. Groups are laid out as whole blocks, and their frames never overlap. Notes are placed by group: a note in a group becomes that group's caption above its other members; a note in no group becomes the document title above everything. Notes are positioned automatically from the group they are assigned to at placement. The whole document then moves so that the rectangle around everything drawn, group names and notes included, starts at (20, 20), clear of the edge of Grasshopper's page. It is idempotent: on a settled document it answers moved:0 and changes no coordinates. Run it after building, editing or grouping, and never place anything by hand.",
         inputSchema: object({}),
         run: () => ask('/arrange', {}),
     },
@@ -1391,7 +1391,7 @@ async function handle(line) {
             reply(id, {
                 protocolVersion: params?.protocolVersion ?? '2024-11-05',
                 capabilities: { tools: {} },
-                serverInfo: { name: 'phenome', version: '0.36.0' },
+                serverInfo: { name: 'phenome', version: '0.36.1' },
                 instructions: instructions(),
             });
             break;
