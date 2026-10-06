@@ -14,7 +14,7 @@
 # is not "phenome-link". The warning stands: a package id is lowercase and dashed, while the name a user
 # reads in Grasshopper's library list should be neither.
 name: phenome-link
-version: 0.35.0
+version: 0.35.1
 authors:
   - Phenome
 description: >

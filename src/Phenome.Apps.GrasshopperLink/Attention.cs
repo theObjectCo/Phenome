@@ -138,7 +138,8 @@ internal static class Attention
 
     private static void PaintCanvas(GH_Canvas canvas)
     {
-        if (!Busy) return;
+        // Left out of a picture taken for an agent: see Capture.
+        if (!Busy || Capture.Active) return;
 
         Graphics? graphics = canvas.Graphics;
         if (graphics is null) return;
@@ -168,7 +169,7 @@ internal static class Attention
     {
         protected override void DrawForeground(DrawEventArgs e)
         {
-            if (!Busy) return;
+            if (!Busy || Capture.Active) return;
 
             var bounds = e.Viewport.Bounds;
             if (bounds.Width <= Thickness * 2 || bounds.Height <= Thickness * 2) return;

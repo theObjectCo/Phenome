@@ -51,7 +51,15 @@ internal static class View
 
             try
             {
-                using System.Drawing.Bitmap bitmap = view.CaptureToBitmap(new System.Drawing.Size(width, height))
+                // Without the agent-at-work border, which belongs on the screen and not in the picture.
+                System.Drawing.Bitmap? captured;
+
+                using (Capture.Quiet())
+                {
+                    captured = view.CaptureToBitmap(new System.Drawing.Size(width, height));
+                }
+
+                using System.Drawing.Bitmap bitmap = captured
                     ?? throw new InvalidOperationException("The viewport would not be captured.");
 
                 using MemoryStream bytes = new();

@@ -11,6 +11,15 @@ who installed the last version which six things they are about to notice.
 Each release block lists only the changes a user can see. Implementation that nobody outside sees belongs in
 the commit that made it.
 
+## 0.35.1
+
+### Fixed
+
+- **Pictures taken for an agent leave out the orange border.** While an agent works, every viewport and the
+  canvas carry an orange border, and `screenshot` and `canvas_image` captured it along with the view. The
+  border now stays on the screen and is missing from both pictures, and it is back on the screen as soon as
+  the picture is taken.
+
 ## 0.35.0
 
 ### Added
