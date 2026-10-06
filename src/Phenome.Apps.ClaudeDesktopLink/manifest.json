@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "phenome-link",
   "display_name": "Phenome Link",
-  "version": "0.35.1",
+  "version": "0.36.0",
   "description": "Tools for reading and editing the Grasshopper definition open in Rhino 8, with the Rhino and Grasshopper plug-ins they need.",
   "long_description": "Claude gets the tools of Phenome Link: it places and wires components, sets values, groups and lays out the canvas, measures geometry, bakes and saves. Each change appears on the open canvas, and the journal records who made it.\n\nThe extension carries the two plug-ins the tools talk to. The Grasshopper plug-in exposes the open canvas, and the Rhino plug-in reports whether Rhino is idle, busy or held by a dialog. When the server starts for the first time it copies both into Rhino's package folder, where the Package Manager puts packages, and Rhino loads them at its next start. A Rhino that was already open has to be restarted once. An installed version that is equal or newer stays where it is.\n\nThe plug-ins listen on 127.0.0.1 only and send nothing anywhere else. The extension is offered for Windows only, because the macOS build of the link has never been run.",
   "author": {

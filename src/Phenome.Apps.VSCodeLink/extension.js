@@ -156,7 +156,7 @@ async function refreshPicture(kind) {
     try {
         // The canvas half serves both verbs and both take a width. Neither depends on the Rhino plug-in being
         // registered, which is the fragile part.
-        const answer = await linkFetch(isCanvas ? '/canvas-image?width=1400' : '/screenshot?width=1400');
+        const answer = await linkFetch(isCanvas ? '/canvas-image?width=1400&save=false' : '/screenshot?width=1400&save=false');
 
         if (!answer?.png) {
             panel.webview.html = pictureHtml(title, null, answer?.error ?? 'No image was returned.');

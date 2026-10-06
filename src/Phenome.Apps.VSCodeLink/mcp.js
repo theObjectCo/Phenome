@@ -724,6 +724,49 @@ const str = description => ({ type: 'string', description });
 const flag = description => ({ type: 'boolean', description });
 const ids = description => ({ type: 'array', items: { type: 'string' }, description });
 
+// ---------------------------------------------------------------------------------------------- pictures
+
+/// The size a model looks at. Claude scales an image whose long edge is above this before reading it, so a larger
+/// picture is sent at this size and kept on disk at full size.
+const PREVIEW = 1568;
+
+/// The arguments the two picture tools share.
+const PICTURE_ARGUMENTS = {
+    width: { type: 'number', description: 'Pixels across. With height left out, the height follows the proportions of what is captured.' },
+    height: { type: 'number', description: 'Pixels down. With width left out, the width follows the proportions; with both, the picture has exactly this size.' },
+    path: str('A .png file to keep the picture in, for documentation. Without it the picture goes to Pictures\\Phenome Link under a dated name.'),
+    save: flag('False keeps nothing on disk; use it for a quick look.'),
+};
+
+/// The query string for those arguments.
+function pictureQuery(args) {
+    const query = new URLSearchParams({ preview: String(PREVIEW) });
+
+    for (const key of ['width', 'height', 'path']) {
+        if (args[key] !== undefined) {
+            query.set(key, String(args[key]));
+        }
+    }
+
+    if (args.save === false) {
+        query.set('save', 'false');
+    }
+
+    return query.toString();
+}
+
+/// The picture for the model, and a line saying how large it really is and where the full one is kept.
+function pictureAnswer(answer) {
+    if (!answer.png) {
+        return answer;
+    }
+
+    const sent = answer.sent ? ` The image here is scaled to ${answer.sent.width} x ${answer.sent.height}.` : '';
+    const kept = answer.path ? ` Kept at full size in ${answer.path} on the Rhino machine.` : ' Not kept on disk.';
+
+    return { __image: answer.png, __text: `${answer.width} x ${answer.height} px.${sent}${kept}` };
+}
+
 const TOOLS = [
     {
         name: 'canvas',
@@ -1105,20 +1148,13 @@ const TOOLS = [
     },
     {
         name: 'screenshot',
-        description: "Capture the active Rhino viewport as an image, at low resolution by default and framed on the geometry for the capture (the camera is restored afterwards). Use it to inspect built geometry; for canvas layout, read canvas positions instead. The capture redraws the view off-screen at its own size. Geometry drawn by a plug-in's own display code can then be missing, stale or cropped even when the screen shows it correctly, as seen with an off-thread volume preview and with script component outputs. If peek reports geometry that the image does not show, trust peek and ask the user to look before assuming a broken component.",
+        description: "Capture the active Rhino viewport as an image, 640 pixels across by default and framed on the geometry for the capture (the camera is restored afterwards). Ask for width and height up to 8000 pixels a side for documentation: the picture is drawn at that size and kept on disk, and the copy shown here is at most 1568 pixels on its long edge, which is what a model reads anyway. Use it to inspect built geometry; for canvas layout, read canvas positions instead. The capture redraws the view off-screen at its own size. Geometry drawn by a plug-in's own display code can then be missing, stale or cropped even when the screen shows it correctly, as seen with an off-thread volume preview and with script component outputs. If peek reports geometry that the image does not show, trust peek and ask the user to look before assuming a broken component.",
         inputSchema: object({
-            width: { type: 'number', description: 'Pixels across; default 640.' },
+            ...PICTURE_ARGUMENTS,
             zoomExtents: { type: 'boolean', description: "False captures the user's current framing instead." },
         }),
-        run: async args => {
-            const answer = await askRhino(`/screenshot?width=${args.width ?? 640}&zoomExtents=${args.zoomExtents ?? true}`);
-
-            if (!answer.png) {
-                return answer;
-            }
-
-            return { __image: answer.png };
-        },
+        run: async args =>
+            pictureAnswer(await askRhino(`/screenshot?${pictureQuery(args)}&zoomExtents=${args.zoomExtents ?? true}`)),
     },
     {
         name: 'plugins',
@@ -1183,16 +1219,12 @@ const TOOLS = [
     },
     {
         name: 'canvas_image',
-        description: "Capture the Grasshopper canvas as an image, fitted to the whole document (the view is restored afterwards). Use it after arrange to check whether the layout reads; coordinates and lint findings do not show that.",
+        description: "Capture the Grasshopper canvas as an image, fitted to the whole document (the view is restored afterwards), 1200 pixels across by default. Use it after arrange to check whether the layout reads; coordinates and lint findings do not show that. A size larger than the Grasshopper window is drawn at that size, not stretched, so the text on the components stays sharp: use it for documentation. The picture is kept on disk at the size asked for, and the copy shown here is at most 1568 pixels on its long edge.",
         inputSchema: object({
-            width: { type: 'number', description: 'Pixels across; default 1200.' },
+            ...PICTURE_ARGUMENTS,
             fit: { type: 'boolean', description: "False captures the user's current framing instead." },
         }),
-        run: async args => {
-            const answer = await ask(`/canvas-image?width=${args.width ?? 1200}&fit=${args.fit ?? true}`);
-
-            return answer.png ? { __image: answer.png } : answer;
-        },
+        run: async args => pictureAnswer(await ask(`/canvas-image?${pictureQuery(args)}&fit=${args.fit ?? true}`)),
     },
     {
         name: 'place',
@@ -1359,7 +1391,7 @@ async function handle(line) {
             reply(id, {
                 protocolVersion: params?.protocolVersion ?? '2024-11-05',
                 capabilities: { tools: {} },
-                serverInfo: { name: 'phenome', version: '0.35.1' },
+                serverInfo: { name: 'phenome', version: '0.36.0' },
                 instructions: instructions(),
             });
             break;
@@ -1380,7 +1412,13 @@ async function handle(line) {
                 const answer = await tool.run(params?.arguments ?? {});
 
                 if (answer && answer.__image) {
-                    reply(id, { content: [{ type: 'image', data: answer.__image, mimeType: 'image/png' }] });
+                    const content = [{ type: 'image', data: answer.__image, mimeType: 'image/png' }];
+
+                    if (answer.__text) {
+                        content.push({ type: 'text', text: answer.__text });
+                    }
+
+                    reply(id, { content });
                     break;
                 }
 

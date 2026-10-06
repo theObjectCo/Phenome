@@ -11,7 +11,22 @@ who installed the last version which six things they are about to notice.
 Each release block lists only the changes a user can see. Implementation that nobody outside sees belongs in
 the commit that made it.
 
-## 0.35.1
+## 0.36.0
+
+### Added
+
+- **`screenshot` and `canvas_image` take a width and a height.** One side alone keeps the proportions of what is
+  captured, and both give a picture of exactly that size, up to 8000 pixels a side and 40 megapixels in all.
+  The defaults stay at 640 and 1200 pixels across.
+
+- **Every picture is kept on disk at the size asked for.** It goes to `Pictures\Phenome Link` under a dated
+  name, or to the `.png` named in `path`, and the answer says where; `save: false` keeps nothing. The copy
+  sent to the agent is at most 1568 pixels on its long edge, which is the size a model reads a picture at
+  anyway. A 4000-pixel picture for documentation therefore costs the agent no more than a 1568-pixel one.
+
+- **A canvas picture larger than the Grasshopper window is drawn at that size.** It used to be a picture of
+  the window, stretched, and the text on the components came out blurred. The canvas is now drawn in tiles of
+  the window's size and the tiles are joined, with the zoom control and the other widgets left out.
 
 ### Fixed
 

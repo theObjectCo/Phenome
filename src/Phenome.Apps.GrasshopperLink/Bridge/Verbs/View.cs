@@ -18,7 +18,7 @@ namespace Phenome.Apps.GrasshopperLink.Bridge.Verbs;
 internal static class View
 {
     /// <summary>
-    /// The Grasshopper canvas as an image, for checking whether the layout is legible.
+    /// The Grasshopper canvas as an image, for checking whether the layout is legible and for documentation.
     /// </summary>
     /// <remarks>
     /// Without it an agent sees the geometry but not the canvas, and legibility has to be inferred from
@@ -26,19 +26,23 @@ internal static class View
     /// pipeline reports a failed render with a modal message box, and a dialog that cannot be dismissed would
     /// hang Rhino.
     /// <para>
+    /// DrawToBitmap draws only what fits in the window, and a picture larger than the window used to be the
+    /// window's picture stretched, with the text on the components blurred. The picture is now drawn in tiles of
+    /// the window's size at the zoom the asked size needs, and the tiles are joined. The widgets that sit at a
+    /// fixed place in the window, such as the zoom control, are hidden for the capture, or every tile would
+    /// carry one.
+    /// </para>
+    /// <para>
     /// Fitted to the whole document for the capture and restored afterwards, as with the viewport screenshot: the
     /// canvas belongs to the user.
     /// </para>
     /// </remarks>
     internal static string CanvasImage(HttpListenerRequest request)
     {
-        int width = int.TryParse(request.QueryString["width"], out int asked)
-            ? Math.Clamp(asked, 240, 2400)
-            : 1200;
-
+        Picture.Asked asked = Picture.Read(request);
         bool fit = !string.Equals(request.QueryString["fit"], "false", StringComparison.OrdinalIgnoreCase);
 
-        string png = OnUi(() =>
+        return OnUi(() =>
         {
             Grasshopper.GUI.Canvas.GH_Canvas canvas = global::Grasshopper.Instances.ActiveCanvas
                 ?? throw new InvalidOperationException("There is no canvas: a headless session has no view.");
@@ -55,6 +59,13 @@ internal static class View
 
             float keptZoom = canvas.Viewport.Zoom;
             System.Drawing.PointF keptMid = canvas.Viewport.MidPoint;
+
+            // What to draw, in document coordinates: the whole document, or what the window shows now.
+            System.Drawing.RectangleF subject = new(
+                keptMid.X - (canvas.Width / keptZoom / 2),
+                keptMid.Y - (canvas.Height / keptZoom / 2),
+                canvas.Width / keptZoom,
+                canvas.Height / keptZoom);
 
             if (fit && canvas.Document is { } document && document.ObjectCount > 0)
             {
@@ -73,17 +84,20 @@ internal static class View
                 if (all is { } bounds)
                 {
                     bounds.Inflate(40, 40);
-
-                    canvas.Viewport.Zoom = Math.Clamp(
-                        Math.Min(canvas.Width / bounds.Width, canvas.Height / bounds.Height),
-                        0.05f,
-                        Grasshopper.GUI.Canvas.GH_Viewport.ZoomDefault);
-
-                    canvas.Viewport.MidPoint = new System.Drawing.PointF(
-                        bounds.X + (bounds.Width / 2),
-                        bounds.Y + (bounds.Height / 2));
+                    subject = bounds;
                 }
             }
+
+            System.Drawing.Size size = Picture.SizeFor(asked, subject.Width / subject.Height, 1200);
+
+            // Pixels per document unit. Bounded so that a tiny document does not come back as three huge
+            // components; the subject then sits in the middle of a white picture.
+            float zoom = Math.Clamp(Math.Min(size.Width / subject.Width, size.Height / subject.Height), 0.02f, 4f);
+
+            // The document point at the picture's top left corner, with the subject centred.
+            System.Drawing.PointF origin = new(
+                subject.X + (subject.Width / 2) - (size.Width / zoom / 2),
+                subject.Y + (subject.Height / 2) - (size.Height / zoom / 2));
 
             // White for the capture: the canvas grey wash becomes indistinct when scaled down, and the image is
             // for judging the layout. Grasshopper's skin is static and is restored afterwards.
@@ -91,43 +105,57 @@ internal static class View
             System.Drawing.Color keptGrid = Grasshopper.GUI.Canvas.GH_Skin.canvas_grid;
             System.Drawing.Color keptEdge = Grasshopper.GUI.Canvas.GH_Skin.canvas_edge;
 
+            List<(Grasshopper.GUI.Widgets.IGH_Widget Widget, bool Visible)> widgets =
+                [.. canvas.Widgets.Select(widget => (widget, widget.Visible))];
+
             try
             {
                 Grasshopper.GUI.Canvas.GH_Skin.canvas_back = System.Drawing.Color.White;
                 Grasshopper.GUI.Canvas.GH_Skin.canvas_grid = System.Drawing.Color.FromArgb(16, 0, 0, 0);
                 Grasshopper.GUI.Canvas.GH_Skin.canvas_edge = System.Drawing.Color.White;
 
-                canvas.Refresh();
+                foreach ((Grasshopper.GUI.Widgets.IGH_Widget widget, _) in widgets)
+                {
+                    widget.Visible = false;
+                }
 
-                using System.Drawing.Bitmap full = new(canvas.Width, canvas.Height);
+                int tileWidth = canvas.Width;
+                int tileHeight = canvas.Height;
+
+                using System.Drawing.Bitmap picture = new(size.Width, size.Height);
+                using System.Drawing.Bitmap tile = new(tileWidth, tileHeight);
+                using System.Drawing.Graphics paint = System.Drawing.Graphics.FromImage(picture);
+
+                paint.Clear(System.Drawing.Color.White);
+
+                canvas.Viewport.Zoom = zoom;
 
                 // Without the agent-at-work border, which belongs on the screen and not in the picture.
                 using (Capture.Quiet())
                 {
-                    canvas.DrawToBitmap(full, new System.Drawing.Rectangle(0, 0, canvas.Width, canvas.Height));
+                    for (int top = 0; top < size.Height; top += tileHeight)
+                    {
+                        for (int left = 0; left < size.Width; left += tileWidth)
+                        {
+                            canvas.Viewport.MidPoint = new System.Drawing.PointF(
+                                origin.X + ((left + (tileWidth / 2f)) / zoom),
+                                origin.Y + ((top + (tileHeight / 2f)) / zoom));
+
+                            canvas.DrawToBitmap(tile, new System.Drawing.Rectangle(0, 0, tileWidth, tileHeight));
+                            paint.DrawImageUnscaled(tile, left, top);
+                        }
+                    }
                 }
 
-                int height = Math.Max(120, (int)((double)width / Math.Max(1, full.Width) * full.Height));
-
-                // Composite onto white: the pale canvas grid becomes indistinct when scaled down, and the image
-                // should show the layout, not the grid.
-                using System.Drawing.Bitmap scaled = new(width, height);
-
-                using (System.Drawing.Graphics paint = System.Drawing.Graphics.FromImage(scaled))
-                {
-                    paint.Clear(System.Drawing.Color.White);
-                    paint.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                    paint.DrawImage(full, 0, 0, width, height);
-                }
-
-                using MemoryStream bytes = new();
-
-                scaled.Save(bytes, System.Drawing.Imaging.ImageFormat.Png);
-
-                return Convert.ToBase64String(bytes.ToArray());
+                return Picture.Answer(picture, "canvas", asked);
             }
             finally
             {
+                foreach ((Grasshopper.GUI.Widgets.IGH_Widget widget, bool visible) in widgets)
+                {
+                    widget.Visible = visible;
+                }
+
                 Grasshopper.GUI.Canvas.GH_Skin.canvas_back = keptBack;
                 Grasshopper.GUI.Canvas.GH_Skin.canvas_grid = keptGrid;
                 Grasshopper.GUI.Canvas.GH_Skin.canvas_edge = keptEdge;
@@ -137,74 +165,10 @@ internal static class View
                 canvas.Refresh();
             }
         });
-
-        return $"{{\"ok\":true,\"png\":{Json.Quote(png)}}}";
     }
 
-    /// <summary>Viewport screenshots, intentionally low resolution: enough detail at low cost to the reader.</summary>
-    internal static string Screenshot(HttpListenerRequest request)
-    {
-        int width = int.TryParse(request.QueryString["width"], out int asked)
-            ? Math.Clamp(asked, 160, 1920)
-            : 640;
-
-        bool frame = !string.Equals(request.QueryString["zoomExtents"], "false", StringComparison.OrdinalIgnoreCase);
-
-        string png = OnUi(() =>
-        {
-            Rhino.Display.RhinoView view = Rhino.RhinoDoc.ActiveDoc?.Views.ActiveView
-                ?? throw new InvalidOperationException("There is no Rhino view to capture.");
-
-            System.Drawing.Size full = view.ClientRectangle.Size;
-            int height = Math.Max(120, (int)((double)width / Math.Max(1, full.Width) * Math.Max(1, full.Height)));
-
-            // Frame for the capture and restore after: the image should show the geometry, but the camera is the
-            // user's and stays where they left it.
-            Rhino.DocObjects.ViewportInfo? kept = frame
-                ? new Rhino.DocObjects.ViewportInfo(view.ActiveViewport)
-                : null;
-
-            // The target is saved separately: restoring the projection alone recomputes it from the frustum,
-            // leaving the camera aimed somewhere new.
-            Rhino.Geometry.Point3d target = view.ActiveViewport.CameraTarget;
-
-            if (frame)
-            {
-                view.ActiveViewport.ZoomExtents();
-            }
-
-            try
-            {
-                // Without the agent-at-work border, which belongs on the screen and not in the picture.
-                System.Drawing.Bitmap? captured;
-
-                using (Capture.Quiet())
-                {
-                    captured = view.CaptureToBitmap(new System.Drawing.Size(width, height));
-                }
-
-                using System.Drawing.Bitmap bitmap = captured
-                    ?? throw new InvalidOperationException("The viewport would not be captured.");
-
-                using MemoryStream bytes = new();
-
-                bitmap.Save(bytes, System.Drawing.Imaging.ImageFormat.Png);
-
-                return Convert.ToBase64String(bytes.ToArray());
-            }
-            finally
-            {
-                if (kept is not null)
-                {
-                    view.ActiveViewport.SetViewProjection(kept, updateTargetLocation: false);
-                    view.ActiveViewport.SetCameraTarget(target, updateCameraLocation: false);
-                    view.Redraw();
-                }
-            }
-        });
-
-        return $"{{\"ok\":true,\"png\":{Json.Quote(png)}}}";
-    }
+    /// <summary>Captures the viewport at the size asked for; see <see cref="Picture"/>.</summary>
+    internal static string Screenshot(HttpListenerRequest request) => Picture.Viewport(request, OnUi);
 
     internal static string Zoom(JsonDocument request)
     {

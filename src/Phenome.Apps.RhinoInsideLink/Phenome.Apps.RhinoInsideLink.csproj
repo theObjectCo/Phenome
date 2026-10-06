@@ -55,14 +55,14 @@
   </ItemGroup>
 
   <!--
-    The same shared source the other two links compile, without Pulse. Pulse determines everything from Rhino's
-    main window and its idle events, and a windowless core has neither: MainWindowHandle returns zero, and Pulse
-    would report "no dialog" forever. The exclusion is written out explicitly. A dialog can still appear here,
+    The same shared source the other two links compile, without Pulse and Picture. Picture draws a view, and a
+    windowless core has none. Pulse determines everything from Rhino's main window and its idle events, and a
+    windowless core has neither: MainWindowHandle returns zero, and Pulse would report "no dialog" forever. The exclusion is written out explicitly. A dialog can still appear here,
     and it cannot be found this way; Documents.cs suppresses the one that has been observed.
   -->
   <ItemGroup>
     <Compile Include="..\Phenome.Apps.Shared\**\*.cs"
-             Exclude="..\Phenome.Apps.Shared\Pulse.cs"
+             Exclude="..\Phenome.Apps.Shared\Pulse.cs;..\Phenome.Apps.Shared\Picture.cs"
              LinkBase="Shared" />
   </ItemGroup>
 

@@ -17,70 +17,8 @@ namespace Phenome.Apps.RhinoLink;
 /// </remarks>
 internal static class View
 {
-    /// <summary>Captures the viewport at low resolution by default: enough detail at little cost to the reader.</summary>
-    internal static string Screenshot(HttpListenerRequest request)
-    {
-        int width = int.TryParse(request.QueryString["width"], out int asked)
-            ? Math.Clamp(asked, 160, 1920)
-            : 640;
-
-        bool frame = !string.Equals(request.QueryString["zoomExtents"], "false", StringComparison.OrdinalIgnoreCase);
-
-        string png = Ui.On(() =>
-        {
-            Rhino.Display.RhinoView view = Rhino.RhinoDoc.ActiveDoc?.Views.ActiveView
-                ?? throw new InvalidOperationException("There is no Rhino view to capture.");
-
-            System.Drawing.Size full = view.ClientRectangle.Size;
-            int height = Math.Max(120, (int)((double)width / Math.Max(1, full.Width) * Math.Max(1, full.Height)));
-
-            // Framed for the capture and restored afterward: the picture should show the geometry, but the
-            // camera is the user's and must stay where the user left it.
-            Rhino.DocObjects.ViewportInfo? kept = frame
-                ? new Rhino.DocObjects.ViewportInfo(view.ActiveViewport)
-                : null;
-
-            // The target is saved separately. Restoring the projection alone recomputes the target from the
-            // frustum, and the user's camera would come back aimed somewhere new.
-            Rhino.Geometry.Point3d target = view.ActiveViewport.CameraTarget;
-
-            if (frame)
-            {
-                view.ActiveViewport.ZoomExtents();
-            }
-
-            try
-            {
-                // Without the agent-at-work border, which belongs on the screen and not in the picture.
-                System.Drawing.Bitmap? captured;
-
-                using (Capture.Quiet())
-                {
-                    captured = view.CaptureToBitmap(new System.Drawing.Size(width, height));
-                }
-
-                using System.Drawing.Bitmap bitmap = captured
-                    ?? throw new InvalidOperationException("The viewport would not be captured.");
-
-                using MemoryStream bytes = new();
-
-                bitmap.Save(bytes, System.Drawing.Imaging.ImageFormat.Png);
-
-                return Convert.ToBase64String(bytes.ToArray());
-            }
-            finally
-            {
-                if (kept is not null)
-                {
-                    view.ActiveViewport.SetViewProjection(kept, updateTargetLocation: false);
-                    view.ActiveViewport.SetCameraTarget(target, updateCameraLocation: false);
-                    view.Redraw();
-                }
-            }
-        });
-
-        return $"{{\"ok\":true,\"png\":{Json.Quote(png)}}}";
-    }
+    /// <summary>Captures the viewport at the size asked for; see <see cref="Picture"/>.</summary>
+    internal static string Screenshot(HttpListenerRequest request) => Picture.Viewport(request, Ui.On);
 
     /// <summary>Where the active viewport is looking.</summary>
     internal static string ReadCamera() => Ui.On(Camera);

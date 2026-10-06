@@ -13,7 +13,7 @@
 
     <!-- Kept in step with manifest.yml: Yak cross-checks the two and reports a mismatch. The friction log
          stamps its entries with this value, and a report names a build. -->
-    <Version>0.35.1</Version>
+    <Version>0.36.0</Version>
 
     <!-- Without this the SDK appends the commit hash to the informational version, which is what Yak and the
          plugin both read as the version. That field is meant to hold a build number. -->
