@@ -15,8 +15,8 @@ namespace Phenome.Apps.RhinoLink;
 /// <para>
 /// <c>/pulse</c>, <c>/dialog</c>, <c>/dismiss</c>, <c>/escape</c> and <c>/console</c> never touch the Rhino UI thread,
 /// and that is a requirement: they must work while that thread is held, which is the situation this server
-/// exists for. <c>/command</c>, <c>/doc</c>, <c>/plugins</c>, <c>/load</c>, <c>/screenshot</c> and <c>/camera</c>
-/// run on the UI thread through <see cref="Ui.On"/> and wait while it is held.
+/// exists for. <c>/command</c>, <c>/python</c>, <c>/doc</c>, <c>/plugins</c>, <c>/load</c>, <c>/screenshot</c> and <c>/camera</c>
+/// run on the UI thread through <see cref="Ui.On{T}(Func{T})"/> and wait while it is held.
 /// </para>
 /// </remarks>
 internal static class RhinoServer
@@ -35,7 +35,8 @@ internal static class RhinoServer
             "POST /dismiss": "SUPERSEDED by /dialog, and kept working. {button?, key?, expect?} - press a button by name, type a key, or close it when neither is given. When /pulse says clickable:false the dialog draws its own buttons and only a key reaches it",
             "POST /dialog": "{button?, key?, close?, expect?} - answer the open dialog. Nothing is assumed: with no answer given this refuses and lists the buttons, because a decline by omission cannot be told from a decline by decision. 'close' declines explicitly. No verb here guesses which button means yes: on a save prompt the affirmative is whichever of Save and Don't Save the caller means",
             "POST /escape": "{times?} - post Escape to Rhino, cancelling whatever it is waiting for. Use it where /dismiss cannot answer: a command waiting on a pick is not a dialog. Nothing is disabled and there is no window to click, yet the UI thread is held and every other verb reports 'busy' as though waiting would help. Scripting an interactive command is the ordinary way to get here. 'times' cancels that many levels, one by default",
-            "POST /command": "{script} - run a Rhino command script. The canvas link has this verb too; it is also here because Rhino runs commands and Grasshopper need not be open for it",
+            "POST /command": "{script} - run a Rhino command script. The canvas link has this verb too; it is also here because Rhino runs commands and Grasshopper need not be open for it. For Python use /python, which reports what the script printed and raised",
+            "POST /python": "{code | path, globals?, layer?, timeout?} - run Python 3 in Rhino and answer in the same call with ok, stdout, stderr, error and traceback, and 'result' when the code sets a top-level variable of that name. An exception is caught and reported, and Rhino's exception box never opens. 'globals' is a JSON object whose keys become variables. With 'layer' every object the code adds ends on that layer, made if missing; the answer counts them in 'added'. 'timeout' in seconds, 120 by default, up to 280",
             "GET /doc": "the Rhino document: name, layers, object count",
             "GET /console": "?tail=50 - the tail of Rhino's command line, which is where Rhino writes its output. There is one capture per Rhino and this is it; the canvas link reads from here",
             "GET /plugins": "?all=false - every plug-in Rhino has a record of, with the runtime it would load into: loaded, dotnet, loadProtected, the path Rhino has recorded and the registry key. Use it to answer 'why is the plug-in not loading' without manual registry checks. Shipped plug-ins are left out unless all=true, because there are a hundred of them",
@@ -137,6 +138,7 @@ internal static class RhinoServer
                 ("POST", "/dialog") => AnswerDialog(payload),
                 ("POST", "/escape") => Escaped(payload),
                 ("POST", "/command") => Commands.Run(payload),
+                ("POST", "/python") => Python.Run(payload),
                 ("GET", "/doc") => Commands.Document(),
                 ("GET", "/plugins") => Plugins.List(
                     string.Equals(context.Request.QueryString["all"], "true", StringComparison.OrdinalIgnoreCase)),

@@ -11,7 +11,10 @@ namespace Phenome.Apps.RhinoLink;
 /// </remarks>
 internal static class Ui
 {
-    internal static T On<T>(Func<T> work)
+    internal static T On<T>(Func<T> work) => On(work, TimeSpan.FromSeconds(15));
+
+    /// <summary>As above, waiting as long as <paramref name="patience"/> for work known to take longer.</summary>
+    internal static T On<T>(Func<T> work, TimeSpan patience)
     {
         T result = default!;
         Exception? failure = null;
@@ -34,7 +37,7 @@ internal static class Ui
             }
         });
 
-        if (!done.Wait(TimeSpan.FromSeconds(15)))
+        if (!done.Wait(patience))
         {
             throw new TimeoutException(Pulse.Sentence());
         }

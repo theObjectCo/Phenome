@@ -1282,9 +1282,21 @@ const TOOLS = [
     },
     {
         name: 'rhino_command',
-        description: "Run a Rhino command script: layers, blocks, groups, anything the command line accepts. Use the scripting dialect: a leading '-' suppresses dialogs, e.g. \"-_Layer New Walls Enter\".",
+        description: "Run a Rhino command script: layers, blocks, groups, anything the command line accepts. Use the scripting dialect: a leading '-' suppresses dialogs, e.g. \"-_Layer New Walls Enter\". The answer says only whether Rhino accepted the script. For Python use the python tool: RunPythonScript here answers ok whatever the script raised, and its inline form opens a modal exception box.",
         inputSchema: object({ script: str('The command script.') }, ['script']),
         run: args => askRhino('/command', args),
+    },
+    {
+        name: 'python',
+        description: "Run Python 3 in Rhino (the same CPython that RunPythonScript uses) and get the outcome in this call: ok, stdout, stderr, and on failure error and traceback. Exceptions are caught and reported; Rhino's exception box never opens. Set a top-level variable named 'result' to send a value back as JSON. Pass parameters in 'globals' instead of pasting them into the source. With 'layer', every object the script adds ends on that layer (made if missing), never on the current one; 'added' counts them and 'ids' lists them.",
+        inputSchema: object({
+            code: str('The Python source. Give this or path.'),
+            path: str('A .py file to run instead of code; its folder is importable.'),
+            globals: { type: 'object', description: 'Variables set before the code runs, as a JSON object.' },
+            layer: str("Layer for every object the script adds, e.g. 'Capture::Model'; made if missing."),
+            timeout: { type: 'number', description: 'Seconds to wait for the script; 120 by default, up to 280.' },
+        }),
+        run: args => askRhino('/python', args),
     },
     {
         name: 'rhino_doc',
