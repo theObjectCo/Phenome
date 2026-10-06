@@ -35,6 +35,12 @@ the commit that made it.
   border now stays on the screen and is missing from both pictures, and it is back on the screen as soon as
   the picture is taken.
 
+- **`save` no longer stops Rhino on a "File Saving Error" box.** A path into a folder that did not exist made
+  Grasshopper show a modal box, which held Rhino until someone clicked OK; the verb timed out, and an agent in
+  Claude Desktop could not click it. Missing folders are now created. A file that cannot be written, being
+  read-only or on a drive that is not there, comes back as a refusal naming the path and the cause. The file is
+  written beside its target and then moved over it, so a failed save leaves the previous file whole.
+
 ## 0.35.0
 
 ### Added

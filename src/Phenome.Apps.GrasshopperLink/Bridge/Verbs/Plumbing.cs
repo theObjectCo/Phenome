@@ -380,6 +380,17 @@ internal static class Plumbing
     internal static void Changed(GH_Document document) => document.Modified();
 
     /// <summary>Serialised via the archive, which unlike a Save never touches the document's own path.</summary>
+    /// <remarks>
+    /// The archive is turned into bytes here and the file is written here, not by the archive's WriteToFile.
+    /// WriteToFile reports a failure in a modal "File Saving Error" box, and a modal holds Rhino's UI thread
+    /// until someone clicks it: the save verb timed out, every verb after it with it, and an agent in Claude
+    /// Desktop has no way to click. A missing folder was the usual cause, so the folders are created. Anything
+    /// else that stops the write comes back as a refusal naming the cause.
+    /// <para>
+    /// The file is written beside its target first and then moved over it, so a write that fails halfway leaves
+    /// the previous file as it was.
+    /// </para>
+    /// </remarks>
     internal static void WriteDocument(GH_Document document, string path)
     {
         GH_IO.Serialization.GH_Archive archive = new();
@@ -389,9 +400,34 @@ internal static class Plumbing
             throw new InvalidOperationException("The document would not serialise.");
         }
 
-        if (!archive.WriteToFile(path, true, false))
+        string target = Path.GetFullPath(path);
+
+        // .ghx is the XML form of the same archive; anything else gets the binary form Grasshopper uses for .gh.
+        byte[] bytes = string.Equals(Path.GetExtension(target), ".ghx", StringComparison.OrdinalIgnoreCase)
+            ? System.Text.Encoding.UTF8.GetBytes(archive.Serialize_Xml())
+            : archive.Serialize_Binary();
+
+        string temporary = target + ".writing";
+
+        try
         {
-            throw new InvalidOperationException($"Could not write {path}.");
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.WriteAllBytes(temporary, bytes);
+            File.Move(temporary, target, overwrite: true);
+        }
+        catch (Exception failed) when (failed is IOException or UnauthorizedAccessException or NotSupportedException
+            or ArgumentException)
+        {
+            try
+            {
+                File.Delete(temporary);
+            }
+            catch (Exception)
+            {
+                // Nothing was written, or what was cannot be removed either; the refusal below says why.
+            }
+
+            throw new InvalidOperationException($"Could not write {target}: {failed.Message}");
         }
     }
 }
