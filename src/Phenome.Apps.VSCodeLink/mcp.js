@@ -489,7 +489,198 @@ function windowTitle(pid) {
     }
 }
 
-async function launch(fresh, withGrasshopper = true, dirs = undefined) {
+// ------------------------------------------------------------------------------ dialogs before the link
+
+/// The UI Automation script that reads, presses or closes the dialogs of one process from outside it.
+///
+/// A dialog Rhino shows before its plug-ins load (autosave recovery, sign-in, licence, a crash report) has no
+/// link to answer through: the Rhino half that answers dialogs is itself waiting for it. Only the process is
+/// known, from the launch that started it. UI Automation from Windows PowerShell reads and presses Win32,
+/// WinForms and WPF dialogs alike, and it ships with every Windows. Windows PowerShell's UI Automation sees a
+/// Win32 button as a pane of class Button with no Invoke pattern. Such a button is clicked by posting the
+/// WM_COMMAND its click would send to the dialog: BM_CLICK posted to a button of an inactive message box is
+/// ignored. Rhino's main frame and its viewports
+/// (window classes beginning Afx:) are left out; what remains is the dialogs. Title bars are skipped, so the
+/// X button of a WPF window is not offered as one of its answers.
+const OUTSIDE = String.raw`
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+$asked = $env:PHENOME_OUTSIDE | ConvertFrom-Json
+$A = [System.Windows.Automation.AutomationElement]
+$T = [System.Windows.Automation.ControlType]
+$scope = [System.Windows.Automation.TreeScope]
+$all = [System.Windows.Automation.Condition]::TrueCondition
+function Clean([string] $text) { return ($text -replace '&', '' -replace '_', '').Trim() }
+function User32 {
+  if (-not ('Phenome.User32' -as [type])) {
+    Add-Type -Namespace Phenome -Name User32 -MemberDefinition (
+      '[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, int m, IntPtr w, IntPtr l);' +
+      '[DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr h);')
+  }
+}
+function Press($button, $window) {
+  $pattern = $null
+  if ($button.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { $pattern.Invoke(); return }
+  User32
+  $handle = [IntPtr]$button.Current.NativeWindowHandle
+  $id = [Phenome.User32]::GetDlgCtrlID($handle)
+  [void][Phenome.User32]::PostMessage([IntPtr]$window.Current.NativeWindowHandle, 0x0111, [IntPtr]$id, $handle)
+}
+function Walk($element) {
+  foreach ($child in $element.FindAll($scope::Children, $all)) {
+    if ($child.Current.ControlType -eq $T::TitleBar) { continue }
+    $child
+    Walk $child
+  }
+}
+function Label($button) {
+  $name = $button.Current.Name
+  if ([string]::IsNullOrWhiteSpace($name)) {
+    foreach ($inner in $button.FindAll($scope::Descendants, $all)) {
+      if (-not [string]::IsNullOrWhiteSpace($inner.Current.Name)) { $name = $inner.Current.Name; break }
+    }
+  }
+  return Clean $name
+}
+$windows = $A::RootElement.FindAll($scope::Descendants, (New-Object System.Windows.Automation.AndCondition(
+  (New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, [int]$asked.pid)),
+  (New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, $T::Window)))))
+$found = @()
+foreach ($window in $windows) {
+  if ($window.Current.ClassName -like 'Afx:*') { continue }
+  $texts = @(); $buttons = @(); $inside = @{}
+  foreach ($element in (Walk $window)) {
+    if ($element.Current.ControlType -eq $T::Button -or $element.Current.ClassName -like '*Button*') {
+      $label = Label $element
+      if ($label) { $buttons += ,@($label, $element) }
+      $inside[$element.Current.Name] = 1
+      foreach ($inner in $element.FindAll($scope::Descendants, $all)) { $inside[$inner.Current.Name] = 1 }
+    } elseif ($element.Current.ControlType -eq $T::Text -or $element.Current.ClassName -like '*Static*') {
+      if ($element.Current.Name.Trim()) { $texts += $element.Current.Name.Trim() }
+    }
+  }
+  $message = @($texts | Where-Object { -not $inside.ContainsKey($_) } | Select-Object -Unique) -join "` + '`' + String.raw`n"
+  $entry = [ordered]@{ title = $window.Current.Name; text = $message; buttons = @($buttons | ForEach-Object { $_[0] }) }
+  if ($asked.button -and -not $asked.done) {
+    foreach ($pair in $buttons) {
+      if ($pair[0] -ieq $asked.button) {
+        Press $pair[1] $window
+        $entry.did = 'pressed'; $asked | Add-Member -Force done $true; break
+      }
+    }
+  } elseif ($asked.close -and -not $asked.done) {
+    $pattern = $null
+    if ($window.TryGetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern, [ref]$pattern)) { $pattern.Close() }
+    else { User32; [void][Phenome.User32]::PostMessage([IntPtr]$window.Current.NativeWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) }
+    $entry.did = 'closed'; $asked | Add-Member -Force done $true
+  }
+  $found += $entry
+}
+ConvertTo-Json -Compress -Depth 4 @{ dialogs = @($found) }
+`;
+
+/// The dialogs a process has open, read from outside it; with 'button' or 'close' in `answer`, also answered.
+///
+/// Returns [] off Windows or when nothing could be read. A read takes about a second, most of it PowerShell
+/// starting.
+function outside(pid, answer = {}) {
+    if (process.platform !== 'win32') {
+        return [];
+    }
+
+    try {
+        const output = execFileSync(
+            'powershell',
+            ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand',
+                Buffer.from(OUTSIDE, 'utf16le').toString('base64')],
+            {
+                encoding: 'utf8',
+                timeout: 20000,
+                windowsHide: true,
+                stdio: ['ignore', 'pipe', 'ignore'],
+                env: { ...process.env, PHENOME_OUTSIDE: JSON.stringify({ pid, ...answer }) },
+            });
+
+        return JSON.parse(output.trim()).dialogs ?? [];
+    } catch {
+        return [];
+    }
+}
+
+/// One line per dialog: title, message and buttons.
+function describeDialogs(dialogs) {
+    return dialogs
+        .map(one => `"${one.title}"` + (one.text ? `, saying "${one.text.replace(/\s+/g, ' ').trim()}"` : '')
+            + (one.buttons.length > 0 ? `, with ${one.buttons.join(' / ')}` : ''))
+        .join('; ');
+}
+
+/// The sentence saying that a restart declined to recover the work it discarded, or nothing.
+function declined(started) {
+    return started.declined ? ` "${started.declined}" was answered with Cancel: the restart had discarded that work.` : '';
+}
+
+/// The Rhino this server started and that has not answered yet, when it is still running.
+function stillStarting() {
+    return starting !== null && alive(starting.pid) ? starting : null;
+}
+
+/// pulse for a Rhino whose link is not up: the process is alive, and what it shows is read from outside.
+function pulseOutside(started) {
+    const dialogs = outside(started.pid);
+
+    return {
+        ok: true,
+        state: dialogs.length > 0 ? 'blocked' : 'starting',
+        pid: started.pid,
+        startedSecondsAgo: Math.round((Date.now() - started.at) / 1000),
+        link: 'not up yet',
+        dialogs,
+        advice: dialogs.length > 0
+            ? `Rhino is waiting on ${describeDialogs(dialogs)} before its link starts. Answer it with dialog `
+                + "('button' or 'close'); nothing else can answer until then."
+            : 'Rhino is starting and shows no dialog. Call launch again to keep waiting.',
+    };
+}
+
+/// dialog for a Rhino whose link is not up: the answer goes through UI Automation from outside.
+function dialogOutside(started, args) {
+    if (args.key) {
+        throw new Error("Before the link is up a dialog is answered with 'button' or 'close'; 'key' needs the link.");
+    }
+
+    if (!args.button && !args.close) {
+        const dialogs = outside(started.pid);
+
+        throw new Error(dialogs.length === 0
+            ? `Rhino (process ${started.pid}) shows no dialog.`
+            : `Left alone: no answer was given. Rhino shows ${describeDialogs(dialogs)}. `
+                + "Send 'button' to press one, or close:true to decline.");
+    }
+
+    const dialogs = outside(started.pid, {
+        button: args.button,
+        close: args.close === true,
+    }).filter(one => !args.expect || one.title.toLowerCase() === args.expect.toLowerCase() || one.did);
+
+    const answered = dialogs.find(one => one.did);
+
+    if (!answered) {
+        throw new Error(dialogs.length === 0
+            ? `Rhino (process ${started.pid}) shows no dialog${args.expect ? ` called "${args.expect}"` : ''}.`
+            : `No dialog has a button called "${args.button}". Rhino shows ${describeDialogs(dialogs)}.`);
+    }
+
+    return {
+        ok: true,
+        dialog: answered.title,
+        did: answered.did,
+        ...(answered.did === 'pressed' ? { button: args.button } : {}),
+        via: 'UI Automation from outside Rhino, before its link is up',
+    };
+}
+
+async function launch(fresh, withGrasshopper = true, dirs = undefined, discard = false) {
     const env = rhinoEnvironment(dirs);
 
     // A Rhino this server started that has not answered yet is waited for again instead of started twice. This
@@ -539,7 +730,7 @@ async function launch(fresh, withGrasshopper = true, dirs = undefined) {
 
     child.unref();
 
-    starting = { pid: child.pid, withGrasshopper, before, at: Date.now() };
+    starting = { pid: child.pid, withGrasshopper, before, at: Date.now(), discard };
 
     return waitForBirth(starting);
 }
@@ -555,6 +746,19 @@ async function waitForBirth(started) {
 
     for (let waited = 0; waited < 90_000; waited += 3000) {
         await new Promise(rest => setTimeout(rest, 3000));
+
+        // A restart that discards work also declines to recover it. Rhino offers to recover the autosaved copy
+        // of the document the restart has just thrown away, and holds its start on that question; the answer
+        // was already given with discard:true. Looked for from the ninth second, when a normal start would
+        // usually have answered, so most restarts never pay for the read.
+        if (started.discard && !started.declined && waited >= 6000) {
+            const recovery = outside(started.pid).find(one => /autosave recovery/i.test(one.title));
+
+            if (recovery && recovery.buttons.some(label => /^cancel$/i.test(label))) {
+                outside(started.pid, { button: 'Cancel' });
+                started.declined = recovery.title;
+            }
+        }
 
         const now = await list();
         const born = now.find(one => one.pid === started.pid)
@@ -587,7 +791,7 @@ async function waitForBirth(started) {
             }
 
             return `Rhino is up; the link answers on port ${port} (process ${born.pid}). `
-                + `${now.length} session(s) live on this machine.`
+                + `${now.length} session(s) live on this machine.${declined(started)}`
                 + (packageDirs.length > 0 ? ` RHINO_PACKAGE_DIRS: ${packageDirs.join(path.delimiter)}.` : '');
         }
 
@@ -596,13 +800,22 @@ async function waitForBirth(started) {
 
             throw new Error(
                 `Rhino (process ${started.pid}) ended ${Math.round((Date.now() - started.at) / 1000)} s after it `
-                + 'was started, before the link answered. It crashed or was closed.');
+                + `was started, before the link answered. It crashed or was closed.${declined(started)}`);
         }
     }
 
     const seconds = Math.round((Date.now() - started.at) / 1000);
     const title = windowTitle(started.pid);
     const again = 'Call launch again to keep waiting: it waits for this same process instead of starting another.';
+
+    // A dialog holding the start is named with what it says and offers, and it can be answered from here.
+    const dialogs = outside(started.pid);
+
+    if (dialogs.length > 0) {
+        return `NOT UP YET. Rhino (process ${started.pid}) has run ${seconds} s and is waiting on `
+            + `${describeDialogs(dialogs)}. Nothing loads until it is answered. Answer it with dialog `
+            + "('button' or close:true), or ask the user. " + again + declined(started);
+    }
 
     // A main window carries Rhino's name or the document name in its title; anything else at this stage is one
     // of the small windows Rhino shows before its main window.
@@ -714,7 +927,9 @@ async function restart(discard, withGrasshopper, dirs = undefined) {
     chosen = null;
     starting = null;
 
-    return `Ended process ${mine.pid}. ${await launch(false, withGrasshopper, dirs)}`;
+    // fresh: another Rhino that is still running, the user's or another agent's, must not stand in for the one
+    // that was just ended. Without it the restart ended this process and answered that a session already runs.
+    return `Ended process ${mine.pid}. ${await launch(true, withGrasshopper, dirs, discard)}`;
 }
 
 // ------------------------------------------------------------------------------------------------ tools
@@ -784,18 +999,35 @@ const TOOLS = [
         name: 'pulse',
         description: "Report whether Rhino is idle, busy or blocked. It is answered without the Rhino UI thread and responds when other tools do not. When another tool times out, this tells the two causes apart: 'busy' names the running command and how long it has run, and means wait; 'blocked' names the open dialog, gives its message as 'text' (on Rhino's exception box, the error and traceback) and lists its buttons, and means nothing answers until it is answered: by the dialog tool or by the user clicking it.",
         inputSchema: object({}),
-        run: () => askRhino('/pulse'),
+        run: async () => {
+            // Before the link is up, the Rhino this server started is read from outside.
+            const started = stillStarting();
+
+            if (started !== null && (await rhinoSessions()).every(one => one.pid !== started.pid)) {
+                return pulseOutside(started);
+            }
+
+            return askRhino('/pulse');
+        },
     },
     {
         name: 'dialog',
-        description: "Answer the dialog Rhino is waiting on: 'button' presses one by name (Rhino's own Eto dialogs included), 'key' types into a dialog whose buttons cannot be found, 'close' declines. Give one of the three; if several are present, 'key' is used first, then 'button', then 'close'. With none this refuses and lists the dialog's buttons instead of assuming a decline. No button is treated as a default yes: on a save prompt the affirmative is whichever of Save and Don't Save was intended, and pulse already lists the buttons. 'expect' names the dialog to answer, and the call refuses if another dialog is open by then, because dialogs are replaced while the request is pending. This verb supersedes dismiss.",
+        description: "Answer the dialog Rhino is waiting on: 'button' presses one by name (Rhino's own Eto dialogs included), 'key' types into a dialog whose buttons cannot be found, 'close' declines. Give one of the three; if several are present, 'key' is used first, then 'button', then 'close'. Before the link of a Rhino that launch started is up, 'button' and 'close' answer its startup dialog from outside Rhino. With none this refuses and lists the dialog's buttons instead of assuming a decline. No button is treated as a default yes: on a save prompt the affirmative is whichever of Save and Don't Save was intended, and pulse already lists the buttons. 'expect' names the dialog to answer, and the call refuses if another dialog is open by then, because dialogs are replaced while the request is pending. This verb supersedes dismiss.",
         inputSchema: object({
             button: str('Button label to press, as pulse reports it.'),
             key: str("A key to type, for dialogs with no clickable buttons: the underlined letter, or a named key: '{ESC}', '{ENTER}', '{TAB}', '{SPACE}'."),
             close: flag('Decline: close the dialog, as its X button does.'),
             expect: str('Title of the dialog to answer.'),
         }),
-        run: args => askRhino('/dialog', args),
+        run: async args => {
+            const started = stillStarting();
+
+            if (started !== null && (await rhinoSessions()).every(one => one.pid !== started.pid)) {
+                return dialogOutside(started, args);
+            }
+
+            return askRhino('/dialog', args);
+        },
     },
     {
         name: 'dismiss',
@@ -1090,7 +1322,7 @@ const TOOLS = [
     },
     {
         name: 'launch',
-        description: "Start Rhino with Grasshopper and wait for the link to answer. Use it when there is no session. fresh:true starts another Rhino even when one is already running and works with that one; two agents then each get their own canvas instead of editing the same one. grasshopper:false starts Rhino alone, which is faster and enough for document-level work: open, select, run commands, export. For plug-in work use grasshopper:false: building, installing and loading a Rhino plug-in needs no canvas, and starting Grasshopper adds a slower launch and another component that can fail to load. The plugins, rhino_load, rhino_command, rhino_doc, pulse, dismiss, escape and console verbs all respond in a Rhino that never opened Grasshopper. For a plug-in that loads from its build folder, pass that folder in packageDirs. Rhino reads RHINO_PACKAGE_DIRS only at startup, restart keeps the folders, and Rhino never has to be started from the agent's shell. One call waits 90 seconds. An answer beginning NOT UP YET means the Rhino it started is alive but the link has not answered yet, usually because of a dialog Rhino shows before its main window; ask the user to look. Calling launch again keeps waiting for that same process instead of starting another.",
+        description: "Start Rhino with Grasshopper and wait for the link to answer. Use it when there is no session. fresh:true starts another Rhino even when one is already running and works with that one; two agents then each get their own canvas instead of editing the same one. grasshopper:false starts Rhino alone, which is faster and enough for document-level work: open, select, run commands, export. For plug-in work use grasshopper:false: building, installing and loading a Rhino plug-in needs no canvas, and starting Grasshopper adds a slower launch and another component that can fail to load. The plugins, rhino_load, rhino_command, rhino_doc, pulse, dismiss, escape and console verbs all respond in a Rhino that never opened Grasshopper. For a plug-in that loads from its build folder, pass that folder in packageDirs. Rhino reads RHINO_PACKAGE_DIRS only at startup, restart keeps the folders, and Rhino never has to be started from the agent's shell. One call waits 90 seconds. An answer beginning NOT UP YET means the Rhino it started is alive but the link has not answered yet, usually because of a dialog Rhino shows before its main window (autosave recovery, sign-in, licence). The answer names that dialog with its message and buttons, read from outside Rhino; pulse reads it too, and dialog answers it with 'button' or close:true. Calling launch again keeps waiting for that same process instead of starting another.",
         inputSchema: object({
             fresh: flag('Start another Rhino and use it, even if a session exists.'),
             grasshopper: flag('False starts Rhino without Grasshopper; canvas tools then have nothing to talk to.'),
@@ -1192,7 +1424,7 @@ const TOOLS = [
     },
     {
         name: 'restart',
-        description: "End this agent's Rhino and start a fresh one, waiting until the link answers again. This is the iteration unit for plug-in development. A .NET assembly cannot be unloaded from Rhino (there is LoadPlugIn and no UnloadPlugIn), and a rebuilt .rhp or .gha reaches a running Rhino only through a new process. It refuses while either half holds unsaved work, because the process is ended without a save prompt on the way out; pass discard:true to discard it. Only the process this agent is using is ended, and a second Rhino opened by another agent or the user keeps running.",
+        description: "End this agent's Rhino and start a fresh one, waiting until the link answers again. This is the iteration unit for plug-in development. A .NET assembly cannot be unloaded from Rhino (there is LoadPlugIn and no UnloadPlugIn), and a rebuilt .rhp or .gha reaches a running Rhino only through a new process. It refuses while either half holds unsaved work, because the process is ended without a save prompt on the way out; pass discard:true to discard it. With discard:true the new Rhino's autosave recovery question is answered with Cancel, since the work was discarded on purpose. Only the process this agent is using is ended, and a second Rhino opened by another agent or the user keeps running; the restart starts its own Rhino even then.",
         inputSchema: object({
             discard: flag('Restart even though unsaved work would be lost.'),
             grasshopper: flag('False brings Rhino back without Grasshopper, which is faster and enough for plug-in work.'),

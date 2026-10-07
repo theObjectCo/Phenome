@@ -111,7 +111,11 @@ no Rhino is running.
 |---|---|
 | `launch` | start Rhino and wait for the link. `fresh` starts a second one; `grasshopper:false` starts Rhino alone; `packageDirs` sets RHINO_PACKAGE_DIRS for a plug-in loading from its build folder, and `restart` keeps it |
 | `sessions` | every live session on the machine, canvas and Rhino; `use` pins one so later verbs mean it |
-| `restart` | end this agent's Rhino and bring a fresh one up. This is the only way a rebuilt assembly reaches a running Rhino, since a .NET plug-in cannot be unloaded. Refuses while either half holds unsaved work |
+| `restart` | end this agent's Rhino and bring a fresh one up. This is the only way a rebuilt assembly reaches a running Rhino, since a .NET plug-in cannot be unloaded. Refuses while either half holds unsaved work; with `discard:true` it also answers the new Rhino's autosave recovery question with Cancel |
+
+Before the link of a Rhino that `launch` started is up, `pulse` and `dialog` answer from here: the dialog
+holding the start is read and answered through UI Automation from outside the process, and `launch` names it
+with its message and buttons when it gives up waiting.
 
 ## Two things the table does not show
 
