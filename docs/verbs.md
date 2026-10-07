@@ -42,7 +42,7 @@ Start with `launch grasshopper:false` for all of these.
 | verb | endpoint | what it does |
 |---|---|---|
 | `canvas` | `GET /canvas` | the whole document, or `as:'mermaid'` for its shape at a fiftieth of the size |
-| `canvas_image` | `GET /canvas-image` | the canvas as a picture, fitted to the document, drawn at the size asked for and kept on disk |
+| `canvas_image` | `GET /canvas-image` | the canvas as a picture, fitted to the document or to the objects and groups in `ids` with `margin` around them, drawn at the size asked for and kept on disk |
 | `describe` | `GET /describe` | one object's parameters, types, access, wire and item counts; a note's text and box |
 | `peek` | `GET /peek` | one parameter's full data with tree paths, or a group's whole signature |
 | `measure` | `GET /measure` | lengths, areas and volumes on one parameter; with `against`, overlaps and nearest distance between two sets |

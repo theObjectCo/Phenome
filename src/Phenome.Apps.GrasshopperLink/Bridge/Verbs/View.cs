@@ -42,6 +42,18 @@ internal static class View
         Picture.Asked asked = Picture.Read(request);
         bool fit = !string.Equals(request.QueryString["fit"], "false", StringComparison.OrdinalIgnoreCase);
 
+        List<Guid> chosen = [.. (request.QueryString["ids"] ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(id => Guid.TryParse(id, out Guid parsed)
+                ? parsed
+                : throw new ArgumentException($"'{id}' in 'ids' is not an object id."))];
+
+        float margin = float.TryParse(
+            request.QueryString["margin"],
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out float given) && given >= 0 ? given : 40;
+
         return OnUi(() =>
         {
             Grasshopper.GUI.Canvas.GH_Canvas canvas = global::Grasshopper.Instances.ActiveCanvas
@@ -67,32 +79,47 @@ internal static class View
                 canvas.Width / keptZoom,
                 canvas.Height / keptZoom);
 
-            if (fit && canvas.Document is { } document && document.ObjectCount > 0)
+            // The chosen objects, or the whole document, with the margin around them. A group counts with its
+            // name, which is drawn above its frame.
+            if ((chosen.Count > 0 || fit) && canvas.Document is { } document && document.ObjectCount > 0)
             {
                 System.Drawing.RectangleF? all = null;
 
-                foreach (IGH_DocumentObject thing in document.Objects)
+                IEnumerable<IGH_DocumentObject> framed = chosen.Count > 0
+                    ? chosen.Select(id => document.FindObject(id, topLevelOnly: true)
+                        ?? throw new KeyNotFoundException($"{id} is not on the canvas."))
+                    : document.Objects;
+
+                foreach (IGH_DocumentObject thing in framed)
                 {
-                    if (thing.Attributes is { } attributes)
+                    if (Arrange.Drawn(thing) is { } drawn)
                     {
-                        all = all is null
-                            ? attributes.Bounds
-                            : System.Drawing.RectangleF.Union(all.Value, attributes.Bounds);
+                        all = all is null ? drawn : System.Drawing.RectangleF.Union(all.Value, drawn);
                     }
                 }
 
                 if (all is { } bounds)
                 {
-                    bounds.Inflate(40, 40);
+                    bounds.Inflate(margin, margin);
                     subject = bounds;
                 }
+            }
+            else if (chosen.Count > 0)
+            {
+                throw new InvalidOperationException("There is no document to find those ids in.");
             }
 
             System.Drawing.Size size = Picture.SizeFor(asked, subject.Width / subject.Height, 1200);
 
-            // Pixels per document unit. Bounded so that a tiny document does not come back as three huge
-            // components; the subject then sits in the middle of a white picture.
-            float zoom = Math.Clamp(Math.Min(size.Width / subject.Width, size.Height / subject.Height), 0.02f, 4f);
+            // Pixels per document unit. Without a size asked for, bounded so that a tiny document does not come
+            // back as three huge components; the subject then sits in the middle of a white picture. With a size
+            // asked for, the subject fills it up to Grasshopper's own largest zoom: a small group captured 4800
+            // pixels across used to stop at 4 pixels per unit, about 2000 pixels of group in a white field.
+            float most = asked.Width is null && asked.Height is null
+                ? 4f
+                : Grasshopper.GUI.Canvas.GH_Viewport.ZoomMaximum;
+
+            float zoom = Math.Clamp(Math.Min(size.Width / subject.Width, size.Height / subject.Height), 0.02f, most);
 
             // The document point at the picture's top left corner, with the subject centred.
             System.Drawing.PointF origin = new(

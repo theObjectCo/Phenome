@@ -1477,12 +1477,28 @@ const TOOLS = [
     },
     {
         name: 'canvas_image',
-        description: "Capture the Grasshopper canvas as an image, fitted to the whole document (the view is restored afterwards), 1200 pixels across by default. Use it after arrange to check whether the layout reads; coordinates and lint findings do not show that. A size larger than the Grasshopper window is drawn at that size, not stretched, so the text on the components stays sharp: use it for documentation. The picture is kept on disk at the size asked for, and the copy shown here is at most 1568 pixels on its long edge.",
+        description: "Capture the Grasshopper canvas as an image, fitted to the whole document (the view is restored afterwards), 1200 pixels across by default. 'ids' frames chosen objects or groups instead, with 'margin' canvas units around them; with a width or height given, a small subject is drawn large enough to fill it. Use it after arrange to check whether the layout reads; coordinates and lint findings do not show that. A size larger than the Grasshopper window is drawn at that size, not stretched, so the text on the components stays sharp: use it for documentation. The picture is kept on disk at the size asked for, and the copy shown here is at most 1568 pixels on its long edge.",
         inputSchema: object({
             ...PICTURE_ARGUMENTS,
             fit: { type: 'boolean', description: "False captures the user's current framing instead." },
+            ids: ids('Objects or groups to frame instead of the whole document; the picture frames their union.'),
+            margin: { type: 'number', description: 'Canvas units left around what is framed; 40 by default.' },
         }),
-        run: async args => pictureAnswer(await ask(`/canvas-image?${pictureQuery(args)}&fit=${args.fit ?? true}`)),
+        run: async args => {
+            const query = new URLSearchParams(pictureQuery(args));
+
+            query.set('fit', String(args.fit ?? true));
+
+            if (Array.isArray(args.ids) && args.ids.length > 0) {
+                query.set('ids', args.ids.join(','));
+            }
+
+            if (args.margin !== undefined) {
+                query.set('margin', String(args.margin));
+            }
+
+            return pictureAnswer(await ask(`/canvas-image?${query}`));
+        },
     },
     {
         name: 'place',

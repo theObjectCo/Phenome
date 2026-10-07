@@ -142,8 +142,10 @@ internal static class Pulse
             }
 
             // The message, which is what a person reads to decide. On the exception box it is the error and the
-            // traceback, and before this the agent saw only the title.
-            Automation.Contents? contents = dialog.Handle == IntPtr.Zero ? null : Automation.Read(dialog.Handle);
+            // traceback, and before this the agent saw only the title. Read only while the window holds the UI
+            // thread: a window found while Rhino is free is not what anyone waits on, and it can be as large as
+            // Grasshopper's whole editor, which UI Automation would walk button by button.
+            Automation.Contents? contents = dialog.Handle == IntPtr.Zero || free ? null : Automation.Read(dialog.Handle);
 
             if (contents is { Text.Length: > 0 } said)
             {
@@ -154,7 +156,7 @@ internal static class Pulse
             json.Append(",\"buttons\":[");
             string[] labels = dialog.Handle == IntPtr.Zero
                 ? Array.Empty<string>()
-                : Labels(dialog.Handle, contents);
+                : Labels(dialog.Handle, contents, automation: !free);
 
             for (int i = 0; i < labels.Length; i++)
             {
@@ -357,7 +359,7 @@ internal static class Pulse
 
             // Nothing was asked for and nothing is done. Buttons are listed (not only described) so the next
             // call can name one without a separate query.
-            string choices = string.Join(", ", Labels(dialog.Handle, null));
+            string choices = string.Join(", ", Labels(dialog.Handle, null, automation: true));
 
             throw new InvalidOperationException(
                 $"The dialog \"{dialog.Title}\" was left alone: no answer was given. "
@@ -384,7 +386,7 @@ internal static class Pulse
             return $"{{\"ok\":true,\"dialog\":{Json.Quote(dialog.Title ?? "")},\"did\":\"pressed\",\"button\":{Json.Quote(button)}}}";
         }
 
-        string offered = string.Join(", ", Labels(dialog.Handle, null));
+        string offered = string.Join(", ", Labels(dialog.Handle, null, automation: true));
         throw new InvalidOperationException(
             offered.Length == 0
                 ? $"The dialog \"{dialog.Title}\" has no buttons this can find to click. Send 'key' instead: the underlined letter of the intended answer, or \"{{ESC}}\"."
@@ -458,13 +460,14 @@ internal static class Pulse
     }
 
     /// <summary>
-    /// The labels of a dialog's buttons: its button windows, or what UI Automation finds when it has none.
+    /// The labels of a dialog's buttons: its button windows, or, when it has none and
+    /// <paramref name="automation"/> allows, what UI Automation finds.
     /// </summary>
-    private static string[] Labels(IntPtr dialog, Automation.Contents? read)
+    private static string[] Labels(IntPtr dialog, Automation.Contents? read, bool automation)
     {
         string[] windows = ButtonsOf(dialog).Select(b => b.Text).Where(t => t.Length > 0).ToArray();
 
-        if (windows.Length > 0)
+        if (windows.Length > 0 || !automation)
         {
             return windows;
         }

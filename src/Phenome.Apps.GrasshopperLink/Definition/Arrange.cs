@@ -219,6 +219,37 @@ internal static class Arrange
         return moved;
     }
 
+    /// <summary>
+    /// The rectangle an object covers on the canvas, with a group's name included, or null when it has no
+    /// attributes.
+    /// </summary>
+    /// <remarks>
+    /// A group's name is a balloon drawn above the middle of its frame, outside the frame's bounds. The size
+    /// follows GH_GraphicsUtil.RenderBalloonTag.
+    /// </remarks>
+    internal static RectangleF? Drawn(IGH_DocumentObject thing)
+    {
+        if (thing.Attributes is not { } attributes)
+        {
+            return null;
+        }
+
+        RectangleF bounds = attributes.Bounds;
+
+        if (thing is GH_Group group && !string.IsNullOrWhiteSpace(group.NickName))
+        {
+            SizeF text = GH_FontServer.MeasureString(group.NickName, GH_FontServer.StandardAdjusted);
+
+            bounds = RectangleF.Union(bounds, new RectangleF(
+                bounds.X + (bounds.Width / 2) - ((text.Width + 6) / 2),
+                bounds.Y - (text.Height + 8),
+                text.Width + 6,
+                text.Height + 2));
+        }
+
+        return bounds;
+    }
+
     /// <summary>Where the top-left corner of the arranged document goes, in canvas pixels.</summary>
     private const float Corner = 20;
 
@@ -247,29 +278,10 @@ internal static class Arrange
 
         foreach (IGH_DocumentObject thing in document.Objects)
         {
-            if (thing.Attributes is not { } attributes)
+            if (Drawn(thing) is { } bounds)
             {
-                continue;
+                all = all is null ? bounds : RectangleF.Union(all.Value, bounds);
             }
-
-            RectangleF bounds = attributes.Bounds;
-
-            // A group's name is a balloon drawn above the middle of its frame, outside the frame's bounds. The
-            // size follows GH_GraphicsUtil.RenderBalloonTag.
-            if (thing is GH_Group group && !string.IsNullOrWhiteSpace(group.NickName))
-            {
-                SizeF text = GH_FontServer.MeasureString(
-                    group.NickName,
-                    GH_FontServer.StandardAdjusted);
-
-                bounds = RectangleF.Union(bounds, new RectangleF(
-                    bounds.X + (bounds.Width / 2) - ((text.Width + 6) / 2),
-                    bounds.Y - (text.Height + 8),
-                    text.Width + 6,
-                    text.Height + 2));
-            }
-
-            all = all is null ? bounds : RectangleF.Union(all.Value, bounds);
         }
 
         if (all is not { } extent)
