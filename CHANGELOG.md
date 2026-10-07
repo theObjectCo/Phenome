@@ -11,6 +11,58 @@ who installed the last version which six things they are about to notice.
 Each release block lists only the changes a user can see. Implementation that nobody outside sees belongs in
 the commit that made it.
 
+## 0.37.0
+
+### Added
+
+- **`python` runs Python 3 in Rhino and answers with what happened.** The answer carries `stdout`, `stderr`, and on
+  failure `error` and `traceback`, in the same call. An exception is caught and reported, so Rhino's modal
+  "Exception Occured" box no longer opens and holds the UI thread. `globals` passes parameters as a JSON object, a
+  top-level variable named `result` comes back as JSON, and `layer` puts every object the script adds on that
+  layer. `rhino_command` with `-_RunPythonScript` still works and still answers `ok` whatever the script raised.
+
+- **`screenshot` sets up the view for one presentation picture and puts it back.** `box` frames six numbers
+  instead of all geometry. `direction` and `up` aim the camera, `parallel` chooses the projection (a perspective
+  is taken at 35 mm unless `lens` says otherwise), and `displayMode` names a display mode. `grid: false` and
+  `axes: false` leave those out, and `trim` crops the plain background to a margin in percent. Capture scripts
+  written for this can go.
+
+- **`canvas_image` frames chosen objects.** `ids` takes objects or groups and `margin` the canvas units around
+  them. With a width or height given, a small group now fills the picture; the zoom used to stop at 4 pixels per
+  canvas unit, and a group came out about 2000 pixels wide in a 4800-pixel picture.
+
+- **`bake` takes `layer` and `colour`.** The layer is made if missing. A plug-in type that Grasshopper cannot bake
+  is baked from its outputs instead, from data that converts to Rhino geometry or from geometry in the data's
+  public properties, and `routes` says per object which way was taken. What a component only draws in its
+  preview, with nothing behind it in its outputs, is still out of reach.
+
+- **`rhino_doc` clears.** `clear: true` deletes every object and `clearLayer` every object on one layer and its
+  sublayers, locked and hidden ones included, as one undo step.
+
+### Changed
+
+- **`pulse` gives a blocking dialog's message as `text`, and `dialog` presses Rhino's own buttons.** Rhino 8's
+  dialogs are drawn by WPF and had no buttons the link could find: "Save changes to Untitled?" and the exception
+  box reported their title only and `clickable: false`. Their message and buttons are now read through UI
+  Automation, and the exception box comes with its traceback.
+
+- **A dialog Rhino shows before the link is up can be answered.** `launch` names it with its message and buttons
+  when it gives up waiting, `pulse` reads it, and `dialog` answers it with `button` or `close: true`, all from
+  outside Rhino. `restart` with `discard: true` answers the new Rhino's autosave recovery question with Cancel by
+  itself, since the work was discarded on purpose. This has been tried on stand-in programs and on Rhino's save
+  prompt, not on a real autosave recovery.
+
+### Fixed
+
+- **`key: "{ESC}"` presses Escape.** It was typed as five characters, and no dialog understood it. `{ENTER}`,
+  `{TAB}` and `{SPACE}` work too.
+
+- **`restart` starts a Rhino even when another one is running.** It ended this agent's Rhino, found the other
+  one, and answered that a session already ran.
+
+- **`rhino_doc` counts the objects that are there.** Rhino keeps deleted objects for undo, and the count
+  included them.
+
 ## 0.36.1
 
 ### Changed

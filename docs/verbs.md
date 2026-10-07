@@ -1,6 +1,6 @@
 # Every verb, and which half answers it
 
-The list is as of 0.35.0: fifty-four tools over two HTTP servers and one client.
+The list is as of 0.37.0: fifty-five tools over two HTTP servers and one client.
 
 The MCP server is registered as `phenome`, and a host presents these tools as `mcp__phenome__<name>`. The
 prefix comes from the registration key the pairing writes, not from the name the server reports in its
@@ -16,7 +16,7 @@ The client asks the Rhino half first for anything that half owns, and falls back
 404. A pairing where only one side has been updated keeps working this way, and verbs marked
 *(also on `.gha`)* exist in both halves for that reason.
 
-## RhinoLink: 11 verbs, none of which needs a canvas
+## RhinoLink: 12 verbs, none of which needs a canvas
 
 Start with `launch grasshopper:false` for all of these.
 

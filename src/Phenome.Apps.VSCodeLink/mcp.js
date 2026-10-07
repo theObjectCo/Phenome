@@ -1690,7 +1690,7 @@ async function handle(line) {
             reply(id, {
                 protocolVersion: params?.protocolVersion ?? '2024-11-05',
                 capabilities: { tools: {} },
-                serverInfo: { name: 'phenome', version: '0.36.1' },
+                serverInfo: { name: 'phenome', version: '0.37.0' },
                 instructions: instructions(),
             });
             break;

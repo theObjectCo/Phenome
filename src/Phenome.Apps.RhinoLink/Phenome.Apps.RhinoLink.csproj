@@ -21,7 +21,7 @@
          not start". -->
     <Title>Phenome Rhino Link</Title>
 
-    <Version>0.36.1</Version>
+    <Version>0.37.0</Version>
 
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
