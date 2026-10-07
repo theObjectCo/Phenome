@@ -1578,9 +1578,18 @@ const TOOLS = [
     },
     {
         name: 'rhino_doc',
-        description: 'The Rhino document: name, layers (with visibility and locks), object count.',
-        inputSchema: object({}),
-        run: () => askRhino('/doc'),
+        description: "The Rhino document: name, layers (with visibility and locks), object count. clear:true deletes every object first, and clearLayer deletes every object on that layer and its sublayers; locked and hidden objects go too, as one undo step. Clear between capture runs, so that models from two files do not end up in one picture.",
+        inputSchema: object({
+            clear: flag('Delete every object in the document.'),
+            clearLayer: str("Delete every object on this layer and its sublayers: a full path such as 'Capture::Model', or a name only one layer has."),
+        }),
+        run: args => {
+            if (args.clear === true || args.clearLayer) {
+                return askRhino('/clear', args.clearLayer ? { layer: args.clearLayer } : { all: true });
+            }
+
+            return askRhino('/doc');
+        },
     },
 ];
 

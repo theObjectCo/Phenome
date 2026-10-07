@@ -29,7 +29,7 @@ Start with `launch grasshopper:false` for all of these.
 | `console` | `GET /console` | the tail of Rhino's command line, where commands and scripts reply. `mine:true` reads the link's own echo from the canvas half instead |
 | `rhino_command` | `POST /command` | run a Rhino command script in the scripting dialect *(also on `.gha` as `/rhino`)* |
 | `python` | `POST /python` | run Python 3 and answer in the same call with stdout, stderr, error, traceback and `result`. The exception is caught, so Rhino's exception box never opens; `globals` sets variables and `layer` takes every object the script adds |
-| `rhino_doc` | `GET /doc` | the Rhino document: name, layers, object count, camera *(also on `.gha` as `/rhino`)* |
+| `rhino_doc` | `GET /doc` | the Rhino document: name, layers, object count, camera *(also on `.gha` as `/rhino`)*. With `clear:true` or `clearLayer` it goes through `POST /clear` first and deletes every object, or every object on that layer and its sublayers |
 | `plugins` | `GET /plugins` | every plug-in Rhino has a record of, loaded or **not**, with path, registry key, managed flag, load protection, and the runtime Rhino is hosting. Grasshopper's libraries are merged in when a canvas is open |
 | `rhino_load` | `POST /load` | load a plug-in by id or path without its confirmation dialog, and again after a failed attempt |
 | `screenshot` | `GET /screenshot` | the active viewport as PNG at the width and height asked for, kept on disk, framed for the capture and the camera put back. For presentation pictures `box`, `direction`, `up`, `parallel`, `lens`, `displayMode`, `grid:false`, `axes:false` and `trim` set the view for that one capture *(also on `.gha`)* |

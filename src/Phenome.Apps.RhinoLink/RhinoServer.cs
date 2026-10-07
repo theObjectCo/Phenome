@@ -38,6 +38,7 @@ internal static class RhinoServer
             "POST /command": "{script} - run a Rhino command script. The canvas link has this verb too; it is also here because Rhino runs commands and Grasshopper need not be open for it. For Python use /python, which reports what the script printed and raised",
             "POST /python": "{code | path, globals?, layer?, timeout?} - run Python 3 in Rhino and answer in the same call with ok, stdout, stderr, error and traceback, and 'result' when the code sets a top-level variable of that name. An exception is caught and reported, and Rhino's exception box never opens. 'globals' is a JSON object whose keys become variables. With 'layer' every object the code adds ends on that layer, made if missing; the answer counts them in 'added'. 'timeout' in seconds, 120 by default, up to 280",
             "GET /doc": "the Rhino document: name, layers, object count",
+            "POST /clear": "{all?, layer?} - delete every object (all:true), or every object on one layer and its sublayers, locked and hidden ones included, as one undo step. 'layer' is a full path, or a name that only one layer has. Answers how many were deleted and the document afterwards",
             "GET /console": "?tail=50 - the tail of Rhino's command line, which is where Rhino writes its output. There is one capture per Rhino and this is it; the canvas link reads from here",
             "GET /plugins": "?all=false - every plug-in Rhino has a record of, with the runtime it would load into: loaded, dotnet, loadProtected, the path Rhino has recorded and the registry key. Use it to answer 'why is the plug-in not loading' without manual registry checks. Shipped plug-ins are left out unless all=true, because there are a hundred of them",
             "POST /load": "{id?, path?} - load a plug-in explicitly, with no confirmation dialog, and load it again even after a previous attempt failed. Rhino does not retry a plug-in whose load previously failed, and without this the ordinary build-and-load loop appears to do nothing the second time round. Answers with Rhino's resulting record state instead of a single failure word",
@@ -140,6 +141,7 @@ internal static class RhinoServer
                 ("POST", "/command") => Commands.Run(payload),
                 ("POST", "/python") => Python.Run(payload),
                 ("GET", "/doc") => Commands.Document(),
+                ("POST", "/clear") => Commands.Clear(payload),
                 ("GET", "/plugins") => Plugins.List(
                     string.Equals(context.Request.QueryString["all"], "true", StringComparison.OrdinalIgnoreCase)),
                 ("POST", "/load") => Plugins.Load(payload),

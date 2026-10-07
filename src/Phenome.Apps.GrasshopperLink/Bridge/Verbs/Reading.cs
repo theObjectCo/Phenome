@@ -402,7 +402,17 @@ internal static class Reading
         System.Text.StringBuilder json = new("{\"name\":");
 
         json.Append(Json.Quote(string.IsNullOrEmpty(doc.Name) ? "unsaved" : doc.Name));
-        json.Append(",\"objects\":").Append(Json.Number(doc.Objects.Count));
+        // ObjectTable.Count includes deleted objects, which the table keeps for undo.
+        Rhino.DocObjects.ObjectEnumeratorSettings live = new()
+        {
+            HiddenObjects = true,
+            LockedObjects = true,
+            NormalObjects = true,
+            IncludeLights = true,
+            DeletedObjects = false,
+        };
+
+        json.Append(",\"objects\":").Append(Json.Number(doc.Objects.GetObjectList(live).Count()));
 
         // Report the active camera, which explains an empty screenshot without guessing.
         if (doc.Views.ActiveView is { } view)

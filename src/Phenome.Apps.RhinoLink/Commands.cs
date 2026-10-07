@@ -37,6 +37,104 @@ internal static class Commands
         return $"{{\"ok\":{(ran ? "true" : "false")}}}";
     }
 
+    /// <summary>
+    /// Deletes every object in the document, or every object on one layer and its sublayers, and reports the
+    /// document afterwards.
+    /// </summary>
+    /// <remarks>
+    /// Capture runs mixed models from different files. Baked objects landed on the current layer, the layer an
+    /// agent cleared between runs was another one, and the next picture showed both models. Locked and hidden
+    /// objects are deleted too, which <c>_SelAll _Delete</c> leaves behind. The deletion is one undo step.
+    /// </remarks>
+    internal static string Clear(string payload)
+    {
+        using JsonDocument request = JsonDocument.Parse(string.IsNullOrWhiteSpace(payload) ? "{}" : payload);
+
+        bool all = request.RootElement.TryGetProperty("all", out JsonElement flag) && flag.ValueKind == JsonValueKind.True;
+        string? layer = Json.Text(request, "layer");
+
+        if (all == (layer is not null))
+        {
+            throw new ArgumentException("clear takes all:true for every object, or 'layer' for one layer and its sublayers.");
+        }
+
+        (int deleted, List<string> layers) = Ui.On(() =>
+        {
+            Rhino.RhinoDoc doc = Rhino.RhinoDoc.ActiveDoc
+                ?? throw new InvalidOperationException("There is no Rhino document.");
+
+            HashSet<int>? within = null;
+            List<string> named = [];
+
+            if (layer is not null)
+            {
+                int index = doc.Layers.FindByFullPath(layer, -1);
+
+                if (index < 0)
+                {
+                    Rhino.DocObjects.Layer[] same = [.. doc.Layers.Where(one =>
+                        !one.IsDeleted && string.Equals(one.Name, layer, StringComparison.OrdinalIgnoreCase))];
+
+                    index = same.Length == 1
+                        ? same[0].Index
+                        : throw new KeyNotFoundException(same.Length == 0
+                            ? $"There is no layer '{layer}'."
+                            : $"'{layer}' names {same.Length} layers; give the full path: "
+                                + string.Join(", ", same.Select(one => one.FullPath)) + ".");
+                }
+
+                Rhino.DocObjects.Layer top = doc.Layers[index];
+
+                within = [top.Index];
+                named.Add(top.FullPath);
+
+                foreach (Rhino.DocObjects.Layer under in top.GetChildren(allChildren: true) ?? [])
+                {
+                    within.Add(under.Index);
+                    named.Add(under.FullPath);
+                }
+            }
+
+            Rhino.DocObjects.ObjectEnumeratorSettings every = new()
+            {
+                HiddenObjects = true,
+                LockedObjects = true,
+                NormalObjects = true,
+                IncludeLights = true,
+                ReferenceObjects = false,
+                DeletedObjects = false,
+            };
+
+            Rhino.DocObjects.RhinoObject[] doomed = [.. doc.Objects.GetObjectList(every)
+                .Where(thing => within is null || within.Contains(thing.Attributes.LayerIndex))];
+
+            uint record = doc.BeginUndoRecord("Phenome Link: clear");
+            int count = 0;
+
+            try
+            {
+                foreach (Rhino.DocObjects.RhinoObject thing in doomed)
+                {
+                    if (doc.Objects.Delete(thing, quiet: true, ignoreModes: true))
+                    {
+                        count++;
+                    }
+                }
+            }
+            finally
+            {
+                doc.EndUndoRecord(record);
+                doc.Views.Redraw();
+            }
+
+            return (count, named);
+        });
+
+        return "{\"ok\":true,\"deleted\":" + Json.Number(deleted)
+            + (layer is null ? "" : ",\"layers\":[" + string.Join(",", layers.Select(Json.Quote)) + "]")
+            + ",\"document\":" + Document() + "}";
+    }
+
     /// <summary>Reports the document: name, object count, modified flag, layers and the active camera.</summary>
     internal static string Document() => Ui.On(() =>
     {
@@ -46,7 +144,18 @@ internal static class Commands
         StringBuilder json = new("{\"name\":");
 
         json.Append(Json.Quote(string.IsNullOrEmpty(doc.Name) ? "unsaved" : doc.Name));
-        json.Append(",\"objects\":").Append(Json.Number(doc.Objects.Count));
+        // ObjectTable.Count includes deleted objects, which the table keeps for undo: after a clear it still
+        // reported every object that had been deleted.
+        Rhino.DocObjects.ObjectEnumeratorSettings live = new()
+        {
+            HiddenObjects = true,
+            LockedObjects = true,
+            NormalObjects = true,
+            IncludeLights = true,
+            DeletedObjects = false,
+        };
+
+        json.Append(",\"objects\":").Append(Json.Number(doc.Objects.GetObjectList(live).Count()));
         json.Append(",\"modified\":").Append(doc.Modified ? "true" : "false");
 
         if (doc.Views.ActiveView is { } view)
