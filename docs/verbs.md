@@ -32,7 +32,7 @@ Start with `launch grasshopper:false` for all of these.
 | `rhino_doc` | `GET /doc` | the Rhino document: name, layers, object count, camera *(also on `.gha` as `/rhino`)* |
 | `plugins` | `GET /plugins` | every plug-in Rhino has a record of, loaded or **not**, with path, registry key, managed flag, load protection, and the runtime Rhino is hosting. Grasshopper's libraries are merged in when a canvas is open |
 | `rhino_load` | `POST /load` | load a plug-in by id or path without its confirmation dialog, and again after a failed attempt |
-| `screenshot` | `GET /screenshot` | the active viewport as PNG at the width and height asked for, kept on disk, framed for the capture and the camera put back *(also on `.gha`)* |
+| `screenshot` | `GET /screenshot` | the active viewport as PNG at the width and height asked for, kept on disk, framed for the capture and the camera put back. For presentation pictures `box`, `direction`, `up`, `parallel`, `lens`, `displayMode`, `grid:false`, `axes:false` and `trim` set the view for that one capture *(also on `.gha`)* |
 | `camera` | `GET`/`POST /camera` | read or aim the active viewport; only the fields passed change *(also on `.gha`)* |
 
 ## GrasshopperLink: 40 verbs about the canvas

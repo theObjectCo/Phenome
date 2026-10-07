@@ -123,61 +123,337 @@ internal static class Picture
     /// <remarks>
     /// Both halves answer <c>/screenshot</c>, and this is the one body they share. <paramref name="onUi"/> is each
     /// half's own way onto Rhino's UI thread.
+    /// <para>
+    /// A presentation picture needs more than the framing of all geometry, and agents wrote their own capture
+    /// scripts for every picture: set the camera, hide the grid and axes, zoom to a box, change the display mode,
+    /// crop the background. The query carries all of it now. <c>box</c> frames six numbers instead of everything.
+    /// <c>direction</c> is where the camera looks, with <c>up</c> defaulting to Y when the view is nearly vertical
+    /// and to Z otherwise. <c>parallel</c> chooses the projection; a perspective is taken with a 35 mm lens unless
+    /// <c>lens</c> says otherwise. <c>displayMode</c> names a display mode, <c>grid</c> and <c>axes</c> hide them,
+    /// and <c>trim</c> crops the plain background to a margin in percent of what remains.
+    /// </para>
+    /// <para>
+    /// The camera, the projection, the grid and the axes are put back afterwards: the viewport is the user's. The
+    /// display mode is never set on the viewport, only given to the capture.
+    /// </para>
     /// </remarks>
     internal static string Viewport(HttpListenerRequest request, Func<Func<string>, string> onUi)
     {
         Asked asked = Read(request);
-        bool frame = !string.Equals(request.QueryString["zoomExtents"], "false", StringComparison.OrdinalIgnoreCase);
+        Look look = Look.Read(request);
 
         return onUi(() =>
         {
-            Rhino.Display.RhinoView view = Rhino.RhinoDoc.ActiveDoc?.Views.ActiveView
+            Rhino.RhinoDoc doc = Rhino.RhinoDoc.ActiveDoc
+                ?? throw new InvalidOperationException("There is no Rhino document.");
+
+            Rhino.Display.RhinoView view = doc.Views.ActiveView
                 ?? throw new InvalidOperationException("There is no Rhino view to capture.");
+
+            Rhino.Display.RhinoViewport viewport = view.ActiveViewport;
+
+            Rhino.Display.DisplayModeDescription? mode = look.DisplayMode is { } name
+                ? FindMode(name)
+                : null;
 
             Size screen = view.ClientRectangle.Size;
             Size size = SizeFor(asked, (double)Math.Max(1, screen.Width) / Math.Max(1, screen.Height), 640);
 
-            // Framed for the capture and restored afterward: the picture should show the geometry, but the
-            // camera is the user's and must stay where the user left it.
-            Rhino.DocObjects.ViewportInfo? kept = frame
-                ? new Rhino.DocObjects.ViewportInfo(view.ActiveViewport)
-                : null;
+            // Kept whole and put back afterwards: the picture should show the subject, but the camera is the
+            // user's and must stay where the user left it. The target is kept separately, because restoring the
+            // projection alone recomputes the target from the frustum, and the user's camera would come back
+            // aimed somewhere new.
+            Rhino.DocObjects.ViewportInfo kept = new(viewport);
+            Rhino.Geometry.Point3d target = viewport.CameraTarget;
+            bool moved = false;
 
-            // The target is saved separately. Restoring the projection alone recomputes the target from the
-            // frustum, and the user's camera would come back aimed somewhere new.
-            Rhino.Geometry.Point3d target = view.ActiveViewport.CameraTarget;
-
-            if (frame)
-            {
-                view.ActiveViewport.ZoomExtents();
-            }
+            // The grid and the axes are switched off on the viewport for the capture and back on before anything
+            // redraws, which is the only way to leave them out of a capture in another display mode.
+            (bool Grid, bool World, bool Plane) shown =
+                (viewport.ConstructionGridVisible, viewport.WorldAxesVisible, viewport.ConstructionAxesVisible);
 
             try
             {
+
+                if (look.Parallel is { } parallel)
+                {
+                    // Changed before the camera is placed: switching projection rebuilds the frustum.
+                    if (parallel)
+                    {
+                        viewport.ChangeToParallelProjection(symmetricFrustum: true);
+                    }
+                    else
+                    {
+                        viewport.ChangeToPerspectiveProjection(symmetricFrustum: true, lensLength: look.Lens);
+                    }
+
+                    moved = true;
+                }
+                else if (look.Direction is not null && !viewport.IsParallelProjection)
+                {
+                    viewport.Camera35mmLensLength = look.Lens;
+                }
+
+                Rhino.Geometry.BoundingBox subject = look.Box ?? Visible(doc);
+
+                if (look.Direction is { } direction)
+                {
+                    Aim(viewport, direction, look.Up, subject);
+                    moved = true;
+                }
+
+                if (look.Box is { } box)
+                {
+                    viewport.ZoomBoundingBox(box);
+                    moved = true;
+                }
+                else if (look.Frame || look.Direction is not null || look.Parallel is not null)
+                {
+                    viewport.ZoomExtents();
+                    moved = true;
+                }
+
                 // Without the agent-at-work border, which belongs on the screen and not in the picture.
                 Bitmap? captured;
 
+                viewport.ConstructionGridVisible = look.Grid ?? shown.Grid;
+                viewport.WorldAxesVisible = look.Axes ?? shown.World;
+                viewport.ConstructionAxesVisible = look.Axes ?? shown.Plane;
+
                 using (Capture.Quiet())
                 {
-                    captured = view.CaptureToBitmap(size);
+                    // A display mode is passed to the capture and not set on the viewport. Set on the viewport,
+                    // it takes effect only at the next real repaint, and the capture came out in the mode the
+                    // screen last showed.
+                    captured = mode is null ? view.CaptureToBitmap(size) : view.CaptureToBitmap(size, mode);
                 }
 
                 using Bitmap bitmap = captured
                     ?? throw new InvalidOperationException("The viewport would not be captured.");
 
+                if (look.Trim is { } margin)
+                {
+                    using Bitmap trimmed = Trim(bitmap, margin);
+
+                    return Answer(trimmed, "viewport", asked);
+                }
+
                 return Answer(bitmap, "viewport", asked);
             }
             finally
             {
-                if (kept is not null)
+                viewport.ConstructionGridVisible = shown.Grid;
+                viewport.WorldAxesVisible = shown.World;
+                viewport.ConstructionAxesVisible = shown.Plane;
+
+                if (moved)
                 {
-                    view.ActiveViewport.SetViewProjection(kept, updateTargetLocation: false);
-                    view.ActiveViewport.SetCameraTarget(target, updateCameraLocation: false);
-                    view.Redraw();
+                    viewport.SetViewProjection(kept, updateTargetLocation: false);
+                    viewport.SetCameraTarget(target, updateCameraLocation: false);
                 }
+
+                view.Redraw();
             }
         });
     }
+
+    /// <summary>How the viewport is to be framed and drawn for one capture.</summary>
+    private sealed record Look(
+        bool Frame,
+        Rhino.Geometry.BoundingBox? Box,
+        Rhino.Geometry.Vector3d? Direction,
+        Rhino.Geometry.Vector3d? Up,
+        bool? Parallel,
+        double Lens,
+        string? DisplayMode,
+        bool? Grid,
+        bool? Axes,
+        double? Trim)
+    {
+        internal static Look Read(HttpListenerRequest request)
+        {
+            double[]? box = Numbers(request, "box", 6);
+            double[]? direction = Numbers(request, "direction", 3);
+            double[]? up = Numbers(request, "up", 3);
+
+            Rhino.Geometry.Vector3d? aim = direction is null ? null : new(direction[0], direction[1], direction[2]);
+
+            if (aim is { IsZero: true })
+            {
+                throw new ArgumentException("'direction' has no length; it is where the camera looks, e.g. [0,0,-1].");
+            }
+
+            double lens = double.TryParse(request.QueryString["lens"], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double given) && given > 0 ? given : 35;
+
+            double? trim = request.QueryString["trim"] is { Length: > 0 } text
+                ? double.TryParse(text, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double percent) && percent >= 0
+                        ? percent
+                        : throw new ArgumentException("'trim' is the margin left around the subject, in percent: 0 or more.")
+                : null;
+
+            return new Look(
+                Frame: !string.Equals(request.QueryString["zoomExtents"], "false", StringComparison.OrdinalIgnoreCase),
+                Box: box is null
+                    ? null
+                    : new Rhino.Geometry.BoundingBox(
+                        Math.Min(box[0], box[3]), Math.Min(box[1], box[4]), Math.Min(box[2], box[5]),
+                        Math.Max(box[0], box[3]), Math.Max(box[1], box[4]), Math.Max(box[2], box[5])),
+                Direction: aim,
+                Up: up is null ? null : new(up[0], up[1], up[2]),
+                Parallel: Flag(request, "parallel"),
+                Lens: lens,
+                DisplayMode: request.QueryString["displayMode"] is { Length: > 0 } named ? named : null,
+                Grid: Flag(request, "grid"),
+                Axes: Flag(request, "axes"),
+                Trim: trim);
+        }
+
+        private static bool? Flag(HttpListenerRequest request, string name) =>
+            request.QueryString[name] switch
+            {
+                null or "" => null,
+                { } text when text.Equals("true", StringComparison.OrdinalIgnoreCase) => true,
+                { } text when text.Equals("false", StringComparison.OrdinalIgnoreCase) => false,
+                { } text => throw new ArgumentException($"'{name}' is true or false; got {text}."),
+            };
+
+        private static double[]? Numbers(HttpListenerRequest request, string name, int count)
+        {
+            if (request.QueryString[name] is not { Length: > 0 } text)
+            {
+                return null;
+            }
+
+            string[] parts = text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            double[] values = new double[parts.Length];
+
+            bool read = parts.Length == count && parts.Select((part, at) => double.TryParse(
+                part,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out values[at])).All(ok => ok);
+
+            return read ? values : throw new ArgumentException($"'{name}' takes {count} numbers; got {text}.");
+        }
+    }
+
+    /// <summary>A display mode by its English or local name, or a refusal that lists the names there are.</summary>
+    private static Rhino.Display.DisplayModeDescription FindMode(string name)
+    {
+        Rhino.Display.DisplayModeDescription[] modes = Rhino.Display.DisplayModeDescription.GetDisplayModes();
+
+        return modes.FirstOrDefault(mode =>
+                string.Equals(mode.EnglishName, name, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mode.LocalName, name, StringComparison.OrdinalIgnoreCase))
+            ?? throw new ArgumentException(
+                $"There is no display mode called '{name}'. There are: {string.Join(", ", modes.Select(mode => mode.EnglishName))}.");
+    }
+
+    /// <summary>The box around every visible object, or a unit box when there is none.</summary>
+    private static Rhino.Geometry.BoundingBox Visible(Rhino.RhinoDoc doc)
+    {
+        Rhino.Geometry.BoundingBox all = Rhino.Geometry.BoundingBox.Empty;
+
+        foreach (Rhino.DocObjects.RhinoObject thing in doc.Objects.GetObjectList(new Rhino.DocObjects.ObjectEnumeratorSettings
+        {
+            VisibleFilter = true,
+            HiddenObjects = false,
+        }))
+        {
+            all.Union(thing.Geometry.GetBoundingBox(accurate: false));
+        }
+
+        return all.IsValid ? all : new Rhino.Geometry.BoundingBox(-1, -1, -1, 1, 1, 1);
+    }
+
+    /// <summary>Points the camera along <paramref name="direction"/> at the middle of the subject.</summary>
+    /// <remarks>
+    /// Up defaults to Y when the camera looks nearly straight up or down, where Z would be parallel to the view
+    /// and the camera would have no up at all, and to Z otherwise. The camera stands back two diagonals; the zoom
+    /// that follows sets the framing, and the distance only has to keep the subject in front of the camera.
+    /// </remarks>
+    private static void Aim(
+        Rhino.Display.RhinoViewport viewport,
+        Rhino.Geometry.Vector3d direction,
+        Rhino.Geometry.Vector3d? up,
+        Rhino.Geometry.BoundingBox subject)
+    {
+        direction.Unitize();
+
+        Rhino.Geometry.Vector3d upward = up is { IsZero: false } given
+            ? given
+            : Math.Abs(direction.Z) > 0.99 ? Rhino.Geometry.Vector3d.YAxis : Rhino.Geometry.Vector3d.ZAxis;
+
+        Rhino.Geometry.Point3d middle = subject.Center;
+        double reach = Math.Max(subject.Diagonal.Length, 1) * 2;
+
+        viewport.SetCameraLocations(middle, middle - (direction * reach));
+        viewport.CameraUp = upward;
+    }
+
+    /// <summary>
+    /// Crops the plain background, leaving <paramref name="percent"/> of the subject's longer side around it.
+    /// </summary>
+    /// <remarks>
+    /// The background is the colour of the top-left pixel, and a pixel counts as background within a few levels
+    /// of it on every channel, which absorbs the antialiasing at the subject's edge. A gradient background is not
+    /// plain and is left as it is. A picture with nothing on it comes back whole.
+    /// </remarks>
+    internal static Bitmap Trim(Bitmap picture, double percent)
+    {
+        const int Tolerance = 8;
+
+        Rectangle all = new(0, 0, picture.Width, picture.Height);
+        BitmapData data = picture.LockBits(all, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+
+        int left = picture.Width, top = picture.Height, right = -1, bottom = -1;
+
+        try
+        {
+            int[] row = new int[picture.Width];
+            int background = System.Runtime.InteropServices.Marshal.ReadInt32(data.Scan0);
+
+            for (int y = 0; y < picture.Height; y++)
+            {
+                System.Runtime.InteropServices.Marshal.Copy(data.Scan0 + (y * data.Stride), row, 0, picture.Width);
+
+                for (int x = 0; x < picture.Width; x++)
+                {
+                    if (!Near(row[x], background, Tolerance))
+                    {
+                        left = Math.Min(left, x);
+                        right = Math.Max(right, x);
+                        top = Math.Min(top, y);
+                        bottom = Math.Max(bottom, y);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            picture.UnlockBits(data);
+        }
+
+        if (right < 0)
+        {
+            return new Bitmap(picture);
+        }
+
+        int margin = (int)Math.Round(Math.Max(right - left + 1, bottom - top + 1) * percent / 100);
+
+        Rectangle kept = Rectangle.Intersect(
+            all,
+            Rectangle.FromLTRB(left - margin, top - margin, right + 1 + margin, bottom + 1 + margin));
+
+        return picture.Clone(kept, picture.PixelFormat);
+    }
+
+    private static bool Near(int a, int b, int tolerance) =>
+        Math.Abs(((a >> 16) & 0xFF) - ((b >> 16) & 0xFF)) <= tolerance
+        && Math.Abs(((a >> 8) & 0xFF) - ((b >> 8) & 0xFF)) <= tolerance
+        && Math.Abs((a & 0xFF) - (b & 0xFF)) <= tolerance;
 
     /// <summary>Writes the picture where asked, or into Pictures\Phenome Link under a name that sorts by time.</summary>
     private static string Keep(Bitmap picture, string kind, string? path)

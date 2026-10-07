@@ -1380,13 +1380,39 @@ const TOOLS = [
     },
     {
         name: 'screenshot',
-        description: "Capture the active Rhino viewport as an image, 640 pixels across by default and framed on the geometry for the capture (the camera is restored afterwards). Ask for width and height up to 8000 pixels a side for documentation: the picture is drawn at that size and kept on disk, and the copy shown here is at most 1568 pixels on its long edge, which is what a model reads anyway. Use it to inspect built geometry; for canvas layout, read canvas positions instead. The capture redraws the view off-screen at its own size. Geometry drawn by a plug-in's own display code can then be missing, stale or cropped even when the screen shows it correctly, as seen with an off-thread volume preview and with script component outputs. If peek reports geometry that the image does not show, trust peek and ask the user to look before assuming a broken component.",
+        description: "Capture the active Rhino viewport as an image, 640 pixels across by default and framed on the geometry for the capture (the camera is restored afterwards). For presentation pictures it also sets the view for this one capture and puts it back: 'box' frames a box instead of everything, 'direction' and 'up' aim the camera, 'parallel' chooses the projection, 'displayMode' names a display mode, grid:false and axes:false leave those out, and 'trim' crops the plain background to a margin. Ask for width and height up to 8000 pixels a side for documentation: the picture is drawn at that size and kept on disk, and the copy shown here is at most 1568 pixels on its long edge, which is what a model reads anyway. Use it to inspect built geometry; for canvas layout, read canvas positions instead. The capture redraws the view off-screen at its own size. Geometry drawn by a plug-in's own display code can then be missing, stale or cropped even when the screen shows it correctly, as seen with an off-thread volume preview and with script component outputs. If peek reports geometry that the image does not show, trust peek and ask the user to look before assuming a broken component.",
         inputSchema: object({
             ...PICTURE_ARGUMENTS,
             zoomExtents: { type: 'boolean', description: "False captures the user's current framing instead." },
+            box: { type: 'array', items: { type: 'number' }, description: 'Frame this box, [x0,y0,z0,x1,y1,z1], instead of all geometry.' },
+            direction: { type: 'array', items: { type: 'number' }, description: 'Where the camera looks, [x,y,z]: [0,0,-1] is a plan, [1,1,-1] an axonometric view from the south-west.' },
+            up: { type: 'array', items: { type: 'number' }, description: "The camera's up, [x,y,z]. Defaults to Y when direction is nearly vertical and to Z otherwise." },
+            parallel: { type: 'boolean', description: 'True for a parallel projection, false for perspective (35 mm unless lens says otherwise).' },
+            lens: { type: 'number', description: '35mm-equivalent lens for a perspective; 35 by default.' },
+            displayMode: str("A display mode by name, e.g. 'Shaded', 'Rendered', 'Technical'. Put back afterwards."),
+            grid: flag('False leaves the construction grid out of the picture.'),
+            axes: flag('False leaves the world and grid axes out of the picture.'),
+            trim: { type: 'number', description: 'Crop the plain background, keeping this margin around the subject, in percent of its longer side.' },
         }),
-        run: async args =>
-            pictureAnswer(await askRhino(`/screenshot?${pictureQuery(args)}&zoomExtents=${args.zoomExtents ?? true}`)),
+        run: async args => {
+            const query = new URLSearchParams(pictureQuery(args));
+
+            query.set('zoomExtents', String(args.zoomExtents ?? true));
+
+            for (const key of ['box', 'direction', 'up']) {
+                if (Array.isArray(args[key])) {
+                    query.set(key, args[key].join(','));
+                }
+            }
+
+            for (const key of ['parallel', 'lens', 'displayMode', 'grid', 'axes', 'trim']) {
+                if (args[key] !== undefined) {
+                    query.set(key, String(args[key]));
+                }
+            }
+
+            return pictureAnswer(await askRhino(`/screenshot?${query}`));
+        },
     },
     {
         name: 'plugins',
