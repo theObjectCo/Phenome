@@ -782,16 +782,16 @@ const TOOLS = [
     },
     {
         name: 'pulse',
-        description: "Report whether Rhino is idle, busy or blocked. It is answered without the Rhino UI thread and responds when other tools do not. When another tool times out, this tells the two causes apart: 'busy' names the running command and how long it has run, and means wait; 'blocked' names the open dialog, and means nothing answers until it is answered: by the dialog tool or by the user clicking it.",
+        description: "Report whether Rhino is idle, busy or blocked. It is answered without the Rhino UI thread and responds when other tools do not. When another tool times out, this tells the two causes apart: 'busy' names the running command and how long it has run, and means wait; 'blocked' names the open dialog, gives its message as 'text' (on Rhino's exception box, the error and traceback) and lists its buttons, and means nothing answers until it is answered: by the dialog tool or by the user clicking it.",
         inputSchema: object({}),
         run: () => askRhino('/pulse'),
     },
     {
         name: 'dialog',
-        description: "Answer the dialog Rhino is waiting on: 'button' presses one by name, 'key' types into a dialog that draws its own buttons and cannot be clicked, 'close' declines. Give one of the three; if several are present, 'key' is used first, then 'button', then 'close'. With none this refuses and lists the dialog's buttons instead of assuming a decline. No button is treated as a default yes: on a save prompt the affirmative is whichever of Save and Don't Save was intended, and pulse already lists the buttons. 'expect' names the dialog to answer, and the call refuses if another dialog is open by then, because dialogs are replaced while the request is pending. This verb supersedes dismiss.",
+        description: "Answer the dialog Rhino is waiting on: 'button' presses one by name (Rhino's own Eto dialogs included), 'key' types into a dialog whose buttons cannot be found, 'close' declines. Give one of the three; if several are present, 'key' is used first, then 'button', then 'close'. With none this refuses and lists the dialog's buttons instead of assuming a decline. No button is treated as a default yes: on a save prompt the affirmative is whichever of Save and Don't Save was intended, and pulse already lists the buttons. 'expect' names the dialog to answer, and the call refuses if another dialog is open by then, because dialogs are replaced while the request is pending. This verb supersedes dismiss.",
         inputSchema: object({
             button: str('Button label to press, as pulse reports it.'),
-            key: str("A key to type, for dialogs with no clickable buttons: the underlined letter, or '{ESC}'."),
+            key: str("A key to type, for dialogs with no clickable buttons: the underlined letter, or a named key: '{ESC}', '{ENTER}', '{TAB}', '{SPACE}'."),
             close: flag('Decline: close the dialog, as its X button does.'),
             expect: str('Title of the dialog to answer.'),
         }),

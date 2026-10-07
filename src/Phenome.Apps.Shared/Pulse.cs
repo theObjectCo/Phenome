@@ -141,11 +141,20 @@ internal static class Pulse
                 json.Append(",\"identified\":false");
             }
 
+            // The message, which is what a person reads to decide. On the exception box it is the error and the
+            // traceback, and before this the agent saw only the title.
+            Automation.Contents? contents = dialog.Handle == IntPtr.Zero ? null : Automation.Read(dialog.Handle);
+
+            if (contents is { Text.Length: > 0 } said)
+            {
+                json.Append(",\"text\":").Append(Json.Quote(said.Text));
+            }
+
             // Listing the answer options here saves a round trip between choosing and pressing.
             json.Append(",\"buttons\":[");
             string[] labels = dialog.Handle == IntPtr.Zero
                 ? Array.Empty<string>()
-                : ButtonsOf(dialog.Handle).Select(b => b.Text).Where(t => t.Length > 0).ToArray();
+                : Labels(dialog.Handle, contents);
 
             for (int i = 0; i < labels.Length; i++)
             {
@@ -159,8 +168,8 @@ internal static class Pulse
 
             json.Append(']');
 
-            // An empty button list does not mean the dialog has no buttons. It means the dialog draws its own
-            // and cannot be clicked; the answer is a key.
+            // An empty button list does not mean the dialog has no buttons. It means none could be found to
+            // press, through windows or through UI Automation; the answer is a key.
             json.Append(",\"clickable\":").Append(labels.Length > 0 ? "true" : "false");
             json.Append('}');
         }
@@ -316,11 +325,23 @@ internal static class Pulse
 
         if (!string.IsNullOrEmpty(key))
         {
+            List<(int Key, char Letter)> strokes = Strokes(key);
+
             SetForegroundWindow(dialog.Handle);
 
-            foreach (char letter in key)
+            foreach ((int virtualKey, char letter) in strokes)
             {
-                PostMessage(dialog.Handle, WmChar, (IntPtr)letter, IntPtr.Zero);
+                if (virtualKey != 0)
+                {
+                    long scan = 1 | ((long)MapVirtualKey((uint)virtualKey, 0) << 16);
+
+                    PostMessage(dialog.Handle, WmKeyDown, (IntPtr)virtualKey, (IntPtr)scan);
+                    PostMessage(dialog.Handle, WmKeyUp, (IntPtr)virtualKey, (IntPtr)(scan | 0xC0000000L));
+                }
+                else
+                {
+                    PostMessage(dialog.Handle, WmChar, (IntPtr)letter, IntPtr.Zero);
+                }
             }
 
             return $"{{\"ok\":true,\"dialog\":{Json.Quote(dialog.Title ?? "")},\"did\":\"typed\",\"key\":{Json.Quote(key)}}}";
@@ -336,12 +357,12 @@ internal static class Pulse
 
             // Nothing was asked for and nothing is done. Buttons are listed (not only described) so the next
             // call can name one without a separate query.
-            string choices = string.Join(", ", ButtonsOf(dialog.Handle).Select(b => b.Text).Where(t => t.Length > 0));
+            string choices = string.Join(", ", Labels(dialog.Handle, null));
 
             throw new InvalidOperationException(
                 $"The dialog \"{dialog.Title}\" was left alone: no answer was given. "
                 + (choices.Length == 0
-                    ? "It draws its own buttons. Send 'key': the underlined letter of the intended answer, or \"{ESC}\"."
+                    ? "No button on it could be found. Send 'key': the underlined letter of the intended answer, or \"{ESC}\"."
                     : $"It offers: {choices}. Send 'button' to press one, 'key' to type, or close:true to decline."));
         }
 
@@ -356,11 +377,19 @@ internal static class Pulse
             }
         }
 
-        string offered = string.Join(", ", buttons.Select(b => b.Text).Where(t => t.Length > 0));
+        // Eto's buttons are drawn inside one WPF window and have no window to post a click to. UI Automation
+        // presses them as a screen reader would.
+        if (buttons.Count == 0 && Automation.Press(dialog.Handle, button))
+        {
+            return $"{{\"ok\":true,\"dialog\":{Json.Quote(dialog.Title ?? "")},\"did\":\"pressed\",\"button\":{Json.Quote(button)}}}";
+        }
+
+        string offered = string.Join(", ", Labels(dialog.Handle, null));
         throw new InvalidOperationException(
             offered.Length == 0
-                ? $"The dialog \"{dialog.Title}\" has no buttons this can click. It draws its own, and there is nothing to post a click to. Send 'key' instead: the underlined letter of the intended answer, or \"{{ESC}}\"."
-                : $"The dialog \"{dialog.Title}\" has no button called \"{button}\". It offers: {offered}.");
+                ? $"The dialog \"{dialog.Title}\" has no buttons this can find to click. Send 'key' instead: the underlined letter of the intended answer, or \"{{ESC}}\"."
+                : $"The dialog \"{dialog.Title}\" has no button called \"{button}\". It offers: {offered}."
+                    + (Automation.Failure is { } why ? $" UI Automation reported: {why}" : ""));
     }
 
     /// <summary>
@@ -426,6 +455,68 @@ internal static class Pulse
     {
         GuiThreadInfo info = new() { Size = Marshal.SizeOf<GuiThreadInfo>() };
         return GetGUIThreadInfo(thread, ref info) ? info.Focus : IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// The labels of a dialog's buttons: its button windows, or what UI Automation finds when it has none.
+    /// </summary>
+    private static string[] Labels(IntPtr dialog, Automation.Contents? read)
+    {
+        string[] windows = ButtonsOf(dialog).Select(b => b.Text).Where(t => t.Length > 0).ToArray();
+
+        if (windows.Length > 0)
+        {
+            return windows;
+        }
+
+        return (read ?? Automation.Read(dialog))?.Buttons.ToArray() ?? Array.Empty<string>();
+    }
+
+    /// <summary>The keys named in braces, and what each is to Windows.</summary>
+    private static readonly Dictionary<string, int> Named = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ESC"] = VkEscape,
+        ["ESCAPE"] = VkEscape,
+        ["ENTER"] = 0x0D,
+        ["TAB"] = 0x09,
+        ["SPACE"] = 0x20,
+    };
+
+    /// <summary>
+    /// Splits a key string into named keys, such as <c>{ESC}</c>, and letters.
+    /// </summary>
+    /// <remarks>
+    /// <c>{ESC}</c> was offered in every refusal and was posted as its five characters, which no dialog
+    /// understood. A named key is now posted as a key press, which WPF and Win32 dialogs both act on: Escape
+    /// cancels and Enter accepts the default. A letter is still typed as a character.
+    /// </remarks>
+    private static List<(int Key, char Letter)> Strokes(string key)
+    {
+        List<(int, char)> strokes = [];
+
+        for (int at = 0; at < key.Length; at++)
+        {
+            int close = key[at] == '{' ? key.IndexOf('}', at) : -1;
+
+            if (close > at)
+            {
+                string name = key[(at + 1)..close];
+
+                strokes.Add(Named.TryGetValue(name, out int virtualKey)
+                    ? (virtualKey, '\0')
+                    : throw new ArgumentException(
+                        $"'{{{name}}}' is not a key this knows. Named keys: "
+                        + string.Join(", ", Named.Keys.Select(known => "{" + known + "}")) + "."));
+
+                at = close;
+            }
+            else
+            {
+                strokes.Add((0, key[at]));
+            }
+        }
+
+        return strokes;
     }
 
     /// <summary>
@@ -662,6 +753,9 @@ internal static class Pulse
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr handle);
+
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKey(uint code, uint mapType);
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowEnabled(IntPtr handle);

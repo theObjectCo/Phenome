@@ -22,8 +22,8 @@ Start with `launch grasshopper:false` for all of these.
 
 | verb | endpoint | what it does |
 |---|---|---|
-| `pulse` | `GET /pulse` | idle, busy or blocked, answered off the UI thread and therefore available when nothing else answers *(also on `.gha`)* |
-| `dialog` | `POST /dialog` | answer the open dialog: `button` presses, `key` types, `close` declines. With no answer given it refuses and lists the buttons instead of deciding for the caller *(also on `.gha`)* |
+| `pulse` | `GET /pulse` | idle, busy or blocked, answered off the UI thread and therefore available when nothing else answers. A blocking dialog comes with its title, its message as `text` and its buttons, Rhino's own Eto dialogs included *(also on `.gha`)* |
+| `dialog` | `POST /dialog` | answer the open dialog: `button` presses (through UI Automation where the button has no window), `key` types a letter or a named key such as `{ESC}`, `close` declines. With no answer given it refuses and lists the buttons instead of deciding for the caller *(also on `.gha`)* |
 | `dismiss` | `POST /dismiss` | superseded by `dialog` and still working. It behaves the same, except that sending nothing closes the dialog, which declines it *(also on `.gha`)* |
 | `escape` | `POST /escape` | cancel whatever Rhino is waiting for, for the case `dismiss` cannot answer *(also on `.gha`)* |
 | `console` | `GET /console` | the tail of Rhino's command line, where commands and scripts reply. `mine:true` reads the link's own echo from the canvas half instead |
