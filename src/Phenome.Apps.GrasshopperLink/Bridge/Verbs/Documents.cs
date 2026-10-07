@@ -358,6 +358,17 @@ internal static class Documents
         return "{\"ok\":true}";
     }
 
+    /// <summary>Bakes objects into the Rhino document, on the layer and in the colour asked for.</summary>
+    /// <remarks>
+    /// An object is baked the way Grasshopper bakes it when it can be. Plug-in types that do not implement
+    /// IGH_BakeAwareData were refused ("nothing to bake right now", "produced no objects"), and an agent baked them
+    /// by reflection on the plug-in's own properties. When the ordinary bake gives nothing, the object's data is
+    /// baked through <see cref="Fallback"/> instead, and the answer says per object which route was taken.
+    /// <para>
+    /// <c>layer</c> is a full path, made if missing, and <c>colour</c> is set on the objects. Without a layer the
+    /// objects land on the current one, as Grasshopper bakes them.
+    /// </para>
+    /// </remarks>
     internal static string Bake(JsonDocument request)
     {
         string author = Author(request);
@@ -368,11 +379,17 @@ internal static class Documents
         }
 
         List<Guid> asked = [.. ids.EnumerateArray().Select(id => Guid.Parse(id.GetString()!))];
+        string? layer = Field(request, "layer");
+
+        System.Drawing.Color? colour = request.RootElement.TryGetProperty("colour", out JsonElement given)
+            || request.RootElement.TryGetProperty("color", out given)
+                ? AsColour(given)
+                : null;
 
         // Report each skipped object. A bare "ok" after baking nothing cannot tell apart an id that is not on
         // the canvas, an object that is not bake-aware and empty geometry: three failures with three fixes
         // reported as one success.
-        (int Baked, List<string> Skipped) result = OnUi(() =>
+        (int Baked, List<string> Skipped, List<string> Routes) result = OnUi(() =>
         {
             GH_Document document = ActiveDocument()
                 ?? throw new InvalidOperationException("There is no document to bake from.");
@@ -380,8 +397,22 @@ internal static class Documents
             Rhino.RhinoDoc rhino = Rhino.RhinoDoc.ActiveDoc
                 ?? throw new InvalidOperationException("There is no Rhino document to bake into.");
 
+            Rhino.DocObjects.ObjectAttributes attributes = rhino.CreateDefaultAttributes();
+
+            if (layer is not null)
+            {
+                attributes.LayerIndex = Layers.Ensure(rhino, layer);
+            }
+
+            if (colour is { } chosen)
+            {
+                attributes.ObjectColor = chosen;
+                attributes.ColorSource = Rhino.DocObjects.ObjectColorSource.ColorFromObject;
+            }
+
             List<Guid> born = [];
             List<string> skipped = [];
+            List<string> routes = [];
 
             foreach (Guid id in asked)
             {
@@ -393,33 +424,40 @@ internal static class Documents
                     continue;
                 }
 
-                if (thing is not IGH_BakeAwareObject bakeable)
-                {
-                    skipped.Add($"{thing.NickName} ({id}) holds nothing that can be baked");
-                    continue;
-                }
-
-                if (!bakeable.IsBakeCapable)
-                {
-                    // The usual reason is an empty or unsolved output, not a wrong kind of object. The
-                    // message says where to look as well as what was refused.
-                    skipped.Add(
-                        $"{thing.NickName} ({id}) has nothing to bake right now: it is empty, hidden or unsolved");
-                    continue;
-                }
-
                 int before = born.Count;
-                bakeable.BakeGeometry(rhino, born);
+                string route = "bake-aware";
+                string? from = null;
+
+                if (thing is IGH_BakeAwareObject bakeable && bakeable.IsBakeCapable)
+                {
+                    bakeable.BakeGeometry(rhino, attributes.Duplicate(), born);
+                }
 
                 if (born.Count == before)
                 {
-                    skipped.Add($"{thing.NickName} ({id}) produced no objects");
+                    (route, from) = Fallback(rhino, thing, attributes, born);
                 }
+
+                if (born.Count == before)
+                {
+                    // The usual reason is an empty or unsolved output, not a wrong kind of object. The message
+                    // says where to look as well as what was refused.
+                    skipped.Add(
+                        $"{thing.NickName} ({id}) produced no objects: its outputs are empty, unsolved, or hold "
+                        + "nothing that converts to Rhino geometry");
+                    continue;
+                }
+
+                routes.Add("{\"id\":" + Json.Quote(id.ToString())
+                    + ",\"name\":" + Json.Quote(thing.NickName)
+                    + ",\"route\":" + Json.Quote(route)
+                    + (from is null ? "" : ",\"from\":" + Json.Quote(from))
+                    + ",\"objects\":" + Json.Number(born.Count - before) + "}");
             }
 
             rhino.Views.Redraw();
 
-            return (born.Count, skipped);
+            return (born.Count, skipped, routes);
         });
 
         Journal.Append(
@@ -429,7 +467,205 @@ internal static class Documents
 
         string skippedJson = string.Join(",", result.Skipped.Select(Json.Quote));
 
-        return $"{{\"ok\":true,\"baked\":{Json.Number(result.Baked)},\"skipped\":[{skippedJson}]}}";
+        return $"{{\"ok\":true,\"baked\":{Json.Number(result.Baked)},\"routes\":[{string.Join(",", result.Routes)}],\"skipped\":[{skippedJson}]"
+            + (layer is null ? "" : $",\"layer\":{Json.Quote(layer)}")
+            + "}";
+    }
+
+    /// <summary>
+    /// Bakes what an object's outputs hold when Grasshopper's own bake gives nothing, and names the route.
+    /// </summary>
+    /// <remarks>
+    /// Three routes, tried per item in this order:
+    /// <list type="bullet">
+    /// <item><c>bake-aware data</c>: an item that implements IGH_BakeAwareData, on an object whose preview is off
+    /// and which Grasshopper therefore did not offer to bake.</item>
+    /// <item><c>converted</c>: an item Grasshopper converts to Rhino geometry, through GH_Convert or the value its
+    /// script variable gives (curves, surfaces, breps, meshes, points, lines, polylines, boxes).</item>
+    /// <item><c>properties</c>: the public properties of the item or of its <c>Value</c> that hold geometry, one
+    /// level deep. This is what an agent did by hand for plug-in types that preview geometry they never expose
+    /// as Rhino geometry; the answer names the properties read.</item>
+    /// </list>
+    /// What a component only draws, with nothing behind it in its outputs, cannot be reached and is not baked.
+    /// </remarks>
+    private static (string Route, string? From) Fallback(
+        Rhino.RhinoDoc rhino,
+        IGH_DocumentObject thing,
+        Rhino.DocObjects.ObjectAttributes attributes,
+        List<Guid> born)
+    {
+        IEnumerable<IGH_Param> outputs = thing switch
+        {
+            IGH_Component component => component.Params.Output,
+            IGH_Param parameter => [parameter],
+            _ => [],
+        };
+
+        SortedSet<string> routes = [];
+        SortedSet<string> properties = [];
+
+        foreach (IGH_Param output in outputs)
+        {
+            foreach (Grasshopper.Kernel.Types.IGH_Goo goo in output.VolatileData.AllData(skipNulls: true))
+            {
+                if (goo is IGH_BakeAwareData data
+                    && data.BakeGeometry(rhino, attributes.Duplicate(), out Guid made)
+                    && made != Guid.Empty)
+                {
+                    born.Add(made);
+                    routes.Add("bake-aware data");
+                    continue;
+                }
+
+                List<Rhino.Geometry.GeometryBase> shapes = [.. Shapes(goo)];
+
+                if (shapes.Count == 0 && goo.ScriptVariable() is { } variable)
+                {
+                    shapes.AddRange(Shapes(variable));
+                }
+
+                if (shapes.Count > 0)
+                {
+                    routes.Add("converted");
+                }
+                else
+                {
+                    foreach ((string name, Rhino.Geometry.GeometryBase shape) in Held(goo))
+                    {
+                        shapes.Add(shape);
+                        properties.Add(name);
+                    }
+
+                    if (shapes.Count > 0)
+                    {
+                        routes.Add("properties");
+                    }
+                }
+
+                foreach (Rhino.Geometry.GeometryBase shape in shapes)
+                {
+                    Guid added = rhino.Objects.Add(shape, attributes.Duplicate());
+
+                    if (added != Guid.Empty)
+                    {
+                        born.Add(added);
+                    }
+                }
+            }
+        }
+
+        return (
+            routes.Count == 0 ? "none" : string.Join(" + ", routes),
+            properties.Count == 0 ? null : string.Join(", ", properties));
+    }
+
+    /// <summary>Rhino geometry for one value, when Grasshopper or RhinoCommon can make some of it.</summary>
+    private static IEnumerable<Rhino.Geometry.GeometryBase> Shapes(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                yield break;
+            case Rhino.Geometry.GeometryBase geometry:
+                yield return geometry.Duplicate();
+                yield break;
+            case Rhino.Geometry.Point3d point:
+                yield return new Rhino.Geometry.Point(point);
+                yield break;
+            case Rhino.Geometry.Line line:
+                yield return new Rhino.Geometry.LineCurve(line);
+                yield break;
+            case Rhino.Geometry.Polyline polyline:
+                yield return new Rhino.Geometry.PolylineCurve(polyline);
+                yield break;
+            case Rhino.Geometry.Circle circle:
+                yield return new Rhino.Geometry.ArcCurve(circle);
+                yield break;
+            case Rhino.Geometry.Arc arc:
+                yield return new Rhino.Geometry.ArcCurve(arc);
+                yield break;
+            case Rhino.Geometry.Rectangle3d rectangle:
+                yield return rectangle.ToNurbsCurve();
+                yield break;
+            case Rhino.Geometry.Box box when box.IsValid:
+                yield return box.ToBrep();
+                yield break;
+            case Grasshopper.Kernel.Types.IGH_Goo goo:
+                if (Grasshopper.Kernel.GH_Convert.ToGeometryBase(goo) is { } converted)
+                {
+                    yield return converted.Duplicate();
+                }
+
+                yield break;
+            case string:
+                yield break;
+            case System.Collections.IEnumerable many:
+                foreach (object? item in many)
+                {
+                    foreach (Rhino.Geometry.GeometryBase shape in Shapes(item))
+                    {
+                        yield return shape;
+                    }
+                }
+
+                yield break;
+        }
+    }
+
+    /// <summary>
+    /// The geometry held in the public properties of a value or of its <c>Value</c>, with each property's name.
+    /// </summary>
+    /// <remarks>
+    /// One level deep, and only properties without parameters. A property that throws when read is passed over:
+    /// a plug-in type's getter may compute, and a bake must not fail on one of them.
+    /// </remarks>
+    private static IEnumerable<(string Name, Rhino.Geometry.GeometryBase Shape)> Held(Grasshopper.Kernel.Types.IGH_Goo goo)
+    {
+        object? inner = goo.GetType().GetProperty("Value")?.GetIndexParameters().Length == 0
+            ? Read(goo.GetType().GetProperty("Value")!, goo)
+            : null;
+
+        foreach (object holder in new[] { inner, goo }.OfType<object>())
+        {
+            List<(string, Rhino.Geometry.GeometryBase)> found = [];
+
+            foreach (System.Reflection.PropertyInfo property in holder.GetType().GetProperties(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                if (property.GetIndexParameters().Length > 0 || property.Name == "Value")
+                {
+                    continue;
+                }
+
+                foreach (Rhino.Geometry.GeometryBase shape in Shapes(Read(property, holder)))
+                {
+                    found.Add((holder.GetType().Name + "." + property.Name, shape));
+                }
+            }
+
+            // The value's own properties describe the plug-in's object; the wrapper's describe Grasshopper's.
+            if (found.Count > 0)
+            {
+                foreach ((string, Rhino.Geometry.GeometryBase) one in found)
+                {
+                    yield return one;
+                }
+
+                yield break;
+            }
+        }
+    }
+
+    private static object? Read(System.Reflection.PropertyInfo property, object holder)
+    {
+        try
+        {
+            return property.GetValue(holder);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     internal static string RunScript(JsonDocument request)

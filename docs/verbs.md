@@ -90,7 +90,7 @@ Start with `launch grasshopper:false` for all of these.
 | verb | endpoint | what it does |
 |---|---|---|
 | `solver` | `POST /solver` | lock or unlock the solver |
-| `bake` | `POST /bake` | bake those objects into the Rhino document |
+| `bake` | `POST /bake` | bake those objects into the Rhino document, on `layer` and in `colour`. What Grasshopper cannot bake is baked from the outputs' data, by conversion or from the data's public properties, and `routes` says which |
 | `preview` | `POST /preview` | quiet the preview: the whole document on the colour rule, or one group, or one object |
 
 ### Talking

@@ -1224,8 +1224,12 @@ const TOOLS = [
     },
     {
         name: 'bake',
-        description: 'Bake objects into the Rhino document.',
-        inputSchema: object({ ids: ids('Object ids to bake.') }, ['ids']),
+        description: "Bake objects into the Rhino document, on 'layer' (a full path such as 'Capture::Model', made if missing; the current layer otherwise) and in 'colour'. An object that Grasshopper cannot bake, such as a plug-in type that does not implement IGH_BakeAwareData, is baked from its outputs instead: data that converts to Rhino geometry, or geometry held in the public properties of the data. 'routes' says per object which way was taken and which properties were read.",
+        inputSchema: object({
+            ids: ids('Object ids to bake.'),
+            layer: str("Layer for the baked objects, e.g. 'Capture::Model'; made if missing."),
+            colour: { type: 'array', items: { type: 'number' }, description: 'Object colour [r,g,b].' },
+        }, ['ids']),
         run: args => ask('/bake', args),
     },
     {

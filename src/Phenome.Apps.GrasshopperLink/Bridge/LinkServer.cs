@@ -75,7 +75,7 @@ internal static class LinkServer
             "GET /pulse": "whether Rhino is idle, busy or blocked, answered off the UI thread; it responds even when other verbs do not. 'busy' names the running command and how long it has run: wait. 'blocked' names the open dialog, gives its message as 'text' and lists its buttons; it holds the UI thread until an agent answers it or the user clicks it",
             "POST /say": "{author, text, to?} - a message into the journal, for the user or another agent",
             "POST /solver": "{author, enabled} - lock or unlock the solver",
-            "POST /bake": "{author, ids:[guid]} - bake those objects into the Rhino document",
+            "POST /bake": "{author, ids:[guid], layer?, colour?:[r,g,b]} - bake those objects into the Rhino document, on that layer (made if missing) and in that colour. An object Grasshopper cannot bake is baked from its outputs: data that converts to Rhino geometry, or geometry in the data's public properties; 'routes' names the way taken per object",
             "POST /param": "{author, id, side:'input'|'output', param:nameOrIndex, mapping?:'none'|'flatten'|'graft', simplify?, reverse?} - data mapping on one parameter",
             "POST /new": "{author} - a fresh Grasshopper document on the canvas",
             "POST /open": "{author, path} - open a .gh on the canvas, or a .3dm in Rhino",
