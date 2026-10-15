@@ -11,6 +11,24 @@ who installed the last version which six things they are about to notice.
 Each release block lists only the changes a user can see. Implementation that nobody outside sees belongs in
 the commit that made it.
 
+## 0.37.1
+
+### Changed
+
+- **`place` refuses a recipe whose shape it does not know, and says what the shape is.** A key nobody reads used
+  to be skipped: constants written as an object-level `value` map, or wires as a `sources` map keyed by input
+  name, gave a component with nothing wired and nothing set, and the call answered `ok`. Unknown keys on an entry,
+  an input or a source are now refused with the rest of the recipe's problems, the answer ends with the shape,
+  and `param` written inside a source is answered with a pointer to `output`. `value`, `slider` or `text` on an
+  object that cannot take it is refused too, and as before the canvas is left untouched.
+
+- **The agent is told to plan before it builds.** The server's instructions and the pairing notes now ask for
+  every component's guid and the branches and items it will output, written down before the first `place`, a
+  `peek` after each `place`, and a locked solver when a count runs far past the plan. They list the traps that
+  cost calls in practice: a point constant is text, Rotate takes radians, Rectangle sits on its corner and takes
+  domains, and a second wire into an input adds to the first. `place` describes its recipe with an example, and
+  `peek` says that `param` reads an input unless `side` is `output`.
+
 ## 0.37.0
 
 ### Added
