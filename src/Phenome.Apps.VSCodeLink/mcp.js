@@ -1699,7 +1699,7 @@ async function handle(line) {
             reply(id, {
                 protocolVersion: params?.protocolVersion ?? '2024-11-05',
                 capabilities: { tools: {} },
-                serverInfo: { name: 'phenome', version: '0.37.1' },
+                serverInfo: { name: 'phenome', version: '0.37.2' },
                 instructions: instructions(),
             });
             break;

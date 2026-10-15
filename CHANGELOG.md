@@ -11,6 +11,28 @@ who installed the last version which six things they are about to notice.
 Each release block lists only the changes a user can see. Implementation that nobody outside sees belongs in
 the commit that made it.
 
+## 0.37.2
+
+### Changed
+
+- **`group` with an `id` no longer needs `name`.** A recolour or a port added to an existing group keeps the
+  group's name. A new group still needs one.
+
+- **`measure` takes `list`, and `list: 0` answers with the totals alone.** Checking the sum of a 400-item set
+  used to print every item into the agent's context. At most 200 items are listed, as before.
+
+- **Deleting a group takes its inlet and outlet ports with it.** They used to stay behind as floating
+  parameters that failed to collect data, and `review` warned until each was found and deleted by hand. The
+  body stays; wires from the ports into it are reported like any other cut, and the answer counts the ports.
+
+- **`arrange` refuses while the Grasshopper window is minimised.** It used to answer ok, move every object again
+  on each call, and leave the groups overlapping, with nothing said about the window.
+
+- **`place` says which entry a stray source belongs to.** A source that is neither a local id of the recipe nor
+  a canvas id, usually a local id from an earlier call, was answered with "Unrecognized Guid format." It is now
+  refused with the other problems, naming the entry and the id. A source with several outputs is told to name
+  one with `output`, and every such refusal lists the parameter names to choose from.
+
 ## 0.37.1
 
 ### Changed
