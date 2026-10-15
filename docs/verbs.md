@@ -1,6 +1,6 @@
 # Every verb, and which half answers it
 
-The list is as of 0.37.2: fifty-five tools over two HTTP servers and one client.
+The list is as of 0.37.3: fifty-five tools over two HTTP servers and one client.
 
 The MCP server is registered as `phenome`, and a host presents these tools as `mcp__phenome__<name>`. The
 prefix comes from the registration key the pairing writes, not from the name the server reports in its

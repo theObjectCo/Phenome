@@ -11,6 +11,14 @@ who installed the last version which six things they are about to notice.
 Each release block lists only the changes a user can see. Implementation that nobody outside sees belongs in
 the commit that made it.
 
+## 0.37.3
+
+### Changed
+
+- **The agent is told to build the parts of one piece from a table.** A cabinet's boards are one list of
+  corners into one Box 2Pt, not a chain of components per board. The rule sits in the pairing notes next to
+  "Build for many, even when asked for one", and as one line in the server's instructions.
+
 ## 0.37.2
 
 ### Changed
