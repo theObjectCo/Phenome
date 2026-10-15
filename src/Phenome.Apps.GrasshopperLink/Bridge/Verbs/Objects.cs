@@ -521,16 +521,40 @@ internal static class Objects
             // resends it in one pass.
             List<(IGH_ObjectProxy Proxy, JsonElement Spec)> recipe = [];
             List<string> unresolved = [];
+            bool misshapen = false;
 
             foreach (JsonElement spec in objects.EnumerateArray())
             {
-                try
+                // Every problem of an entry is reported at once: its shape, the component it names, and the fields
+                // that component cannot take.
+                List<string> wrong = Misshapen(spec);
+                bool shapeless = wrong.Count > 0;
+
+                if (spec.ValueKind == JsonValueKind.Object)
                 {
-                    recipe.Add((Resolve(spec), spec));
+                    try
+                    {
+                        IGH_ObjectProxy proxy = Resolve(spec);
+                        List<string> unfit = Inapplicable(proxy, spec);
+
+                        shapeless |= unfit.Count > 0;
+                        wrong.AddRange(unfit);
+
+                        if (wrong.Count == 0)
+                        {
+                            recipe.Add((proxy, spec));
+                        }
+                    }
+                    catch (Exception refused) when (refused is KeyNotFoundException or ArgumentException)
+                    {
+                        wrong.Insert(0, refused.Message);
+                    }
                 }
-                catch (Exception refused) when (refused is KeyNotFoundException or ArgumentException)
+
+                if (wrong.Count > 0)
                 {
-                    unresolved.Add($"{Which(spec)}: {refused.Message}");
+                    unresolved.Add($"{Which(spec)}: {string.Join("; ", wrong)}");
+                    misshapen |= shapeless;
                 }
             }
 
@@ -539,7 +563,8 @@ internal static class Objects
                 throw new ArgumentException(
                     $"{unresolved.Count} of {unresolved.Count + recipe.Count} entries could not be resolved, "
                     + "and nothing was placed; the canvas is untouched. Fix all of these and send the recipe "
-                    + $"again: {string.Join(" || ", unresolved)}");
+                    + $"again: {string.Join(" || ", unresolved)}"
+                    + (misshapen ? $". The shape: {RecipeShape}" : ""));
             }
 
             // First pass: every object is created and configured, and each local id is mapped to its real one.
@@ -753,6 +778,103 @@ internal static class Objects
             : $" (\"{(said.Length <= 60 ? said : said[..57] + "...")}\")";
     }
 
+    private static readonly HashSet<string> EntryKeys =
+        ["id", "name", "guid", "nickname", "pivot", "slider", "text", "value", "inputs"];
+
+    private static readonly HashSet<string> InputKeys = ["param", "sources", "value"];
+
+    private static readonly HashSet<string> SourceKeys = ["id", "output"];
+
+    private const string RecipeShape =
+        "an entry is {id, guid or name, nickname?, pivot?, slider?, text?, value?, inputs?}, and inputs is a list of "
+        + "{param, sources: [{id, output?}]} or {param, value}";
+
+    /// <summary>What is wrong with the shape of one recipe entry; empty when nothing is.</summary>
+    /// <remarks>
+    /// Keys nobody reads used to be skipped. A recipe written from the prose instead of the shape, with constants in
+    /// an object-level map and wires keyed by input name, was then placed with nothing wired and nothing set, and
+    /// answered ok; the caller found out several calls later, from counts that read zero. Refused here, with the
+    /// shape in the message, it costs one corrected resend.
+    /// </remarks>
+    private static List<string> Misshapen(JsonElement spec)
+    {
+        List<string> wrong = [];
+
+        if (spec.ValueKind != JsonValueKind.Object)
+        {
+            wrong.Add("is not an object");
+            return wrong;
+        }
+
+        foreach (JsonProperty key in spec.EnumerateObject())
+        {
+            if (!EntryKeys.Contains(key.Name))
+            {
+                wrong.Add($"unknown key '{key.Name}'");
+            }
+        }
+
+        if (!spec.TryGetProperty("inputs", out JsonElement inputs))
+        {
+            return wrong;
+        }
+
+        if (inputs.ValueKind != JsonValueKind.Array)
+        {
+            wrong.Add("'inputs' is not a list");
+            return wrong;
+        }
+
+        foreach (JsonElement input in inputs.EnumerateArray())
+        {
+            if (input.ValueKind != JsonValueKind.Object)
+            {
+                wrong.Add("an input is not an object");
+                continue;
+            }
+
+            foreach (JsonProperty key in input.EnumerateObject())
+            {
+                if (!InputKeys.Contains(key.Name))
+                {
+                    wrong.Add($"unknown key '{key.Name}' in an input");
+                }
+            }
+
+            if (!input.TryGetProperty("sources", out JsonElement sources))
+            {
+                continue;
+            }
+
+            if (sources.ValueKind != JsonValueKind.Array)
+            {
+                wrong.Add("'sources' is not a list");
+                continue;
+            }
+
+            foreach (JsonElement source in sources.EnumerateArray())
+            {
+                if (source.ValueKind != JsonValueKind.Object)
+                {
+                    wrong.Add("a source is not an object");
+                    continue;
+                }
+
+                foreach (JsonProperty key in source.EnumerateObject())
+                {
+                    if (!SourceKeys.Contains(key.Name))
+                    {
+                        wrong.Add(key.Name == "param"
+                            ? "a source names the output it reads with 'output', not 'param'"
+                            : $"unknown key '{key.Name}' in a source");
+                    }
+                }
+            }
+        }
+
+        return wrong;
+    }
+
     /// <summary>
     /// Which entry of a recipe a complaint is about, said the way the caller wrote it.
     /// </summary>
@@ -763,6 +885,11 @@ internal static class Objects
     /// </remarks>
     private static string Which(JsonElement spec)
     {
+        if (spec.ValueKind != JsonValueKind.Object)
+        {
+            return $"a {spec.ValueKind.ToString().ToLowerInvariant()} where an entry belongs";
+        }
+
         if (spec.TryGetProperty("id", out JsonElement local) && local.GetString() is { Length: > 0 } key)
         {
             return $"'{key}'";
@@ -898,6 +1025,39 @@ internal static class Objects
         {
             Store(parameter, value);
         }
+    }
+
+    /// <summary>The fields of a recipe entry that the object it names cannot take; empty when there are none.</summary>
+    /// <remarks>
+    /// Skipped, such a field leaves the object at its defaults while the recipe answers ok. The commonest case is a
+    /// component's constants written as an object-level 'value' instead of one input entry per socket. Checked from
+    /// the proxy's type, before anything is placed, so the refusal comes with the recipe's other problems.
+    /// </remarks>
+    private static List<string> Inapplicable(IGH_ObjectProxy proxy, JsonElement spec)
+    {
+        List<string> wrong = [];
+        Type made = proxy.Type;
+
+        if (spec.TryGetProperty("slider", out _)
+            && !typeof(Grasshopper.Kernel.Special.GH_NumberSlider).IsAssignableFrom(made))
+        {
+            wrong.Add($"'slider' is for a Number Slider, not {proxy.Desc.Name}");
+        }
+
+        if (spec.TryGetProperty("text", out _)
+            && !typeof(Grasshopper.Kernel.Special.GH_Panel).IsAssignableFrom(made)
+            && !typeof(Grasshopper.Kernel.Special.GH_Scribble).IsAssignableFrom(made))
+        {
+            wrong.Add($"'text' is for a Panel or a Scribble, not {proxy.Desc.Name}");
+        }
+
+        if (spec.TryGetProperty("value", out _) && !typeof(IGH_Param).IsAssignableFrom(made))
+        {
+            wrong.Add($"'value' on {proxy.Desc.Name} is for a parameter standing alone; a component's constants go "
+                + "in inputs: [{param, value}], one entry per socket");
+        }
+
+        return wrong;
     }
 
     /// <summary>A panel's text: a string is written as it is, an array is one item per line.</summary>

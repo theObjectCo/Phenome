@@ -70,6 +70,37 @@ The refusal names **every** unresolved entry by the local id given in the recipe
 as a paste-ready literal such as `{"name":"Merge","guid":"3cadddef-..."}`. Send the recipe, and if it is refused,
 fix every entry it named and send the whole recipe again. Do not probe one entry at a time.
 
+**The recipe has one shape, and keys outside it are refused.** Wires and constants go in `inputs`, one entry per
+socket. `sources` is a list, and a source reads a named output with `output`. A group's inlet port id is a source
+like any object id; its outlet ports are wired afterwards with `wire` and never appear in a recipe.
+
+```json
+{"group": "<group id>", "objects": [
+  {"id": "n", "guid": "57da07bd-ecab-415d-9d86-af36d7073abc",
+   "slider": {"value": 10, "minimum": 1, "maximum": 30, "decimals": 0}},
+  {"id": "s", "guid": "e64c5fb1-845c-4ab1-8911-5f338516ba67", "inputs": [
+    {"param": "Step", "value": 10},
+    {"param": "Count", "sources": [{"id": "n"}]}]},
+  {"id": "cr", "guid": "36947590-f0cb-4807-a8f9-9c90c9b20621", "inputs": [
+    {"param": "List (A)", "sources": [{"id": "s"}]},
+    {"param": "List (B)", "sources": [{"id": "<inlet port id>"}]}]},
+  {"id": "pt", "guid": "3581f42a-9592-4549-bd6b-1c0fc39d067b", "inputs": [
+    {"param": "X coordinate", "sources": [{"id": "cr", "output": "List (A)"}]}]}
+]}
+```
+
+Unknown keys used to be skipped. A recipe written from a description instead of this shape, with constants in an
+object-level map and wires keyed by input name, was placed with nothing wired and nothing set and answered ok; the
+agent found out ten calls later from counts that read zero. After each `place`, `peek` one object of the body and
+compare it with the plan. The group's outlets legitimately read zero until the `wire` call that feeds them.
+
+**Traps that cost calls in practice.** A point constant is the text `"0,0,0"`; the array `[0,0,0]` is read as
+three numbers and refused. `Rotate` takes radians. `Rectangle` sits with its corner on the plane origin, unlike
+`Center Box`, and its sizes are domains, so a square of side s centred on a point takes the domain −s/2 to s/2. A
+second wire into an input adds to the first instead of replacing it; to replace a source, disconnect the old wire
+in the same `wire` call. `peek` with `param` reads an input unless `side` is `"output"`, which matters when an
+input and an output share a name.
+
 **Notes, and how to verify the wording.** `Scribble` and `Panel` both take their wording in `text` on `place`, and
 `set` rewords either one afterwards. That is the repair path when the first wording was wrong; a note never needs
 to be deleted and rebuilt.
@@ -113,6 +144,13 @@ fix that, because it has already placed everything; shorten the note.
    transcribes it without inventing anything, and the user can read the plan before a single component exists.
    Keep the diagram in the chat and off the canvas. To read a definition built elsewhere, ask for the same shape
    back: `canvas` with `as:'mermaid'`.
+
+   Under the diagram, list every component with its guid and the branches and items it will output at the
+   default slider values. A count that cannot be predicted marks a step that is not understood yet, and that is
+   cheaper to find on paper than on the canvas. Look for the formulation with the fewest steps: a Menger sponge
+   built as 20 offsets crossed with themselves took 17 components and 21 calls, while the same sponge as a digit
+   filter over a 729-point grid took about 50 components, an hour and three Rhino restarts, because one Cross
+   Reference squared a list nobody had counted.
 2. **Declare every group with its signature**: one `group` call per step, with `inlets` and `outlets` named after
    the plan. The answer is a name-to-id map of ports, and the skeleton of the definition exists before a single
    component does.

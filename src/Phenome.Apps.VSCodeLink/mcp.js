@@ -1506,7 +1506,7 @@ const TOOLS = [
     },
     {
         name: 'place',
-        description: "Place a whole group's body in one call: objects with local ids, wired to each other, to the group's inlet and outlet ids, and to objects already on the canvas. Each object: {id?, name|guid, nickname?, pivot?:[x,y], slider?:{value,minimum,maximum,decimals}, text?, value?, inputs?:[{param?, sources?:[{id, output?}], value?}]}. An input takes 'sources' for wires or 'value' for a constant typed into that socket, and 'param' is a name or an index. Pass 'group' and every object placed joins that group. Returns the local-id to canvas-id map. Prefer this over add/wire loops. 'text' is a note's wording and works on both a Scribble and a Panel; empty text is refused and does not become a placeholder. A Panel sends a string as one item regardless of line breaks; give 'text' as an array of lines when the panel is a list source. 'describe' reads the text back with the note's position, which checks placement and wording without a screenshot. Prefer 'guid' over 'name'. A ComponentGuid is what a .gh file stores and it cannot change, while a display name can be renamed by a plugin author and collides between plugins. The guid also avoids the ambiguity refusal. A recipe is all-or-nothing: if any entry cannot be resolved, nothing is placed and the canvas is untouched. The refusal names every bad entry by its local id; fix them all in one pass and resend the whole recipe instead of probing one at a time.",
+        description: "Place a whole group's body in one call: objects with local ids, wired to each other, to the group's inlet and outlet ids, and to objects already on the canvas. Each object: {id?, name|guid, nickname?, pivot?:[x,y], slider?:{value,minimum,maximum,decimals}, text?, value?, inputs?:[{param?, sources?:[{id, output?}], value?}]}. An input takes 'sources' for wires or 'value' for a constant typed into that socket, and 'param' is a name or an index. Pass 'group' and every object placed joins that group. Returns the local-id to canvas-id map. Prefer this over add/wire loops. 'text' is a note's wording and works on both a Scribble and a Panel; empty text is refused and does not become a placeholder. A Panel sends a string as one item regardless of line breaks; give 'text' as an array of lines when the panel is a list source. 'describe' reads the text back with the note's position, which checks placement and wording without a screenshot. Prefer 'guid' over 'name'. A ComponentGuid is what a .gh file stores and it cannot change, while a display name can be renamed by a plugin author and collides between plugins. The guid also avoids the ambiguity refusal. A recipe is all-or-nothing: if any entry cannot be resolved, nothing is placed and the canvas is untouched. The refusal names every bad entry by its local id; fix them all in one pass and resend the whole recipe instead of probing one at a time. Keys outside this shape are refused too, with the shape in the answer, because a skipped key leaves an object unwired and unset while the recipe reports ok. An entry with wires and constants reads {id:'s', guid:'e64c5fb1-845c-4ab1-8911-5f338516ba67', inputs:[{param:'Step', value:10}, {param:'Count', sources:[{id:'n'}]}]}, and a source that reads one named output of a component is {id:'cr', output:'List (A)'}. A group's inlet port id is a source like any object id; its outlet ports are wired afterwards with wire, never placed.",
         inputSchema: object({
             objects: { type: 'array', items: { type: 'object' }, description: 'The recipe, in dataflow order.' },
             group: str("The group this body belongs to; everything placed joins it."),
@@ -1515,7 +1515,7 @@ const TOOLS = [
     },
     {
         name: 'peek',
-        description: "Read the full data on one parameter, branch by branch with tree paths. These are the exact values to verify a definition by, beyond the five-value sample in canvas. Given a group's id instead, it returns that group's signature as it stands: every inlet and outlet with its type, branch and item counts, and a few values from each outlet. That is a function's current type in one call, without needing its ports' ids first.",
+        description: "Read the full data on one parameter, branch by branch with tree paths. These are the exact values to verify a definition by, beyond the five-value sample in canvas. Given a group's id instead, it returns that group's signature as it stands: every inlet and outlet with its type, branch and item counts, and a few values from each outlet. That is a function's current type in one call, without needing its ports' ids first. 'param' is looked up among the inputs unless side is 'output': when an input and an output share a name, as Cross Reference's List (A) does, the input is what comes back. Every value is printed, so read counts of a long list from the group instead.",
         inputSchema: object({
             id: str('Object id.'),
             side: { type: 'string', enum: ['input', 'output'] },
@@ -1637,6 +1637,14 @@ function instructions() {
         '12. Finish with `signature` once, `arrange`, then `review`; fix every finding marked blocking and',
         '    treat polish as optional. Then call `preview` with no id, which leaves only the outlets of the red',
         '    and yellow groups drawing and darkens the scaffolding, and then `save`.',
+        '',
+        'Before the first `place`, write the plan: the groups, and for every component its guid from `components` and the',
+        'branches and items it will output at the default slider values. Look for the formulation with the fewest steps; a',
+        'product of small lists usually beats a filter over a large grid. A count you cannot predict is a step not yet understood.',
+        'After each `place`, `peek` one body object and compare it with the plan; after the `wire` call, `peek` the groups. A count',
+        'far above the plan means locking the solver (`solver` enabled:false) before the next call.',
+        'Traps seen in practice: a point constant is the text "x,y,z", not an array; Rotate takes radians; Rectangle sits on its',
+        'corner and its sizes are domains; a second wire into an input adds to the first instead of replacing it.',
         '',
         'Verify numerically with `peek` (branch and item counts are the specification), measure lengths,',
         'areas and overlaps with `measure`, and look at the layout with `canvas_image`. If a tool behaves',
