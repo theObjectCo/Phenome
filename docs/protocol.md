@@ -314,7 +314,8 @@ compares every pair from the two sets: the area two closed planar curves share, 
 which pairs overlap, and the nearest distance between curves or points. The same id and parameter twice
 compares a set with itself, each pair once. A call compares at most 2,500 pairs, because each boolean runs on
 Rhino's UI thread. The verb was added after a session measured profile overlaps with a script component that
-it created and deleted once per variant across 64 variants.
+it created and deleted once per variant across 64 variants. `list=` caps the items written one by one (200 at
+most and by default); `list=0` answers with the totals alone, which is what a check of a 400-item set needs.
 
 `/screenshot` redraws the view off screen at the requested size, and geometry a plug-in draws with its own
 display code is not always in that redraw. Two cases are on record: an off-thread volume preview came back as

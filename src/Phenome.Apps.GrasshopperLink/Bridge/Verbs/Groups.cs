@@ -21,7 +21,14 @@ internal static class Groups
     internal static string Group(JsonDocument request)
     {
         string author = Author(request);
-        string name = Field(request, "name") ?? throw new ArgumentException("group needs 'name'.");
+        // A new group needs a name. With an id the group already has one, and a recolour or a port added to it
+        // keeps that name; requiring it again cost an agent three refused calls in one exercise.
+        string? name = Field(request, "name");
+
+        if (name is null && Field(request, "id") is null)
+        {
+            throw new ArgumentException("group needs 'name' for a new group, or 'id' for one already on the canvas.");
+        }
 
         // Absence of members is not an error: a signature-first group has none yet, by design.
         List<Guid> asked = request.RootElement.TryGetProperty("ids", out JsonElement ids)
@@ -52,7 +59,10 @@ internal static class Groups
 
                 document.UndoUtil.RecordGenericObjectEvent("Phenome Link: group", already);
 
-                already.NickName = name;
+                if (name is not null)
+                {
+                    already.NickName = name;
+                }
 
                 if (request.RootElement.TryGetProperty("colour", out JsonElement recolour))
                 {
@@ -179,7 +189,7 @@ internal static class Groups
 
             Grasshopper.Kernel.Special.GH_Group group = new()
             {
-                NickName = name,
+                NickName = name!,
             };
 
             if (request.RootElement.TryGetProperty("colour", out JsonElement colour))
@@ -218,7 +228,7 @@ internal static class Groups
             return group.InstanceGuid;
         });
 
-        Journal.Append(author, "group", $",\"id\":{Json.Quote(born.ToString())},\"name\":{Json.Quote(name)}");
+        Journal.Append(author, "group", $",\"id\":{Json.Quote(born.ToString())},\"name\":{Json.Quote(name ?? "")}");
 
         StringBuilder ports = new();
 
@@ -302,6 +312,17 @@ internal static class Groups
         {
             GH_Document document = ActiveDocument()
                 ?? throw new InvalidOperationException("There is no document to arrange.");
+
+            // A minimised editor lays out against a zero-size canvas: every call moved every object again and
+            // review then found the groups overlapping, with no word about the window. Refused, the caller
+            // learns why and the layout is left as it was. A headless session has no canvas at all and arranges.
+            if (global::Grasshopper.Instances.ActiveCanvas is { } canvas && (canvas.Width < 1 || canvas.Height < 1))
+            {
+                throw new InvalidOperationException(
+                    $"The canvas is {canvas.Width} x {canvas.Height} pixels, which is what a minimised Grasshopper "
+                    + "window gives, and a layout made against it overlaps. Ask the user to restore the "
+                    + "Grasshopper window, then arrange again.");
+            }
 
             EnsureAutosave(document);
 

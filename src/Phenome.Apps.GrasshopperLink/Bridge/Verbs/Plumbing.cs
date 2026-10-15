@@ -269,7 +269,12 @@ internal static class Plumbing
         LocateBy(thing, Field(request, "side"), Field(request, "param"));
 
     /// <summary>The same aim without a request: side is input by default; no name means the only one.</summary>
-    internal static IGH_Param LocateBy(IGH_DocumentObject thing, string? whichSide, string? param)
+    /// <param name="thing">The object: a parameter standing alone is its own answer.</param>
+    /// <param name="whichSide">"output", or anything else for the inputs.</param>
+    /// <param name="param">A parameter's name or index; null when the component has only one on that side.</param>
+    /// <param name="key">The field the caller names a parameter with, for the refusal: 'param' for most verbs,
+    /// 'output' for a source inside a place recipe.</param>
+    internal static IGH_Param LocateBy(IGH_DocumentObject thing, string? whichSide, string? param, string key = "param")
     {
         if (thing is IGH_Param loose)
         {
@@ -289,7 +294,9 @@ internal static class Plumbing
         {
             return side.Count == 1
                 ? side[0]
-                : throw new ArgumentException($"{component.Name} has {side.Count} on that side; say which with 'param'.");
+                : throw new ArgumentException(
+                    $"{component.Name} has {side.Count} {(whichSide == "output" ? "outputs" : "inputs")} "
+                    + $"({string.Join(", ", side.Select(one => one.Name))}); say which with '{key}'.");
         }
 
         if (int.TryParse(param, out int index))

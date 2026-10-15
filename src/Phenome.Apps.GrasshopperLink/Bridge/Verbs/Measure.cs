@@ -51,7 +51,13 @@ internal static class Measure
             StringBuilder json = new("{\"ok\":true");
 
             json.Append(",\"tolerance\":").Append(Json.Number(tolerance));
-            Write(these, json);
+            // 'list' caps the items written one by one; 0 answers with the totals alone. A 400-item measure
+            // printed every item while the caller wanted only the sum, and that output filled an agent's context.
+            int listed = int.TryParse(request.QueryString["list"], out int asked) && asked >= 0
+                ? Math.Min(asked, Listed)
+                : Listed;
+
+            Write(these, json, listed);
 
             if (against is null)
             {
@@ -141,7 +147,7 @@ internal static class Measure
     };
 
     /// <summary>Each item's own sizes, then the totals.</summary>
-    private static void Write(List<Item> items, StringBuilder json)
+    private static void Write(List<Item> items, StringBuilder json, int listed)
     {
         double length = 0;
         double area = 0;
@@ -226,7 +232,7 @@ internal static class Measure
                 }
             }
 
-            if (at < Listed)
+            if (at < listed)
             {
                 json.Append(at == 0 ? "" : ",").Append(one).Append('}');
             }
@@ -234,9 +240,9 @@ internal static class Measure
 
         json.Append(']');
 
-        if (items.Count > Listed)
+        if (items.Count > listed)
         {
-            json.Append(",\"listed\":").Append(Json.Number(Listed));
+            json.Append(",\"listed\":").Append(Json.Number(listed));
         }
 
         json.Append(",\"total\":{\"measured\":").Append(Json.Number(measured));

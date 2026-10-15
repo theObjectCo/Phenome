@@ -46,6 +46,13 @@ internal static class Signature
     private static bool IsPort(IGH_Param parameter) =>
         parameter.Description?.StartsWith(Mark, StringComparison.Ordinal) == true;
 
+    /// <summary>The inlets and outlets a group holds itself, not those of groups nested inside it.</summary>
+    internal static List<IGH_Param> PortsOf(GH_Document document, GH_Group group) =>
+        [.. group.ObjectIDs
+            .Select(id => document.FindObject(id, topLevelOnly: true))
+            .OfType<IGH_Param>()
+            .Where(IsPort)];
+
     /// <summary>
     /// The side a port was planted as, or null for one that never recorded it.
     /// </summary>

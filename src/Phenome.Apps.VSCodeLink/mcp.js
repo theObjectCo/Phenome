@@ -1119,7 +1119,7 @@ const TOOLS = [
     },
     {
         name: 'arrange',
-        description: "Lay the whole document out in layers: sources left, few crossings, even spacing. Within a column, inputs to a component or group are ordered by the sockets they feed, with the source of the first input on top. Groups are laid out as whole blocks, and their frames never overlap. Notes are placed by group: a note in a group becomes that group's caption above its other members; a note in no group becomes the document title above everything. Notes are positioned automatically from the group they are assigned to at placement. The whole document then moves so that the rectangle around everything drawn, group names and notes included, starts at (20, 20), clear of the edge of Grasshopper's page. It is idempotent: on a settled document it answers moved:0 and changes no coordinates. Run it after building, editing or grouping, and never place anything by hand.",
+        description: "Lay the whole document out in layers: sources left, few crossings, even spacing. Within a column, inputs to a component or group are ordered by the sockets they feed, with the source of the first input on top. Groups are laid out as whole blocks, and their frames never overlap. Notes are placed by group: a note in a group becomes that group's caption above its other members; a note in no group becomes the document title above everything. Notes are positioned automatically from the group they are assigned to at placement. The whole document then moves so that the rectangle around everything drawn, group names and notes included, starts at (20, 20), clear of the edge of Grasshopper's page. It is idempotent: on a settled document it answers moved:0 and changes no coordinates. Run it after building, editing or grouping, and never place anything by hand. It refuses while the Grasshopper window is minimised, because a layout made against a canvas of no size overlaps; ask the user to restore the window.",
         inputSchema: object({}),
         run: () => ask('/arrange', {}),
     },
@@ -1149,13 +1149,13 @@ const TOOLS = [
         name: 'group',
         description: "A named group is a function. Declare its signature first: pass inlets and outlets, which are created as named floating parameters and returned as a name-to-id map ('ports'); place the body and wire it to them. Build in this order: plan, declare every group's signature, fill the bodies, review. Colour by role, four roles only (drawn at quarter opacity): blue [70,110,255] inputs the user may modify, red [255,60,60] components baked to Rhino as the product, yellow [255,220,0] preview-only geometry, grey [150,150,150] a plain function.",
         inputSchema: object({
-            name: str('The one thing this group does.'),
+            name: str('The one thing this group does. Required for a new group.'),
             inlets: { type: 'array', description: "This group's inputs: names, or {name, type} where type is number, integer, text, boolean, point, vector, plane, line, curve, surface, brep, mesh, geometry, interval, colour or transform.", items: {} },
             outlets: { type: 'array', description: "This group's outputs, same shape as inlets.", items: {} },
-            id: str('An existing group to rename, recolour or add members to. Use this instead of ungrouping and regrouping.'),
+            id: str('An existing group to rename, recolour or add members to. Use this instead of ungrouping and regrouping. With an id, name is optional and the group keeps its name.'),
             ids: ids('Existing objects to enclose, when grouping after the fact.'),
             colour: { type: 'array', items: { type: 'number' }, description: '[r, g, b], picked by the role convention in the description.' },
-        }, ['name']),
+        }),
         run: args => ask('/group', args),
     },
     {
@@ -1172,7 +1172,7 @@ const TOOLS = [
     },
     {
         name: 'delete',
-        description: "Remove objects. If deleting would cut connections to objects that stay, it refuses and names those wires first; read that list before using force, because it indicates the objects are still referenced. force:true deletes anyway. A delete itself is on Grasshopper's undo stack; this does not make a document close reversible.",
+        description: "Remove objects. If deleting would cut connections to objects that stay, it refuses and names those wires first; read that list before using force, because it indicates the objects are still referenced. force:true deletes anyway. A delete itself is on Grasshopper's undo stack; this does not make a document close reversible. Deleting a group takes its inlet and outlet ports with it and leaves the body; 'ports' in the answer counts them, and wires from those ports into the body are cut wires like any other.",
         inputSchema: object({
             ids: ids('Object ids.'),
             force: flag('Delete even though live wires would be cut.'),
@@ -1525,7 +1525,7 @@ const TOOLS = [
     },
     {
         name: 'measure',
-        description: "Measure lengths, areas and volumes of the geometry on one parameter (a component's output unless side:'input'), item by item with tree paths, plus totals and a bounding box. Curves give length, and area when closed and planar; breps and meshes give area, and volume when closed. Pass 'against' with a second object (and againstParam/againstSide) to compare every pair across the two sets: the shared area of two closed planar curves, the shared volume of two solids, overlapping pairs, and the nearest distance between curves or points. Pass the same id and parameter twice to compare a set with itself, each pair once, for example to find whether sections overlap. A call compares at most 2500 pairs. It is read-only and computed on the data already present, which fits a set-and-measure loop. Do not add a script component just to measure.",
+        description: "Measure lengths, areas and volumes of the geometry on one parameter (a component's output unless side:'input'), item by item with tree paths, plus totals and a bounding box. Curves give length, and area when closed and planar; breps and meshes give area, and volume when closed. Pass 'against' with a second object (and againstParam/againstSide) to compare every pair across the two sets: the shared area of two closed planar curves, the shared volume of two solids, overlapping pairs, and the nearest distance between curves or points. Pass the same id and parameter twice to compare a set with itself, each pair once, for example to find whether sections overlap. A call compares at most 2500 pairs. It is read-only and computed on the data already present, which fits a set-and-measure loop. Do not add a script component just to measure. On a long list pass 'list' to cap the items written one by one, 0 for the totals alone; at most 200 are listed in any case.",
         inputSchema: object({
             id: str('Object id.'),
             side: { type: 'string', enum: ['input', 'output'] },
@@ -1533,11 +1533,12 @@ const TOOLS = [
             against: str('A second object id to compare with.'),
             againstSide: { type: 'string', enum: ['input', 'output'] },
             againstParam: str("The second object's parameter name or index."),
+            list: { type: 'number', description: 'How many items to list one by one; 0 gives only the totals. 200 at most and by default.' },
         }, ['id']),
         run: args => {
             const query = new URLSearchParams({ id: args.id });
 
-            for (const key of ['side', 'param', 'against', 'againstSide', 'againstParam']) {
+            for (const key of ['side', 'param', 'against', 'againstSide', 'againstParam', 'list']) {
                 if (args[key] !== undefined) {
                     query.set(key, String(args[key]));
                 }

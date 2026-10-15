@@ -423,10 +423,32 @@ internal static class Objects
             GH_Document document = ActiveDocument()
                 ?? throw new InvalidOperationException("There is no document.");
 
-            HashSet<Guid> going = [.. asked];
-            List<string> severed = [];
+            // A deleted group takes its signature ports with it. Left behind, they stood on the canvas as
+            // floating parameters that failed to collect data, and review warned about them until each was found
+            // and deleted by hand. The body inside the group stays; wires from the ports into it are reported
+            // below like any other cut.
+            List<Guid> all = [.. asked];
+            int ports = 0;
 
             foreach (Guid id in asked)
+            {
+                if (document.FindObject(id, topLevelOnly: true) is Grasshopper.Kernel.Special.GH_Group frame)
+                {
+                    foreach (IGH_Param port in Signature.PortsOf(document, frame))
+                    {
+                        if (!all.Contains(port.InstanceGuid))
+                        {
+                            all.Add(port.InstanceGuid);
+                            ports++;
+                        }
+                    }
+                }
+            }
+
+            HashSet<Guid> going = [.. all];
+            List<string> severed = [];
+
+            foreach (Guid id in all)
             {
                 if (document.FindObject(id, topLevelOnly: true) is not { } leaving)
                 {
@@ -465,7 +487,7 @@ internal static class Objects
 
             int gone = 0;
 
-            foreach (Guid id in asked)
+            foreach (Guid id in all)
             {
                 if (document.FindObject(id, topLevelOnly: true) is { } thing)
                 {
@@ -478,7 +500,8 @@ internal static class Objects
             Solve(document);
             Changed(document);
 
-            return $"{{\"ok\":true,\"removed\":{Json.Number(gone)},\"severed\":{Json.Number(severed.Count)}}}";
+            return $"{{\"ok\":true,\"removed\":{Json.Number(gone)},\"ports\":{Json.Number(ports)},"
+                + $"\"severed\":{Json.Number(severed.Count)}}}";
         });
 
         Journal.Append(author, "delete", $",\"asked\":{Json.Number(asked.Count)}");
@@ -558,10 +581,42 @@ internal static class Objects
                 }
             }
 
+            // A source is a local id of this recipe or the guid of an object on the canvas. Anything else is most
+            // often a local id from an earlier recipe, which no longer means anything; Guid.Parse used to answer
+            // that with "Unrecognized Guid format." and no hint of which entry or why.
+            HashSet<string> locals = [.. recipe
+                .Select(entry => entry.Spec.TryGetProperty("id", out JsonElement local) ? local.GetString() : null)
+                .OfType<string>()];
+
+            foreach ((IGH_ObjectProxy _, JsonElement spec) in recipe)
+            {
+                if (!spec.TryGetProperty("inputs", out JsonElement inputs))
+                {
+                    continue;
+                }
+
+                List<string> strangers = [.. inputs.EnumerateArray()
+                    .Where(input => input.TryGetProperty("sources", out _))
+                    .SelectMany(input => input.GetProperty("sources").EnumerateArray())
+                    .Select(source => source.TryGetProperty("id", out JsonElement from) ? from.GetString() : null)
+                    .OfType<string>()
+                    .Where(named => !locals.Contains(named) && !Guid.TryParse(named, out _))
+                    .Distinct()];
+
+                if (strangers.Count > 0)
+                {
+                    unresolved.Add(
+                        $"{Which(spec)}: source {string.Join(", ", strangers.Select(named => $"'{named}'"))} is "
+                        + "neither a local id of this recipe nor a canvas id; a local id reaches only inside the "
+                        + "place call that made it, so wire across groups through the receiving group's inlet "
+                        + "port id");
+                }
+            }
+
             if (unresolved.Count > 0)
             {
                 throw new ArgumentException(
-                    $"{unresolved.Count} of {unresolved.Count + recipe.Count} entries could not be resolved, "
+                    $"{unresolved.Count} of {objects.GetArrayLength()} entries could not be resolved, "
                     + "and nothing was placed; the canvas is untouched. Fix all of these and send the recipe "
                     + $"again: {string.Join(" || ", unresolved)}"
                     + (misshapen ? $". The shape: {RecipeShape}" : ""));
@@ -650,7 +705,8 @@ internal static class Objects
                         sink.AddSource(LocateBy(
                             owner,
                             "output",
-                            source.TryGetProperty("output", out JsonElement outputAt) ? outputAt.ToString() : null));
+                            source.TryGetProperty("output", out JsonElement outputAt) ? outputAt.ToString() : null,
+                            "output"));
                     }
                 }
             }
@@ -1112,7 +1168,8 @@ internal static class Objects
             return side.Count == 1
                 ? side[0]
                 : throw new ArgumentException(
-                    $"{component.Name} has {side.Count} on that side; say which with 'param'.");
+                    $"{component.Name} has {side.Count} {(outputSide ? "outputs" : "inputs")} "
+                    + $"({string.Join(", ", side.Select(one => one.Name))}); say which with 'param'.");
         }
 
         // "0" is an index whether the client sent a number or a string of one: MCP clients do both.
