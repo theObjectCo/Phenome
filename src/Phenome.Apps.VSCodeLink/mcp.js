@@ -1642,6 +1642,8 @@ function instructions() {
         'Before the first `place`, write the plan: the groups, and for every component its guid from `components` and the',
         'branches and items it will output at the default slider values. Look for the formulation with the fewest steps; a',
         'product of small lists usually beats a filter over a large grid. A count you cannot predict is a step not yet understood.',
+        'The parts of one piece are data: list them as a table (one row per board, frame or column) and build them from',
+        'lists, not with a component chain per part.',
         'After each `place`, `peek` one body object and compare it with the plan; after the `wire` call, `peek` the groups. A count',
         'far above the plan means locking the solver (`solver` enabled:false) before the next call.',
         'Traps seen in practice: a point constant is the text "x,y,z", not an array; Rotate takes radians; Rectangle sits on its',

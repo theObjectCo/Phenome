@@ -256,6 +256,11 @@ layer.
    - **Build for many, even when asked for one.** If the brief says one desk, make the definition work for a list
      of desks: one branch per desk, with the structure preserved end to end. Done from the start this costs
      nothing; added later it is a rewrite.
+   - **Parts of one piece are data, not components.** A cabinet's eleven boards are one list of corner points
+     into one Box 2Pt, and a table's two frames are one outline rule over a list of two bands. A component chain
+     per part puts the dimensions in fifty places instead of one list, and a wrong corner hides among them: one
+     exercise built eleven boards in 51 components and found a misplaced back panel only by measuring each
+     part. Before building, write the parts as a table, one row per part, and build from the table.
    - **Data travels on wires, one value per wire, and never as text.** Do not use Format or Concatenate to pack
      several numbers into a string and feed that to a numeric input. It fails as "Data conversion failed from Text
      to Number", and even when a conversion succeeds the structure is gone. Use Merge to gather several values
