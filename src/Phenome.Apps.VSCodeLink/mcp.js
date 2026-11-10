@@ -241,13 +241,61 @@ async function discover() {
 /// brings back the same plug-in build instead of the installed one.
 let packageDirs = [];
 
+/// Environment variables the last launch that named any set for Rhino. restart reuses them, like packageDirs.
+let extraEnvironment = {};
+
 /// The environment a new Rhino starts with: this server's own, plus RHINO_PACKAGE_DIRS when folders were
-/// given.
+/// given, plus the variables given in `env`.
 ///
 /// A plug-in under development loads from its build folder, which Rhino only finds through
 /// RHINO_PACKAGE_DIRS. Passing the folder through launch keeps what launch does, which an agent starting Rhino
 /// from its own shell loses: the quoting of _Grasshopper, the wait for a new port file and the pairing by pid.
-function rhinoEnvironment(dirs) {
+/// The same holds for a plug-in that reads its folders from environment variables: a test of another data
+/// folder needs a Rhino started with it, and Rhino reads its environment only at startup.
+function rhinoEnvironment(dirs, env) {
+    if (env !== undefined) {
+        if (env === null || typeof env !== 'object' || Array.isArray(env)) {
+            throw new Error('env takes an object of variable names and values, such as {"MY_ROOT": "D:\\data"}.');
+        }
+
+        const wrong = Object.entries(env).filter(([, value]) => value !== null && typeof value !== 'string');
+
+        if (wrong.length > 0) {
+            throw new Error(`env values are strings, or null to remove a variable; not so for ${wrong.map(([name]) => name).join(', ')}.`);
+        }
+
+        if (Object.keys(env).some(name => name.toUpperCase() === 'RHINO_PACKAGE_DIRS')) {
+            throw new Error('Pass RHINO_PACKAGE_DIRS as packageDirs, not in env.');
+        }
+
+        extraEnvironment = { ...env };
+    }
+
+    return withExtraEnvironment(packageEnvironment(dirs));
+}
+
+/// This server's environment with the variables of the last `env` set, and those given as null removed.
+/// Windows compares variable names without regard to case, so a variable given in another case replaces the
+/// inherited one instead of standing beside it.
+function withExtraEnvironment(base) {
+    const result = { ...base };
+
+    for (const [name, value] of Object.entries(extraEnvironment)) {
+        for (const existing of Object.keys(result)) {
+            if (process.platform === 'win32' ? existing.toUpperCase() === name.toUpperCase() : existing === name) {
+                delete result[existing];
+            }
+        }
+
+        if (value !== null) {
+            result[name] = value;
+        }
+    }
+
+    return result;
+}
+
+function packageEnvironment(dirs) {
     if (dirs !== undefined) {
         const missing = dirs.filter(dir => !fs.existsSync(dir));
 
@@ -284,7 +332,7 @@ function rhinoStart(withGrasshopper) {
     const configured = process.env.PHENOME_RHINO;
     const exe = (configured && !configured.startsWith('${') ? configured : null) || (mac
         ? '/Applications/Rhino 8.app/Contents/MacOS/Rhinoceros'
-        : 'C:\\Program Files\\Rhino 8\\System\\Rhino.exe');
+        : installedRhino() ?? 'C:\\Program Files\\Rhino 8\\System\\Rhino.exe');
 
     if (!fs.existsSync(exe)) {
         throw new Error(`Rhino 8 is not at ${exe}; start it manually, or set PHENOME_RHINO to its path.`);
@@ -295,6 +343,27 @@ function rhinoStart(withGrasshopper) {
         : ['/nosplash', ...(withGrasshopper ? ['/runscript="_Grasshopper"'] : [])];
 
     return { exe, args, verbatim: !mac };
+}
+
+/// Where the Rhino 8 installer put Rhino.exe, from its own registry entry, or null when there is none.
+///
+/// Rhino can be installed on any drive, and the installer records the path in
+/// HKLM\\SOFTWARE\\McNeel\\Rhinoceros\\8.0\\Install as ExePath. Without this lookup launch knew only the default
+/// folder and refused to start a Rhino installed on D:.
+function installedRhino() {
+    if (process.platform !== 'win32') {
+        return null;
+    }
+
+    try {
+        const output = execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\McNeel\\Rhinoceros\\8.0\\Install', '/v', 'ExePath'],
+            { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+        const exe = /ExePath\s+REG_SZ\s+(.+)/.exec(output)?.[1]?.trim();
+
+        return exe && fs.existsSync(exe) ? exe : null;
+    } catch {
+        return null;
+    }
 }
 
 // ----------------------------------------------------------------------------------- the bundled plug-ins
@@ -680,8 +749,8 @@ function dialogOutside(started, args) {
     };
 }
 
-async function launch(fresh, withGrasshopper = true, dirs = undefined, discard = false) {
-    const env = rhinoEnvironment(dirs);
+async function launch(fresh, withGrasshopper = true, dirs = undefined, discard = false, variables = undefined) {
+    const env = rhinoEnvironment(dirs, variables);
 
     // A Rhino this server started that has not answered yet is waited for again instead of started twice. This
     // is checked before anything else, fresh:true included, because that Rhino is already the fresh one.
@@ -877,7 +946,7 @@ async function unsaved() {
 /// The process is ended outright, with no save prompt on the way out, and work that has not been written is
 /// lost. That is why the unsaved check is part of the verb and not advice next to it. Losing work takes an
 /// explicit discard:true.
-async function restart(discard, withGrasshopper, dirs = undefined) {
+async function restart(discard, withGrasshopper, dirs = undefined, variables = undefined) {
     const canvas = await sessions();
     const rhinos = await rhinoSessions();
 
@@ -890,7 +959,7 @@ async function restart(discard, withGrasshopper, dirs = undefined) {
         ?? rhinos[0];
 
     if (!mine) {
-        return `Nothing was running; this is a start, not a restart. ${await launch(false, withGrasshopper, dirs)}`;
+        return `Nothing was running; this is a start, not a restart. ${await launch(false, withGrasshopper, dirs, false, variables)}`;
     }
 
     if (!discard) {
@@ -929,7 +998,7 @@ async function restart(discard, withGrasshopper, dirs = undefined) {
 
     // fresh: another Rhino that is still running, the user's or another agent's, must not stand in for the one
     // that was just ended. Without it the restart ended this process and answered that a session already runs.
-    return `Ended process ${mine.pid}. ${await launch(true, withGrasshopper, dirs, discard)}`;
+    return `Ended process ${mine.pid}. ${await launch(true, withGrasshopper, dirs, discard, variables)}`;
 }
 
 // ------------------------------------------------------------------------------------------------ tools
@@ -1331,8 +1400,9 @@ const TOOLS = [
             fresh: flag('Start another Rhino and use it, even if a session exists.'),
             grasshopper: flag('False starts Rhino without Grasshopper; canvas tools then have nothing to talk to.'),
             packageDirs: ids('Folders Rhino searches for plug-in packages (RHINO_PACKAGE_DIRS), such as a debug build folder. Kept for later restarts; [] clears them.'),
+            env: { type: 'object', additionalProperties: { type: ['string', 'null'] }, description: 'Environment variables for this Rhino, such as a data folder a plug-in reads at startup. A value of null removes an inherited variable. Kept for later restarts; {} clears them.' },
         }),
-        run: args => launch(args.fresh === true, args.grasshopper !== false, args.packageDirs),
+        run: args => launch(args.fresh === true, args.grasshopper !== false, args.packageDirs, false, args.env),
     },
     {
         name: 'sessions',
@@ -1459,8 +1529,9 @@ const TOOLS = [
             discard: flag('Restart even though unsaved work would be lost.'),
             grasshopper: flag('False brings Rhino back without Grasshopper, which is faster and enough for plug-in work.'),
             packageDirs: ids('Folders for RHINO_PACKAGE_DIRS. When omitted, the folders from the last launch are used again.'),
+            env: { type: 'object', additionalProperties: { type: ['string', 'null'] }, description: 'Environment variables for the new Rhino; null removes an inherited one. When omitted, those of the last launch are used again; {} clears them.' },
         }),
-        run: args => restart(args.discard === true, args.grasshopper !== false, args.packageDirs),
+        run: args => restart(args.discard === true, args.grasshopper !== false, args.packageDirs, args.env),
     },
     {
         name: 'camera',
