@@ -109,7 +109,7 @@ no Rhino is running.
 
 | verb | what it does |
 |---|---|
-| `launch` | start Rhino and wait for the link. `fresh` starts a second one; `grasshopper:false` starts Rhino alone; `packageDirs` sets RHINO_PACKAGE_DIRS for a plug-in loading from its build folder, and `restart` keeps it |
+| `launch` | start Rhino and wait for the link. `fresh` starts a second one; `grasshopper:false` starts Rhino alone; `packageDirs` sets RHINO_PACKAGE_DIRS for a plug-in loading from its build folder, `env` sets other environment variables (null removes an inherited one), and `restart` keeps both. On Windows Rhino is found through its installer's registry entry, so a Rhino on another drive starts without `PHENOME_RHINO` |
 | `sessions` | every live session on the machine, canvas and Rhino; `use` pins one so later verbs mean it |
 | `restart` | end this agent's Rhino and bring a fresh one up. This is the only way a rebuilt assembly reaches a running Rhino, since a .NET plug-in cannot be unloaded. Refuses while either half holds unsaved work; with `discard:true` it also answers the new Rhino's autosave recovery question with Cancel |
 
